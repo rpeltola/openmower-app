@@ -8,6 +8,7 @@ import mqtt, {MqttClient} from 'mqtt';
 import {create, useStore} from 'zustand';
 import {immer} from 'zustand/middleware/immer';
 import {useConfigStore} from './configStore';
+import {CoverageLayerState} from './coverageLayerStore';
 import {
   applyLiveEvent,
   mowerEventDefaults,
@@ -20,6 +21,8 @@ import {
   Area,
   AreaType,
   capabilitiesSchema,
+  coverageDeltaSchema,
+  coverageSnapshotSchema,
   datumSchema,
   eventSchema,
   LegacyArea,
@@ -58,6 +61,7 @@ class Mower {
   params: Record<string, unknown> = {};
   position: PositionWithAttributes | null = null;
   track: TrackPipeline = new TrackPipeline();
+  coverageLayer: CoverageLayerState = new CoverageLayerState();
   plannedPathSignal?: PlannedPathSignal;
   jobList: {job_id: string; epoch: number}[] | null = null;
   events: MowerEventState = mowerEventDefaults;
@@ -111,6 +115,28 @@ export const useMowersStore = create<MowersStore>()(
       }
 
       const mowers: Mower[] = [];
+
+      // Fetch the full covered set and replace the layer. Used on connect and whenever a delta
+      // arrives for a job_id we don't have yet. Guarded so a snapshot that resolves after the job
+      // already moved on doesn't clobber the newer job.
+      const fetchCoverageSnapshot = (mower: Mower, idx: number) => {
+        mower.rpc.coverage
+          .snapshot()
+          .then((raw) => {
+            const parsed = coverageSnapshotSchema.safeParse(raw);
+            if (!parsed.success) return;
+            set((state) => {
+              const layer = state.mowers[idx]?.coverageLayer;
+              if (layer && (layer.jobId === null || layer.jobId === parsed.data.job_id)) {
+                layer.applySnapshot(parsed.data);
+              }
+            });
+          })
+          .catch(() => {
+            // server may not support coverage.snapshot yet
+          });
+      };
+
       const mowerConfigs = useConfigStore.getState().config.mowers;
       const urls = [...new Set(mowerConfigs.map((config) => config.mqtt_ws_url))];
       for (const url of urls) {
@@ -164,7 +190,9 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'position/json');
             client.subscribe(clientMower.prefix + 'params/json');
             client.subscribe(clientMower.prefix + 'events/json');
+            client.subscribe(clientMower.prefix + 'map_layers/coverage/delta');
             client.subscribe(clientMower.prefix + 'map_layers/planned_path/json');
+            fetchCoverageSnapshot(mowers[clientMower.idx], clientMower.idx);
             mowers[clientMower.idx].rpc.events.history
               .list()
               .then((dates) => {
@@ -268,6 +296,22 @@ export const useMowersStore = create<MowersStore>()(
                   applyLiveEvent(state.mowers[idx].events, parsed.data);
                 }
               });
+            } else if (partialTopic === 'map_layers/coverage/delta') {
+              // Incremental coverage delta (non-retained, so no empty-payload clear path). A delta
+              // for an unfamiliar job_id is merged optimistically, then a snapshot is fetched for
+              // the authoritative full set.
+              if (payload.length > 0) {
+                const parsed = coverageDeltaSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) {
+                  let needSnapshot = false;
+                  set((state) => {
+                    needSnapshot = state.mowers[idx].coverageLayer.applyDelta(parsed.data);
+                  });
+                  if (needSnapshot) {
+                    fetchCoverageSnapshot(mowers[idx], idx);
+                  }
+                }
+              }
             } else if (partialTopic === 'map_layers/planned_path/json') {
               set((state) => {
                 // The live topic is just a {job_id, step_index} signal; an empty retained payload

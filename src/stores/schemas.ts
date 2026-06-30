@@ -93,6 +93,58 @@ export const mapSchema = z.object({
 export type MapData = z.infer<typeof mapSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Coverage (gridded map layer)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// A coverage grid in the map frame, bridged from the coverage_feedback OccupancyGrid.
+// `rle` is a flat run-length encoding [value, count, value, count, ...] of the row-major cells
+// (origin is the bottom-left corner, +x then +y); values: 100 covered, 0 in-area uncovered, -1 unknown.
+export const coverageSchema = z.object({
+  res: z.number(),
+  w: z.int().gte(0),
+  h: z.int().gte(0),
+  ox: z.number(),
+  oy: z.number(),
+  stamp: z.number().optional(),
+  rle: z.array(z.number()),
+});
+export type Coverage = z.infer<typeof coverageSchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Coverage layer (incremental sparse coverage: deltas streamed over MQTT + full snapshot RPC)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// One tile's newly-covered cells. `tx`/`ty` index a `tile`x`tile` block of cells (may be negative);
+// each `idx` is a within-tile cell (0..tile*tile-1) with lx=idx%tile, ly=floor(idx/tile).
+const coverageTileSchema = z.object({
+  tx: z.int(),
+  ty: z.int(),
+  cells: z.array(z.int().gte(0)),
+});
+export type CoverageTile = z.infer<typeof coverageTileSchema>;
+
+// Incremental delta on `map_layers/coverage/delta` (non-retained). `reset:true` (empty tiles) clears
+// everything for a new job. A delta carrying an unfamiliar `job_id` triggers a snapshot fetch.
+export const coverageDeltaSchema = z.object({
+  job_id: z.string(),
+  res: z.number(),
+  tile: z.int().gte(1),
+  reset: z.boolean().optional(),
+  tiles: z.array(coverageTileSchema),
+});
+export type CoverageDelta = z.infer<typeof coverageDeltaSchema>;
+
+// Full covered set for a job, returned by the `coverage.snapshot` RPC (same shape as a delta but
+// always the complete set, so `reset` is absent).
+export const coverageSnapshotSchema = z.object({
+  job_id: z.string(),
+  res: z.number(),
+  tile: z.int().gte(1),
+  tiles: z.array(coverageTileSchema),
+});
+export type CoverageSnapshot = z.infer<typeof coverageSnapshotSchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Planned path (slic3r planned path map layer)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -120,6 +172,36 @@ export const plannedPathSignalSchema = z.object({
   step_index: z.number().optional(),
 });
 export type PlannedPathSignal = z.infer<typeof plannedPathSignalSchema>;
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Coverage history (past mow attempts, fetched via the coverage.history.* RPCs)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Response of `coverage.history.list`: one entry per job, each listing its recorded passes.
+export const coverageHistoryListSchema = z.array(
+  z.object({
+    job_id: z.string(),
+    passes: z.array(
+      z.object({
+        pass: z.number(),
+        timestamp: z.number(),
+        coverage_percent: z.number(),
+        gap_count: z.number(),
+      }),
+    ),
+  }),
+);
+export type CoverageHistoryList = z.infer<typeof coverageHistoryListSchema>;
+
+// Response of `coverage.history.pass`: a full snapshot of one historical pass, reusing the live
+// layer shapes (coverage grid, planned path) so the same renderers apply. The historical
+// planned_path carries no job_id; callers attach it when building a PlannedPath.
+export const coveragePassSchema = z.object({
+  meta: z.unknown(),
+  coverage: coverageSchema,
+  planned_path: z.object({paths: z.array(plannedPathEntrySchema)}),
+  actual_track: z.unknown(),
+});
+export type CoveragePass = z.infer<typeof coveragePassSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Legacy map

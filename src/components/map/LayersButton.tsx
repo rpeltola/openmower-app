@@ -31,10 +31,12 @@ export default function LayersButton({datum, trackLoading, editMode}: LayersButt
   const {
     showSatelliteLayer,
     showTrackLayer,
+    showCoverageLayer,
     showPlannedPath,
     selectedJobId,
     setShowSatelliteLayer,
     setShowTrackLayer,
+    setShowCoverageLayer,
     setShowPlannedPath,
     setSelectedJobId,
   } = useMapDisplayStore();
@@ -134,6 +136,18 @@ export default function LayersButton({datum, trackLoading, editMode}: LayersButt
             />
           }
           label="Satellite"
+        />
+
+        <FormControlLabel
+          sx={{mx: 0, px: 1, py: 0.5, width: '100%'}}
+          control={
+            <Switch
+              checked={showCoverageLayer && !editMode}
+              onChange={(e) => setShowCoverageLayer(e.target.checked)}
+              disabled={editMode}
+            />
+          }
+          label="Coverage"
         />
 
         <FormControlLabel

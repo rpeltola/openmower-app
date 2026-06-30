@@ -376,6 +376,49 @@
       }
     },
     {
+      "name": "coverage.snapshot",
+      "summary": "Returns the full covered cell set for the current job as tiles.",
+      "params": [],
+      "result": {
+        "name": "result",
+        "description": "The complete covered set, same shape as a coverage delta but without reset.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string"
+            },
+            "res": {
+              "type": "number"
+            },
+            "tile": {
+              "type": "number"
+            },
+            "tiles": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "tx": {
+                    "type": "number"
+                  },
+                  "ty": {
+                    "type": "number"
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "meta.config.defaults",
       "summary": "Get the default configuration values.",
       "params": [],

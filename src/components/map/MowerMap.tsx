@@ -1,6 +1,7 @@
 'use client';
 
 import {useFitToBounds, useMapboxDraw, useMapContext, useMapHover} from '@/contexts/MapContext';
+import {useJobCoverage} from '@/hooks/useJobCoverage';
 import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
 import {useJobTrack} from '@/hooks/useJobTrack';
 import {useMapDisplayStore} from '@/stores/mapDisplayStore';
@@ -22,6 +23,7 @@ import {useCallback, useEffect, useEffectEvent, useMemo, useRef} from 'react';
 import {DialogOutlet, useDialog} from 'react-dialog-async';
 import AreasList from './AreasList';
 import ControlButton from './ControlButton';
+import CoverageLayer from './CoverageLayer';
 import DockingStationMarker from './DockingStationMarker';
 import {DrawControl} from './DrawControl';
 import {drawStyles} from './drawStyles';
@@ -70,10 +72,11 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
   );
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const {showSatelliteLayer, showTrackLayer, showPlannedPath, showAreaList, selectedJobId, setShowAreaList} =
+  const {showSatelliteLayer, showTrackLayer, showCoverageLayer, showPlannedPath, showAreaList, selectedJobId, setShowAreaList} =
     useMapDisplayStore();
   const {pastTrack, loading: trackLoading} = useJobTrack(selectedJobId);
   const {plannedPath} = useJobPlannedPath(selectedJobId);
+  const {pastCoverage, isHistorical: coverageHistorical, loading: coverageLoading} = useJobCoverage(selectedJobId);
   const areaSettingsDialog = useDialog(AreaSettingsDialog);
   const padding = useMemo(() => ({top: 10, bottom: 10, left: 60, right: showAreaList ? 390 : 60}), [showAreaList]);
   const fitToBounds = useFitToBounds();
@@ -298,6 +301,12 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
           <DockingStationMarker key={station.id} station={station} datum={datumOrFallback} isDocked={isDocked} />
         ))}
         {mowerPosition && !isDocked && <MowerMarker position={mowerPosition} datum={datumOrFallback} />}
+        <CoverageLayer
+          visible={showCoverageLayer && !editMode}
+          datum={datum}
+          historical={coverageHistorical}
+          past={coverageLoading ? null : pastCoverage}
+        />
         <PlannedPathLayer visible={showPlannedPath && !editMode} datum={datumOrFallback} plannedPath={plannedPath} />
         <TrackLayer visible={showTrackLayer && !editMode} pastTrack={pastTrack} loading={trackLoading} />
         {showTeleop && <TeleopControls />}
