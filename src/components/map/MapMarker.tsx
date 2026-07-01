@@ -61,11 +61,11 @@ export default function MapMarker({position, heading, sizeM, datum, className, c
         sx={{
           width: sizePx,
           height: sizePx,
-          transform: `rotate(${headingDeg}deg)`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
+        style={{transform: `rotate(${headingDeg}deg)`}}
       >
         {children(sizePx)}
       </Box>

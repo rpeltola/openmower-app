@@ -85,6 +85,340 @@
       }
     },
     {
+      "name": "position.history",
+      "summary": "Returns compacted segments and the raw pending buffer for client seeding.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "job_id",
+          "description": "Job ID to fetch history for. Omit to get the current/live job.",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "segments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "attributes": {
+                    "type": "object",
+                    "properties": {
+                      "job_id": {
+                        "type": "string"
+                      },
+                      "session_id": {
+                        "type": "string"
+                      },
+                      "blades": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "points": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "buffer": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "position.history.list",
+      "summary": "List available job history entries.",
+      "params": [],
+      "result": {
+        "name": "jobs",
+        "description": "Array of job history entries, each with a job_id and epoch timestamp. Sorted newest first.",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "job_id": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "job_id",
+              "timestamp"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "planned_path.history",
+      "summary": "List a planned-path job's steps (metadata only); fetch each area's geometry via planned_path.history.step.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "job_id",
+          "description": "Job ID to fetch the planned path for. Omit to get the current/live job.",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step_index": {
+                    "type": "number"
+                  },
+                  "area_id": {
+                    "type": "string"
+                  },
+                  "angle": {
+                    "type": "number"
+                  },
+                  "offset": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "planned_path.history.step",
+      "summary": "Returns one area/step's planned-path geometry for a job (bounded per-area payload).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "job_id",
+          "description": "Job ID.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "step_index",
+          "description": "Ordinal step/area index within the job.",
+          "required": true,
+          "schema": {
+            "type": "number"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string"
+            },
+            "step_index": {
+              "type": "number"
+            },
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "is_outline": {
+                    "type": "boolean"
+                  },
+                  "points": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "planned_path.history.list",
+      "summary": "List available planned-path job history entries.",
+      "params": [],
+      "result": {
+        "name": "jobs",
+        "description": "Array of job history entries, each with a job_id and epoch timestamp. Sorted newest first.",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "job_id": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "job_id",
+              "timestamp"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "events.history",
+      "summary": "Returns events for today when called without params, or events for a specific date.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "date",
+          "description": "Date string (YYYYMMDD). Omit to get today's events.",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "events",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "t": {
+                "type": "number"
+              },
+              "type": {
+                "type": "string"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "job_id": {
+                "type": "string"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "active": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "t",
+              "type"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "name": "events.history.list",
+      "summary": "List available event history dates.",
+      "params": [],
+      "result": {
+        "name": "dates",
+        "description": "Array of date strings in YYYYMMDD format.",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "coverage.snapshot",
+      "summary": "Returns the full covered cell set for the current job as tiles.",
+      "params": [],
+      "result": {
+        "name": "result",
+        "description": "The complete covered set, same shape as a coverage delta but without reset.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string"
+            },
+            "res": {
+              "type": "number"
+            },
+            "tile": {
+              "type": "number"
+            },
+            "tiles": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "tx": {
+                    "type": "number"
+                  },
+                  "ty": {
+                    "type": "number"
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "meta.config.defaults",
       "summary": "Get the default configuration values.",
       "params": [],

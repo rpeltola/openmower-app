@@ -22,7 +22,7 @@ export default class OpenMowerRpcBase {
 
   constructor(private mqtt: MqttClient, private prefix: string) {}
 
-  protected call<T>(method: string, params?: object): Promise<T> {
+  public call<T>(method: string, params?: object): Promise<T> {
     const id = generateId();
     this.mqtt.publish(
       this.prefix + 'rpc/request',

@@ -1,28 +1,46 @@
 import type {MowerConfig} from '@/components/types';
 import {OpenMowerRpc} from '@/lib/rpc';
 import {generateId} from '@/utils/area-utils';
+import {TrackPipeline} from '@/utils/track-pipeline';
 import {BSON} from 'bson';
 import {immerable} from 'immer';
 import mqtt, {MqttClient} from 'mqtt';
 import {create, useStore} from 'zustand';
 import {immer} from 'zustand/middleware/immer';
 import {useConfigStore} from './configStore';
+import {CoverageLayerState} from './coverageLayerStore';
+import {
+  applyLiveEvent,
+  mowerEventDefaults,
+  seedHistoryEvents,
+  seedTodayEvents,
+  setAvailableDates,
+  type MowerEventState,
+} from './mowerEvents';
 import {
   Area,
   AreaType,
   capabilitiesSchema,
+  coverageDeltaSchema,
+  coverageSnapshotSchema,
   datumSchema,
+  eventSchema,
   LegacyArea,
   LegacyMapData,
   legacyMapSchema,
   mapDefaults,
   mapSchema,
+  plannedPathSignalSchema,
+  positionSchema,
   stateDefaults,
   stateSchema,
   type Capabilities,
   type Datum,
   type MapData,
-  type State,
+  type PlannedPathSignal,
+  type PositionWithAttributes,
+  type StateOptionalPose,
+  type TrackAttributes,
 } from './schemas';
 
 export type MqttStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'offline';
@@ -38,9 +56,15 @@ class Mower {
   readonly mqttPrefix: string;
   readonly rpc: OpenMowerRpc;
   capabilities: Capabilities = {};
-  state: State = stateDefaults;
+  state: StateOptionalPose = stateDefaults;
   map: MapData = mapDefaults;
   params: Record<string, unknown> = {};
+  position: PositionWithAttributes | null = null;
+  track: TrackPipeline = new TrackPipeline();
+  coverageLayer: CoverageLayerState = new CoverageLayerState();
+  plannedPathSignal?: PlannedPathSignal;
+  jobList: {job_id: string; epoch: number}[] | null = null;
+  events: MowerEventState = mowerEventDefaults;
 
   constructor(config: MowerConfig, mqttClient: MqttClient) {
     this.id = config.id;
@@ -77,6 +101,7 @@ interface MowersStore {
   mqttStatuses: Record<string, MqttStatus>;
   selected: number;
   loadMowers: () => void;
+  fetchEventsForDate: (mowerId: string, date: string) => Promise<void>;
 }
 
 export const useMowersStore = create<MowersStore>()(
@@ -90,6 +115,28 @@ export const useMowersStore = create<MowersStore>()(
       }
 
       const mowers: Mower[] = [];
+
+      // Fetch the full covered set and replace the layer. Used on connect and whenever a delta
+      // arrives for a job_id we don't have yet. Guarded so a snapshot that resolves after the job
+      // already moved on doesn't clobber the newer job.
+      const fetchCoverageSnapshot = (mower: Mower, idx: number) => {
+        mower.rpc.coverage
+          .snapshot()
+          .then((raw) => {
+            const parsed = coverageSnapshotSchema.safeParse(raw);
+            if (!parsed.success) return;
+            set((state) => {
+              const layer = state.mowers[idx]?.coverageLayer;
+              if (layer && (layer.jobId === null || layer.jobId === parsed.data.job_id)) {
+                layer.applySnapshot(parsed.data);
+              }
+            });
+          })
+          .catch(() => {
+            // server may not support coverage.snapshot yet
+          });
+      };
+
       const mowerConfigs = useConfigStore.getState().config.mowers;
       const urls = [...new Set(mowerConfigs.map((config) => config.mqtt_ws_url))];
       for (const url of urls) {
@@ -140,6 +187,62 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'map/json');
             client.subscribe(clientMower.prefix + 'rpc/response');
             client.subscribe(clientMower.prefix + 'params/json');
+            client.subscribe(clientMower.prefix + 'position/json');
+            client.subscribe(clientMower.prefix + 'params/json');
+            client.subscribe(clientMower.prefix + 'events/json');
+            client.subscribe(clientMower.prefix + 'map_layers/coverage/delta');
+            client.subscribe(clientMower.prefix + 'map_layers/planned_path/json');
+            fetchCoverageSnapshot(mowers[clientMower.idx], clientMower.idx);
+            mowers[clientMower.idx].rpc.events.history
+              .list()
+              .then((dates) => {
+                set((state) => {
+                  setAvailableDates(state.mowers[clientMower.idx].events, dates ?? []);
+                });
+              })
+              .catch(() => {
+                // server may not support events.history yet
+              });
+            mowers[clientMower.idx].rpc.events
+              .history({})
+              .then((events) => {
+                set((state) => {
+                  const parsedEvents = (events ?? []).flatMap((event) => {
+                    const parsed = eventSchema.safeParse(event);
+                    return parsed.success ? [parsed.data] : [];
+                  });
+                  seedTodayEvents(state.mowers[clientMower.idx].events, parsedEvents);
+                });
+              })
+              .catch(() => {
+                // server may not support events.history yet
+              });
+            mowers[clientMower.idx].rpc.position.history
+              .list()
+              .then((jobs) => {
+                set((state) => {
+                  state.mowers[clientMower.idx].jobList = (jobs ?? []).map((j) => ({
+                    job_id: j.job_id,
+                    epoch: j.timestamp,
+                  }));
+                });
+              })
+              .catch(() => {
+                // server may not support position.history.list yet
+              });
+            mowers[clientMower.idx].rpc.position
+              .history({})
+              .then((result) => {
+                set((state) => {
+                  state.mowers[clientMower.idx].track.seedFromHistory(
+                    (result.segments ?? []) as {attributes: TrackAttributes; points: [number, number][]}[],
+                    (result.buffer ?? []) as [number, number][],
+                  );
+                });
+              })
+              .catch(() => {
+                // server may not support position.history yet
+              });
           }
         });
 
@@ -171,11 +274,81 @@ export const useMowersStore = create<MowersStore>()(
                 mower.params = JSON.parse(payload.toString()) as Record<string, unknown>;
                 mower.map.datum ??= mower.getDatumFromParams();
               });
+            } else if (partialTopic === 'position/json') {
+              set((state) => {
+                const parsed = positionSchema.parse(JSON.parse(payload.toString()));
+                const mower = state.mowers[idx];
+                mower.position = parsed;
+                if (parsed.attributes.session_id) {
+                  mower.track.addPoint(parsed);
+                }
+              });
+            } else if (partialTopic === 'params/json') {
+              set((state) => {
+                const mower = state.mowers[idx];
+                mower.params = JSON.parse(payload.toString()) as Record<string, unknown>;
+                mower.map.datum ??= mower.getDatumFromParams();
+              });
+            } else if (partialTopic === 'events/json') {
+              set((state) => {
+                const parsed = eventSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) {
+                  applyLiveEvent(state.mowers[idx].events, parsed.data);
+                }
+              });
+            } else if (partialTopic === 'map_layers/coverage/delta') {
+              // Incremental coverage delta (non-retained, so no empty-payload clear path). A delta
+              // for an unfamiliar job_id is merged optimistically, then a snapshot is fetched for
+              // the authoritative full set.
+              if (payload.length > 0) {
+                const parsed = coverageDeltaSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) {
+                  let needSnapshot = false;
+                  set((state) => {
+                    needSnapshot = state.mowers[idx].coverageLayer.applyDelta(parsed.data);
+                  });
+                  if (needSnapshot) {
+                    fetchCoverageSnapshot(mowers[idx], idx);
+                  }
+                }
+              }
+            } else if (partialTopic === 'map_layers/planned_path/json') {
+              set((state) => {
+                // The live topic is just a {job_id, step_index} signal; an empty retained payload
+                // clears it, a malformed one is ignored. The geometry is fetched from history.
+                if (payload.length === 0) {
+                  state.mowers[idx].plannedPathSignal = undefined;
+                } else {
+                  const parsed = plannedPathSignalSchema.safeParse(JSON.parse(payload.toString()));
+                  if (parsed.success) state.mowers[idx].plannedPathSignal = parsed.data;
+                }
+              });
             }
           }
         });
       }
       set({mowers, selected: 0});
+    },
+    fetchEventsForDate: async (mowerId, date) => {
+      const mower = get().mowers.find((m) => m.id === mowerId);
+      if (!mower || mower.events.loadedDates[date]) {
+        return;
+      }
+      try {
+        const events = await mower.rpc.events.history({date});
+        set((state) => {
+          const target = state.mowers.find((m) => m.id === mowerId);
+          if (target) {
+            const parsedEvents = (events ?? []).flatMap((event) => {
+              const parsed = eventSchema.safeParse(event);
+              return parsed.success ? [parsed.data] : [];
+            });
+            seedHistoryEvents(target.events, date, parsedEvents);
+          }
+        });
+      } catch {
+        // server may not support events.history yet
+      }
     },
   })),
 );
