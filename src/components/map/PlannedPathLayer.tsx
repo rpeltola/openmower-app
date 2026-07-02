@@ -1,7 +1,7 @@
 'use client';
 
 import type {Datum, PlannedPath} from '@/stores/schemas';
-import {datumToRelative, pointToAbsolute} from '@/utils/coordinates';
+import {datumToRelative, pointToAbsolute, type AbsolutePoint} from '@/utils/coordinates';
 import {featureCollection} from '@turf/helpers';
 import type {Feature, FeatureCollection, LineString} from 'geojson';
 import type {ExpressionSpecification, LineLayerSpecification} from 'maplibre-gl';
@@ -44,7 +44,9 @@ export default function PlannedPathLayer({visible = true, datum, plannedPath = n
         properties: {is_outline: path.is_outline},
         geometry: {
           type: 'LineString',
-          coordinates: path.points.map(([x, y]) => pointToAbsolute({x, y}, utm)),
+          coordinates: path.points
+            .map(([x, y]) => pointToAbsolute({x, y}, utm))
+            .filter((p): p is AbsolutePoint => p !== null),
         },
       }));
     return featureCollection(features);

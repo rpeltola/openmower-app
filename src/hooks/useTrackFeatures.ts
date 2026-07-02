@@ -32,7 +32,9 @@ class TrackCache {
   }
 
   sync(buffer: RelativePoint[], historySegments: TrackSegment[], liveAttributes: TrackAttributes): TrackFeatures {
-    const convert = (p: RelativePoint): AbsolutePoint => pointToAbsolute(p, this._datum);
+    // Returns null for points outside the datum's UTM range (stale/foreign track
+    // data) so one bad point can't crash the map; map sites filter nulls out.
+    const convert = (p: RelativePoint): AbsolutePoint | null => pointToAbsolute(p, this._datum);
     const history = this.syncHistory(historySegments, convert);
     const live = this.syncLive(buffer, liveAttributes, historySegments, convert);
     return {live, history};
@@ -40,7 +42,7 @@ class TrackCache {
 
   private syncHistory(
     historySegments: TrackSegment[],
-    convert: (p: RelativePoint) => AbsolutePoint,
+    convert: (p: RelativePoint) => AbsolutePoint | null,
   ): FeatureCollection<LineString> | null {
     let changed = false;
 
@@ -61,9 +63,9 @@ class TrackCache {
 
       let coords: AbsolutePoint[];
       if (newLen > cachedLen && cachedCoords) {
-        coords = [...cachedCoords, ...seg.points.slice(cachedLen).map(convert)]; // Grew — append only new tail
+        coords = [...cachedCoords, ...seg.points.slice(cachedLen).map(convert).filter((p): p is AbsolutePoint => p !== null)]; // Grew — append only new tail
       } else {
-        coords = seg.points.map(convert); // Shrunk, new, or no cached data — rebuild
+        coords = seg.points.map(convert).filter((p): p is AbsolutePoint => p !== null); // Shrunk, new, or no cached data — rebuild
       }
 
       if (coords.length >= 2) {
@@ -88,22 +90,22 @@ class TrackCache {
     buffer: RelativePoint[],
     liveAttributes: TrackAttributes,
     historySegments: TrackSegment[],
-    convert: (p: RelativePoint) => AbsolutePoint,
+    convert: (p: RelativePoint) => AbsolutePoint | null,
   ): Feature<LineString> | null {
     const cachedLen = this.liveCoords.length;
     const newLen = buffer.length;
 
     if (newLen > cachedLen) {
-      this.liveCoords = [...this.liveCoords, ...buffer.slice(cachedLen).map(convert)]; // Grew — append only new tail
+      this.liveCoords = [...this.liveCoords, ...buffer.slice(cachedLen).map(convert).filter((p): p is AbsolutePoint => p !== null)]; // Grew — append only new tail
     } else if (newLen < cachedLen) {
-      this.liveCoords = buffer.map(convert); // Shrunk (compaction) — rebuild
+      this.liveCoords = buffer.map(convert).filter((p): p is AbsolutePoint => p !== null); // Shrunk (compaction) — rebuild
     }
     // Equal length: liveCoords is still valid
 
     // Live feature is always re-wrapped so the bridge prefix and properties
     // are always up to date (O(1) — reuses cached coords array).
     const lastSegLastPoint = historySegments.at(-1)?.points.at(-1);
-    const lastHistoryPoint = lastSegLastPoint ? convert(lastSegLastPoint) : undefined;
+    const lastHistoryPoint = lastSegLastPoint ? (convert(lastSegLastPoint) ?? undefined) : undefined;
     const liveWithBridge = lastHistoryPoint ? [lastHistoryPoint, ...this.liveCoords] : this.liveCoords;
     const live = liveWithBridge.length >= 2 ? lineString(liveWithBridge, liveAttributes) : null;
     if (live !== null) this.lastLiveFeature = live;
