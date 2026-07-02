@@ -78,7 +78,13 @@ interface SplitPolygonWorkflow {
   areaId: string;
 }
 
-type Workflow = SplitPolygonWorkflow;
+// Freehand/polygon "spot mow" draw tool (Roborock spot-clean analogue) — see MowerMap's
+// handleFeaturesCreated for how the drawn polygon becomes a mission `spot` job.
+interface SpotMowWorkflow {
+  type: 'spot_mow';
+}
+
+type Workflow = SplitPolygonWorkflow | SpotMowWorkflow;
 
 const MAX_HISTORY_STEPS = 10;
 
@@ -221,6 +227,24 @@ export function useFitToBounds() {
 export function useMapHover(): [string | null, Dispatch<SetStateAction<string | null>>] {
   const {hoveredId, setHoveredId} = useMapContext();
   return [hoveredId, setHoveredId];
+}
+
+// Shared toggle for the spot-mow draw tool, so both the map control button and the mission
+// panel can start/cancel the same drawing session.
+export function useSpotDrawTool() {
+  const draw = useMapboxDraw();
+  const {drawWorkflow, setDrawWorkflow, drawMode} = useMapContext();
+  const isDrawingSpot = drawWorkflow?.type === 'spot_mow' && drawMode === MapboxDraw.constants.modes.DRAW_POLYGON;
+  const toggle = useCallback(() => {
+    if (isDrawingSpot) {
+      draw?.trash();
+      setDrawWorkflow(null);
+    } else {
+      setDrawWorkflow({type: 'spot_mow'});
+      draw?.changeMode(MapboxDraw.constants.modes.DRAW_POLYGON);
+    }
+  }, [draw, isDrawingSpot, setDrawWorkflow]);
+  return {isDrawingSpot, toggle};
 }
 
 export function useMapSelection() {
