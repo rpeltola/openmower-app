@@ -1,23 +1,25 @@
 'use client';
 
-import {useFitToBounds, useMapboxDraw, useMapContext, useMapHover} from '@/contexts/MapContext';
+import {useFitToBounds, useMapboxDraw, useMapContext, useMapHover, useSpotDrawTool} from '@/contexts/MapContext';
 import {useJobTrack} from '@/hooks/useJobTrack';
+import {useMissionComposer} from '@/hooks/useMissionComposer';
 import {useMapDisplayStore} from '@/stores/mapDisplayStore';
 import {useSelectedMower} from '@/stores/mowersStore';
 import {MapData, type AreaProps} from '@/stores/schemas';
 import type {AreaFeature} from '@/types/geojson';
 import {generateId, splitPolygonWithLine} from '@/utils/area-utils';
+import {datumToRelative, pointsToRelative, type AbsolutePoint} from '@/utils/coordinates';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import StaticMode from '@mapbox/mapbox-gl-draw-static-mode';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import {Box, useMediaQuery, useTheme, type SxProps} from '@mui/material';
 import {featureCollection} from '@turf/helpers';
 import type {Feature, LineString, Polygon} from 'geojson';
-import {FocusIcon, LayoutListIcon, PencilIcon} from 'lucide-react';
+import {FocusIcon, LassoIcon, LayoutListIcon, ListChecksIcon, PencilIcon} from 'lucide-react';
 import type {Map} from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import {RFullscreenControl, RMap} from 'maplibre-react-components';
-import {useCallback, useEffect, useEffectEvent, useMemo, useRef} from 'react';
+import {useCallback, useEffect, useEffectEvent, useMemo, useRef, useState} from 'react';
 import {DialogOutlet, useDialog} from 'react-dialog-async';
 import AreasList from './AreasList';
 import ControlButton from './ControlButton';
@@ -32,9 +34,23 @@ import {UploadButton} from './edit/UploadButton';
 import LayersButton from './LayersButton';
 import MapDialog from './MapDialog';
 import {mapStyles} from './mapStyles';
+import MissionPanel from './mission/MissionPanel';
 import MowerMarker from './MowerMarker';
 import TeleopControls from './teleop/TeleopControls';
 import TrackLayer from './TrackLayer';
+
+// A GeoJSON polygon ring repeats its first point as the last — the mission contract's polygon is
+// an open ring, so drop the closing duplicate before converting to map-frame metres.
+function openRing(ring: AbsolutePoint[]): AbsolutePoint[] {
+  if (ring.length > 1) {
+    const [first] = ring;
+    const last = ring[ring.length - 1];
+    if (first[0] === last[0] && first[1] === last[1]) {
+      return ring.slice(0, -1);
+    }
+  }
+  return ring;
+}
 
 interface MowerMapProps {
   mapData: MapData;
@@ -66,11 +82,15 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
     () => features.features.filter((feature) => feature.geometry.type === 'Polygon') as Feature<Polygon, AreaProps>[],
     [features],
   );
+  const workingAreas = useMemo(() => areas.filter((area) => area.properties.type === 'mow'), [areas]);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const {showSatelliteLayer, showTrackLayer, showAreaList, selectedJobId, setShowAreaList} = useMapDisplayStore();
   const {pastTrack, loading: trackLoading} = useJobTrack(selectedJobId);
+  const [showMissionPanel, setShowMissionPanel] = useState(false);
   const areaSettingsDialog = useDialog(AreaSettingsDialog);
+  const missionComposer = useMissionComposer();
+  const {isDrawingSpot, toggle: toggleSpotDraw} = useSpotDrawTool();
   const padding = useMemo(() => ({top: 10, bottom: 10, left: 60, right: showAreaList ? 390 : 60}), [showAreaList]);
   const fitToBounds = useFitToBounds();
 
@@ -196,11 +216,19 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
           });
         }
         setDrawWorkflow(null);
+      } else if (drawWorkflow?.type === 'spot_mow') {
+        draw?.delete(createdFeatures.map((feature) => feature.id as string));
+        const spotFeature = createdFeatures[0] as Feature<Polygon>;
+        const utmDatum = datumToRelative([datumOrFallback.long, datumOrFallback.lat]);
+        const ring = openRing(spotFeature.geometry.coordinates[0] as AbsolutePoint[]);
+        missionComposer.addSpotJob(pointsToRelative(ring, utmDatum));
+        setDrawWorkflow(null);
+        setShowMissionPanel(true);
       } else {
         areaSettingsDialog.open();
       }
     },
-    [areaSettingsDialog, draw, drawWorkflow, setDrawWorkflow, features, setFeatures],
+    [areaSettingsDialog, draw, drawWorkflow, setDrawWorkflow, features, setFeatures, missionComposer, datumOrFallback],
   );
 
   return (
@@ -236,6 +264,21 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
         ) : (
           <ControlButton position="top-left" icon={PencilIcon} title="Edit mode" onClick={() => setEditMode(true)} />
         )}
+        <ControlButton
+          position="top-left"
+          icon={LassoIcon}
+          title="Draw spot mow area"
+          active={isDrawingSpot}
+          onClick={toggleSpotDraw}
+          spaced
+        />
+        <ControlButton
+          position="top-left"
+          icon={ListChecksIcon}
+          title="Mission"
+          active={showMissionPanel}
+          onClick={() => setShowMissionPanel(!showMissionPanel)}
+        />
 
         {/* Right controls */}
         <RFullscreenControl />
@@ -288,6 +331,38 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
             }}
           >
             <AreasList areas={areas} onClose={() => setShowAreaList(false)} />
+          </MapDialog>
+        )}
+        {!isMobile && showMissionPanel && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 10,
+              left: 60,
+              bottom: 10,
+              width: '320px',
+            }}
+          >
+            <MissionPanel composer={missionComposer} areas={workingAreas} onClose={() => setShowMissionPanel(false)} />
+          </Box>
+        )}
+        {isMobile && (
+          <MapDialog
+            open={showMissionPanel}
+            onClose={() => setShowMissionPanel(false)}
+            slotProps={{
+              paper: {
+                sx: {
+                  margin: 0,
+                  width: 'calc(100% - 2rem)',
+                  height: 'calc(100% - 2rem)',
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                },
+              },
+            }}
+          >
+            <MissionPanel composer={missionComposer} areas={workingAreas} onClose={() => setShowMissionPanel(false)} />
           </MapDialog>
         )}
         {mapData.docking_stations.map((station) => (
