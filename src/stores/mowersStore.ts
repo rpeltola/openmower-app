@@ -27,12 +27,15 @@ import {
   legacyMapSchema,
   mapDefaults,
   mapSchema,
+  missionStateSchema,
   positionSchema,
   stateDefaults,
   stateSchema,
   type Capabilities,
   type Datum,
   type MapData,
+  type Mission,
+  type MissionState,
   type PositionWithAttributes,
   type StateOptionalPose,
   type TrackAttributes,
@@ -40,7 +43,7 @@ import {
 
 export type MqttStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'offline';
 
-class Mower {
+export class Mower {
   [immerable] = true;
 
   readonly id: string;
@@ -58,6 +61,7 @@ class Mower {
   track: TrackPipeline = new TrackPipeline();
   jobList: {job_id: string; epoch: number}[] | null = null;
   events: MowerEventState = mowerEventDefaults;
+  missionState: MissionState | null = null;
 
   constructor(config: MowerConfig, mqttClient: MqttClient) {
     this.id = config.id;
@@ -86,6 +90,14 @@ class Mower {
   publishTeleop(vx: number, vz: number) {
     const payload = BSON.serialize({vx, vz});
     this.mqttClient.publish(this.mqttPrefix + 'teleop', Buffer.from(payload.buffer));
+  }
+
+  publishMissionStart(mission: Mission) {
+    this.mqttClient.publish(this.mqttPrefix + 'mow_mission/start', JSON.stringify(mission));
+  }
+
+  publishMissionCancel() {
+    this.mqttClient.publish(this.mqttPrefix + 'mow_mission/cancel', '');
   }
 }
 
@@ -158,6 +170,7 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'map/json');
             client.subscribe(clientMower.prefix + 'rpc/response');
             client.subscribe(clientMower.prefix + 'params/json');
+            client.subscribe(clientMower.prefix + 'mow_mission/state');
             client.subscribe(clientMower.prefix + 'position/json');
             client.subscribe(clientMower.prefix + 'params/json');
             client.subscribe(clientMower.prefix + 'events/json');
@@ -263,6 +276,10 @@ export const useMowersStore = create<MowersStore>()(
                 if (parsed.success) {
                   applyLiveEvent(state.mowers[idx].events, parsed.data);
                 }
+              });
+            } else if (partialTopic === 'mow_mission/state') {
+              set((state) => {
+                state.mowers[idx].missionState = missionStateSchema.parse(JSON.parse(payload.toString()));
               });
             }
           }
