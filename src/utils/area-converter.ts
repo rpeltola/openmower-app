@@ -27,8 +27,25 @@ function dedupePoints(points: RelativePoint[]): RelativePoint[] {
   }, []);
 }
 
-function areaToFeature(area: Area, datum: UtmPoint): Feature<Polygon, AreaProps> {
-  return polygon([pointsToAbsolute(dedupePoints(area.outline), datum)], area.properties, {id: area.id});
+function areaToFeature(area: Area, datum: UtmPoint): Feature<Polygon, AreaProps> | null {
+  // Defensive: the incoming map data isn't guaranteed to be a valid GeoJSON ring.
+  // A ring needs >=3 distinct points and MUST be closed (first == last) or turf's
+  // polygon() throws "First and last Position are not equivalent" and crashes the
+  // whole map. Sanitize here so one bad/edited area can't take down the render.
+  const ring = pointsToAbsolute(dedupePoints(area.outline), datum);
+  if (ring.length < 3) {
+    return null;
+  }
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) {
+    ring.push([first[0], first[1]]);
+  }
+  try {
+    return polygon([ring], area.properties, {id: area.id});
+  } catch {
+    return null;
+  }
 }
 
 function featureToArea(feature: AreaFeature, datum: UtmPoint): Area {
@@ -48,7 +65,10 @@ export function mapToFeatures(map?: MapData): FeatureCollection {
     return featureCollection([]);
   }
   const datum = convertDatum(map.datum ?? fallbackDatum);
-  return featureCollection(map.areas.map((area) => areaToFeature(area, datum)));
+  const features = map.areas
+    .map((area) => areaToFeature(area, datum))
+    .filter((f): f is Feature<Polygon, AreaProps> => f !== null);
+  return featureCollection(features);
 }
 
 export function featuresToMap(map: MapData, features: FeatureCollection) {
