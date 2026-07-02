@@ -46,6 +46,7 @@ export const stateSchema = z.object({
 });
 
 export type State = z.infer<typeof stateSchema>;
+export type StateOptionalPose = Omit<State, 'pose'> & {pose?: State['pose']};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Map
@@ -60,12 +61,18 @@ export type Datum = z.infer<typeof datumSchema>;
 
 const pointSchema = z.object({x: z.number(), y: z.number()});
 const polygonSchema = z.array(pointSchema);
-const areaSchema = z.object({
+export const areaSchema = z.object({
   id: z.string(),
   properties: z.looseObject({
     name: z.string().optional(),
     type: z.enum(['mow', 'nav', 'obstacle', 'draft']).default('draft'),
     active: z.boolean().default(true),
+    // Per-area overrides for mowing areas. When a field is omitted, ROS falls back to the
+    // corresponding global config default (see open_mower_ros MowingBehavior::overrideOrGlobal).
+    angle: z.number().optional(), // radians; replaces the auto-detected mow orientation
+    outline_count: z.int().gte(0).optional(),
+    outline_overlap_count: z.int().gte(0).optional(),
+    outline_offset: z.number().optional(), // meters
   }),
   outline: polygonSchema,
 });
@@ -122,6 +129,60 @@ export type LegacyArea = z.infer<typeof legacyAreaSchema>;
 export type LegacyMapData = z.infer<typeof legacyMapSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Position (from position/json topic)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const positionSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  heading: z.number(),
+  attributes: z.object({
+    job_id: z.string(),
+    session_id: z.string(),
+    blades: z.boolean(),
+  }),
+});
+
+export type PositionWithAttributes = z.infer<typeof positionSchema>;
+export type Position = Omit<PositionWithAttributes, 'attributes'>;
+export type TrackAttributes = PositionWithAttributes['attributes'];
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Events (from events/json topic and events.history RPC)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+const baseEventSchema = z.looseObject({
+  id: z.string(),
+  t: z.number(),
+  type: z.string(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  job_id: z.string().optional(),
+  session_id: z.string().optional(),
+});
+
+export const eventSchema = z.union([
+  z.discriminatedUnion('type', [
+    baseEventSchema.extend({type: z.literal('EMERGENCY'), active: z.boolean()}),
+    baseEventSchema.extend({type: z.literal('BOOTED')}),
+    baseEventSchema.extend({type: z.literal('GPS'), available: z.boolean()}),
+    baseEventSchema.extend({type: z.literal('STATE'), state: z.string()}),
+    baseEventSchema.extend({type: z.literal('BLADES'), enabled: z.boolean()}),
+    baseEventSchema.extend({type: z.literal('DOCKING'), reason: z.string()}),
+    baseEventSchema.extend({
+      type: z.literal('AREA'),
+      area_id: z.string(),
+      area_name: z.string(),
+    }),
+  ]),
+  baseEventSchema,
+]);
+
+export type MowerEvent = z.infer<typeof eventSchema>;
+
+export const BASE_EVENT_KEYS = new Set(Object.keys(baseEventSchema.shape));
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Defaults
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -133,7 +194,7 @@ export const mapDefaults: MapData = {
 
 export const fallbackDatum = {lat: 48.0, long: 11.0, height: 0} satisfies Datum;
 
-export const stateDefaults: State = {
+export const stateDefaults: StateOptionalPose = {
   battery_percentage: 100,
   current_action_progress: 0.0,
   current_area: -1,
@@ -144,12 +205,5 @@ export const stateDefaults: State = {
   emergency: false,
   gps_percentage: 0.0,
   is_charging: false,
-  pose: {
-    heading: 0,
-    heading_accuracy: 0,
-    heading_valid: false,
-    pos_accuracy: 0,
-    x: 0,
-    y: 0,
-  },
+  pose: undefined,
 };

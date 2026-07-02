@@ -1,5 +1,6 @@
+import {useSelectedMowerActiveEmergency} from '@/hooks/useMowerEvents';
 import {type NavigationItem} from '@/components/types';
-import {ListItem, ListItemButton, ListItemIcon, ListItemText, useTheme} from '@mui/material';
+import {Badge, ListItem, ListItemButton, ListItemIcon, ListItemText, useTheme} from '@mui/material';
 
 interface SidebarItemProps {
   item: NavigationItem;
@@ -9,6 +10,8 @@ interface SidebarItemProps {
 
 export default function SidebarItem({item, isActive, onClick}: SidebarItemProps) {
   const theme = useTheme();
+  const activeEmergency = useSelectedMowerActiveEmergency();
+  const showAlert = item.path === '/events' && activeEmergency;
 
   return (
     <ListItem disablePadding>
@@ -36,7 +39,9 @@ export default function SidebarItem({item, isActive, onClick}: SidebarItemProps)
             minWidth: 40,
           }}
         >
-          {item.icon}
+          <Badge variant="dot" color="error" invisible={!showAlert}>
+            {item.icon}
+          </Badge>
         </ListItemIcon>
         <ListItemText
           primary={item.label}

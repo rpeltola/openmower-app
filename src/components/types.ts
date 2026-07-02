@@ -7,6 +7,8 @@ export interface NavigationItem {
   isGlobal: boolean;
 }
 
+export type Capabilities = Record<string, number>;
+
 export interface MowerConfig {
   id: string;
   name: string;

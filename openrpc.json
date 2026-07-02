@@ -85,6 +85,167 @@
       }
     },
     {
+      "name": "position.history",
+      "summary": "Returns compacted segments and the raw pending buffer for client seeding.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "job_id",
+          "description": "Job ID to fetch history for. Omit to get the current/live job.",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "segments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "attributes": {
+                    "type": "object",
+                    "properties": {
+                      "job_id": {
+                        "type": "string"
+                      },
+                      "session_id": {
+                        "type": "string"
+                      },
+                      "blades": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "points": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "buffer": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "position.history.list",
+      "summary": "List available job history entries.",
+      "params": [],
+      "result": {
+        "name": "jobs",
+        "description": "Array of job history entries, each with a job_id and epoch timestamp. Sorted newest first.",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "job_id": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "job_id",
+              "timestamp"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "events.history",
+      "summary": "Returns events for today when called without params, or events for a specific date.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "date",
+          "description": "Date string (YYYYMMDD). Omit to get today's events.",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "events",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "t": {
+                "type": "number"
+              },
+              "type": {
+                "type": "string"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "job_id": {
+                "type": "string"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "active": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "t",
+              "type"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    {
+      "name": "events.history.list",
+      "summary": "List available event history dates.",
+      "params": [],
+      "result": {
+        "name": "dates",
+        "description": "Array of date strings in YYYYMMDD format.",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
       "name": "meta.config.defaults",
       "summary": "Get the default configuration values.",
       "params": [],

@@ -1,6 +1,7 @@
 import type {MowerConfig} from '@/components/types';
 import {OpenMowerRpc} from '@/lib/rpc';
 import {generateId} from '@/utils/area-utils';
+import {TrackPipeline} from '@/utils/track-pipeline';
 import {BSON} from 'bson';
 import {immerable} from 'immer';
 import mqtt, {MqttClient} from 'mqtt';
@@ -8,21 +9,33 @@ import {create, useStore} from 'zustand';
 import {immer} from 'zustand/middleware/immer';
 import {useConfigStore} from './configStore';
 import {
+  applyLiveEvent,
+  mowerEventDefaults,
+  seedHistoryEvents,
+  seedTodayEvents,
+  setAvailableDates,
+  type MowerEventState,
+} from './mowerEvents';
+import {
   Area,
   AreaType,
   capabilitiesSchema,
   datumSchema,
+  eventSchema,
   LegacyArea,
   LegacyMapData,
   legacyMapSchema,
   mapDefaults,
   mapSchema,
+  positionSchema,
   stateDefaults,
   stateSchema,
   type Capabilities,
   type Datum,
   type MapData,
-  type State,
+  type PositionWithAttributes,
+  type StateOptionalPose,
+  type TrackAttributes,
 } from './schemas';
 
 export type MqttStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'offline';
@@ -38,9 +51,13 @@ class Mower {
   readonly mqttPrefix: string;
   readonly rpc: OpenMowerRpc;
   capabilities: Capabilities = {};
-  state: State = stateDefaults;
+  state: StateOptionalPose = stateDefaults;
   map: MapData = mapDefaults;
   params: Record<string, unknown> = {};
+  position: PositionWithAttributes | null = null;
+  track: TrackPipeline = new TrackPipeline();
+  jobList: {job_id: string; epoch: number}[] | null = null;
+  events: MowerEventState = mowerEventDefaults;
 
   constructor(config: MowerConfig, mqttClient: MqttClient) {
     this.id = config.id;
@@ -77,6 +94,7 @@ interface MowersStore {
   mqttStatuses: Record<string, MqttStatus>;
   selected: number;
   loadMowers: () => void;
+  fetchEventsForDate: (mowerId: string, date: string) => Promise<void>;
 }
 
 export const useMowersStore = create<MowersStore>()(
@@ -140,6 +158,59 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'map/json');
             client.subscribe(clientMower.prefix + 'rpc/response');
             client.subscribe(clientMower.prefix + 'params/json');
+            client.subscribe(clientMower.prefix + 'position/json');
+            client.subscribe(clientMower.prefix + 'params/json');
+            client.subscribe(clientMower.prefix + 'events/json');
+            mowers[clientMower.idx].rpc.events.history
+              .list()
+              .then((dates) => {
+                set((state) => {
+                  setAvailableDates(state.mowers[clientMower.idx].events, dates ?? []);
+                });
+              })
+              .catch(() => {
+                // server may not support events.history yet
+              });
+            mowers[clientMower.idx].rpc.events
+              .history({})
+              .then((events) => {
+                set((state) => {
+                  const parsedEvents = (events ?? []).flatMap((event) => {
+                    const parsed = eventSchema.safeParse(event);
+                    return parsed.success ? [parsed.data] : [];
+                  });
+                  seedTodayEvents(state.mowers[clientMower.idx].events, parsedEvents);
+                });
+              })
+              .catch(() => {
+                // server may not support events.history yet
+              });
+            mowers[clientMower.idx].rpc.position.history
+              .list()
+              .then((jobs) => {
+                set((state) => {
+                  state.mowers[clientMower.idx].jobList = (jobs ?? []).map((j) => ({
+                    job_id: j.job_id,
+                    epoch: j.timestamp,
+                  }));
+                });
+              })
+              .catch(() => {
+                // server may not support position.history.list yet
+              });
+            mowers[clientMower.idx].rpc.position
+              .history({})
+              .then((result) => {
+                set((state) => {
+                  state.mowers[clientMower.idx].track.seedFromHistory(
+                    (result.segments ?? []) as {attributes: TrackAttributes; points: [number, number][]}[],
+                    (result.buffer ?? []) as [number, number][],
+                  );
+                });
+              })
+              .catch(() => {
+                // server may not support position.history yet
+              });
           }
         });
 
@@ -171,11 +242,54 @@ export const useMowersStore = create<MowersStore>()(
                 mower.params = JSON.parse(payload.toString()) as Record<string, unknown>;
                 mower.map.datum ??= mower.getDatumFromParams();
               });
+            } else if (partialTopic === 'position/json') {
+              set((state) => {
+                const parsed = positionSchema.parse(JSON.parse(payload.toString()));
+                const mower = state.mowers[idx];
+                mower.position = parsed;
+                if (parsed.attributes.session_id) {
+                  mower.track.addPoint(parsed);
+                }
+              });
+            } else if (partialTopic === 'params/json') {
+              set((state) => {
+                const mower = state.mowers[idx];
+                mower.params = JSON.parse(payload.toString()) as Record<string, unknown>;
+                mower.map.datum ??= mower.getDatumFromParams();
+              });
+            } else if (partialTopic === 'events/json') {
+              set((state) => {
+                const parsed = eventSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) {
+                  applyLiveEvent(state.mowers[idx].events, parsed.data);
+                }
+              });
             }
           }
         });
       }
       set({mowers, selected: 0});
+    },
+    fetchEventsForDate: async (mowerId, date) => {
+      const mower = get().mowers.find((m) => m.id === mowerId);
+      if (!mower || mower.events.loadedDates[date]) {
+        return;
+      }
+      try {
+        const events = await mower.rpc.events.history({date});
+        set((state) => {
+          const target = state.mowers.find((m) => m.id === mowerId);
+          if (target) {
+            const parsedEvents = (events ?? []).flatMap((event) => {
+              const parsed = eventSchema.safeParse(event);
+              return parsed.success ? [parsed.data] : [];
+            });
+            seedHistoryEvents(target.events, date, parsedEvents);
+          }
+        });
+      } catch {
+        // server may not support events.history yet
+      }
     },
   })),
 );
