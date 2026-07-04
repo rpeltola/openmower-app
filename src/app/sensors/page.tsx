@@ -156,6 +156,7 @@ export default function SensorsPage() {
   const escLeft = sensors?.esc_left;
   const escRight = sensors?.esc_right;
   const emergencyInfo = sensors?.emergency;
+  const gps = sensors?.gps;
   // current_action_progress is a 0..1 fraction from ROS.
   const progressPercent = Math.round(Math.max(0, Math.min(1, state.current_action_progress)) * 100);
   const headingRad = pose?.heading ?? position?.heading;
@@ -285,6 +286,32 @@ export default function SensorsPage() {
               <Typography variant="body2" color="text.disabled" sx={{py: 0.5}}>
                 No pose fix yet.
               </Typography>
+            )}
+            {gps && (
+              <>
+                <Readout
+                  label="RTK fix"
+                  value={
+                    <Chip
+                      size="small"
+                      label={
+                        gps.rtk_fixed
+                          ? 'RTK Fixed'
+                          : gps.rtk_float
+                            ? 'RTK Float'
+                            : gps.dead_reckoning
+                              ? 'Dead reckoning'
+                              : gps.rtk
+                                ? 'RTK (converging)'
+                                : 'No fix'
+                      }
+                      color={gps.rtk_fixed ? 'success' : gps.rtk_float ? 'warning' : 'default'}
+                    />
+                  }
+                />
+                <Readout label="Fix accuracy" value={`±${gps.position_accuracy.toFixed(3)} m`} />
+                <Readout label="GPS flags" value={`0x${gps.flags.toString(16)}`} />
+              </>
             )}
             {datum && <Readout label="Datum" value={`${datum.lat.toFixed(6)}, ${datum.long.toFixed(6)}`} />}
           </SensorCard>

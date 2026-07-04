@@ -92,6 +92,20 @@ export const sensorsSchema = z.looseObject({
       angular_velocity: z.object({x: z.number(), y: z.number(), z: z.number()}),
     })
     .optional(),
+  gps: z
+    .looseObject({
+      flags: z.number(),
+      rtk: z.boolean(),
+      rtk_fixed: z.boolean(),
+      rtk_float: z.boolean(),
+      dead_reckoning: z.boolean(),
+      position_accuracy: z.number(),
+      orientation_valid: z.boolean(),
+      orientation_accuracy: z.number(),
+      motion_vector_valid: z.boolean(),
+      quality: z.number(),
+    })
+    .optional(),
 });
 export type Sensors = z.infer<typeof sensorsSchema>;
 
