@@ -19,7 +19,7 @@ export const useMapDisplayStore = create<MapDisplayStore>()(
     (set) => ({
       showSatelliteLayer: false,
       showTrackLayer: true,
-      showPlannedPath: false,
+      showPlannedPath: true,
       showAreaList: true,
       selectedJobId: null,
       setShowSatelliteLayer: (v) => set({showSatelliteLayer: v}),
