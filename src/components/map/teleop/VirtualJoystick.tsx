@@ -15,9 +15,10 @@ type DpadDirection = 'up' | 'down' | 'left' | 'right' | null;
 
 interface VirtualJoystickProps {
   onVelocityChange: (vx: number, vz: number) => void;
+  disabled?: boolean;
 }
 
-export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps) {
+export default function VirtualJoystick({onVelocityChange, disabled = false}: VirtualJoystickProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [knobPos, setKnobPos] = useState({x: 0, y: 0});
   const [dragging, setDragging] = useState(false);
@@ -78,6 +79,7 @@ export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      if (disabled) return;
       if (pointerIdRef.current !== null) return;
       e.preventDefault();
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -90,7 +92,7 @@ export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps
         setDragging(true);
       }
     },
-    [getDpadDirection],
+    [getDpadDirection, disabled],
   );
 
   const handlePointerMove = useCallback(
@@ -156,6 +158,10 @@ export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps
         background: 'radial-gradient(circle, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.4) 100%)',
         border: '2px solid rgba(255,255,255,0.3)',
         backdropFilter: 'blur(4px)',
+        opacity: disabled ? 0.4 : 1,
+        filter: disabled ? 'grayscale(1)' : 'none',
+        cursor: disabled ? 'not-allowed' : 'grab',
+        transition: 'opacity 0.15s, filter 0.15s',
       }}
     >
       {/* D-pad arrows */}

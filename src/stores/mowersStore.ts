@@ -102,7 +102,16 @@ export class Mower {
   publishMissionCancel() {
     this.mqttClient.publish(this.mqttPrefix + 'mow_mission/cancel', '');
   }
+
+  // High-level control -> app_gateway -> mower_logic mower_service/high_level_control
+  // (and the area-recorder). One topic, one JSON action; the gateway maps each
+  // action to the matching command.
+  sendCommand(action: MowerCommand) {
+    this.mqttClient.publish(this.mqttPrefix + 'command', JSON.stringify({action}));
+  }
 }
+
+export type MowerCommand = 'start' | 'stop' | 'dock' | 'record_on' | 'record_off' | 'reset_emergency';
 
 interface MowersStore {
   mowers: Mower[];

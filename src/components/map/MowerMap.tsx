@@ -39,6 +39,7 @@ import MissionPanel from './mission/MissionPanel';
 import MowerMarker from './MowerMarker';
 import PlannedPathLayer from './PlannedPathLayer';
 import TeleopControls from './teleop/TeleopControls';
+import MowerControls from './control/MowerControls';
 import TrackLayer from './TrackLayer';
 
 // A GeoJSON polygon ring repeats its first point as the last — the mission contract's polygon is
@@ -79,7 +80,11 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
   const currentState = useSelectedMower((s) => s?.state.current_state);
   const isDocked = useSelectedMower((s) => s?.state.is_charging ?? false);
   const mowerPosition = useSelectedMower((s) => s?.position ?? s?.state.pose);
-  const showTeleop = currentState === 'AREA_RECORDING' && !editMode;
+  // The joystick is always visible while not editing the map, but only ENABLED in
+  // AREA_RECORDING mode (greyed + hinted otherwise) so manual driving can't fight
+  // the autonomous nav.
+  const showTeleop = !editMode;
+  const teleopDisabled = currentState !== 'AREA_RECORDING';
   const areas = useMemo(
     () => features.features.filter((feature) => feature.geometry.type === 'Polygon') as Feature<Polygon, AreaProps>[],
     [features],
@@ -375,7 +380,8 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
         {mowerPosition && !isDocked && <MowerMarker position={mowerPosition} datum={datumOrFallback} />}
         <PlannedPathLayer visible={showPlannedPath && !editMode} datum={datumOrFallback} plannedPath={plannedPath} />
         <TrackLayer visible={showTrackLayer && !editMode} pastTrack={pastTrack} loading={trackLoading} />
-        {showTeleop && <TeleopControls />}
+        {!editMode && <MowerControls />}
+        {showTeleop && <TeleopControls disabled={teleopDisabled} />}
         <DialogOutlet />
       </RMap>
     </Box>
