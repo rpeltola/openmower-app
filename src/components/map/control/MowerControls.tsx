@@ -2,7 +2,8 @@
 
 import type {Mower} from '@/stores/mowersStore';
 import {useSelectedMower} from '@/stores/mowersStore';
-import {Button, Card, Stack} from '@mui/material';
+import {getEmergencyReasonLabel} from '@/stores/mowerEvents';
+import {Button, Card, Chip, Stack} from '@mui/material';
 import {Disc, Home, Play, Square, TriangleAlert} from 'lucide-react';
 
 // Floating control bar on the map: high-level mower commands. Each button
@@ -13,6 +14,9 @@ export default function MowerControls() {
   const mower = useSelectedMower<Mower | undefined>();
   const currentState = useSelectedMower((s) => s?.state.current_state ?? 'UNKNOWN');
   const emergency = useSelectedMower((s) => s?.state.emergency ?? false);
+  // robot_state.sensors.emergency (folded in from mower_msgs/Emergency by the
+  // gateway) carries WHY the mower stopped; state.emergency stays a plain flag.
+  const emergencyReason = useSelectedMower((s) => s?.state.sensors?.emergency?.reason ?? '');
 
   if (!mower) return null;
 
@@ -77,15 +81,23 @@ export default function MowerControls() {
           {recording ? 'Stop Recording' : 'Area Recording'}
         </Button>
         {emergency && (
-          <Button
-            size="small"
-            variant="contained"
-            color="warning"
-            startIcon={<TriangleAlert size={ICON} />}
-            onClick={() => send('reset_emergency')}
-          >
-            Reset E-Stop
-          </Button>
+          <>
+            <Chip
+              size="small"
+              color="error"
+              icon={<TriangleAlert size={ICON} />}
+              label={emergencyReason ? getEmergencyReasonLabel(emergencyReason) : 'Emergency'}
+            />
+            <Button
+              size="small"
+              variant="contained"
+              color="warning"
+              startIcon={<TriangleAlert size={ICON} />}
+              onClick={() => send('reset_emergency')}
+            >
+              Reset E-Stop
+            </Button>
+          </>
         )}
       </Stack>
     </Card>

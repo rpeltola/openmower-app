@@ -91,11 +91,25 @@ export function getOrderedEventExtraAttributeEntries(event: MowerEvent): [string
   return [...known, ...unknown].filter(([key]) => !isEventTitleAttribute(event, key));
 }
 
+// Raw GPIO reason strings from config/real_hw_inputs.yaml (mower_msgs/Emergency.reason)
+// mapped to a human label. Unknown reasons fall through and are shown verbatim.
+const EMERGENCY_REASON_LABELS: Record<string, string> = {
+  lift: 'wheel lift',
+  stop: 'stop button',
+  tilt: 'tilt',
+  collision: 'collision',
+  bump: 'bump',
+};
+
+export function getEmergencyReasonLabel(reason: string): string {
+  return EMERGENCY_REASON_LABELS[reason] ?? reason;
+}
+
 /** Attributes already reflected in {@link getEventLabel}; omit from chips. */
 function isEventTitleAttribute(event: MowerEvent, key: string): boolean {
   switch (event.type) {
     case 'EMERGENCY':
-      return key === 'active';
+      return key === 'active' || key === 'reason' || key === 'latched';
     case 'GPS':
       return key === 'available';
     case 'STATE':
@@ -152,8 +166,10 @@ function getStateLabel(state: string): string {
 
 export function getEventLabel(event: MowerEvent): string {
   switch (event.type) {
-    case 'EMERGENCY':
-      return event.active ? 'Emergency active' : 'Emergency cleared';
+    case 'EMERGENCY': {
+      if (!event.active) return 'Emergency cleared';
+      return event.reason ? `Emergency — ${getEmergencyReasonLabel(String(event.reason))}` : 'Emergency active';
+    }
     case 'BOOTED':
       return 'Mower started';
     case 'GPS':

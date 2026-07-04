@@ -320,7 +320,12 @@ const baseEventSchema = z.looseObject({
 
 export const eventSchema = z.union([
   z.discriminatedUnion('type', [
-    baseEventSchema.extend({type: z.literal('EMERGENCY'), active: z.boolean()}),
+    baseEventSchema.extend({
+      type: z.literal('EMERGENCY'),
+      active: z.boolean(),
+      reason: z.string().optional(),
+      latched: z.boolean().optional(),
+    }),
     baseEventSchema.extend({type: z.literal('BOOTED')}),
     baseEventSchema.extend({type: z.literal('GPS'), available: z.boolean()}),
     baseEventSchema.extend({type: z.literal('STATE'), state: z.string()}),
