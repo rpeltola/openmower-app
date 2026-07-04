@@ -1,6 +1,7 @@
 'use client';
 
 import {useFitToBounds, useMapboxDraw, useMapContext, useMapHover, useSpotDrawTool} from '@/contexts/MapContext';
+import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
 import {useJobTrack} from '@/hooks/useJobTrack';
 import {useMissionComposer} from '@/hooks/useMissionComposer';
 import {useMapDisplayStore} from '@/stores/mapDisplayStore';
@@ -36,6 +37,7 @@ import MapDialog from './MapDialog';
 import {mapStyles} from './mapStyles';
 import MissionPanel from './mission/MissionPanel';
 import MowerMarker from './MowerMarker';
+import PlannedPathLayer from './PlannedPathLayer';
 import TeleopControls from './teleop/TeleopControls';
 import TrackLayer from './TrackLayer';
 
@@ -85,9 +87,11 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
   const workingAreas = useMemo(() => areas.filter((area) => area.properties.type === 'mow'), [areas]);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const {showSatelliteLayer, showTrackLayer, showAreaList, selectedJobId, setShowAreaList} = useMapDisplayStore();
+  const {showSatelliteLayer, showTrackLayer, showPlannedPath, showAreaList, selectedJobId, setShowAreaList} =
+    useMapDisplayStore();
   const {pastTrack, loading: trackLoading} = useJobTrack(selectedJobId);
   const [showMissionPanel, setShowMissionPanel] = useState(false);
+  const {plannedPath} = useJobPlannedPath(selectedJobId);
   const areaSettingsDialog = useDialog(AreaSettingsDialog);
   const missionComposer = useMissionComposer();
   const {isDrawingSpot, toggle: toggleSpotDraw} = useSpotDrawTool();
@@ -369,6 +373,7 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
           <DockingStationMarker key={station.id} station={station} datum={datumOrFallback} isDocked={isDocked} />
         ))}
         {mowerPosition && !isDocked && <MowerMarker position={mowerPosition} datum={datumOrFallback} />}
+        <PlannedPathLayer visible={showPlannedPath && !editMode} datum={datumOrFallback} plannedPath={plannedPath} />
         <TrackLayer visible={showTrackLayer && !editMode} pastTrack={pastTrack} loading={trackLoading} />
         {showTeleop && <TeleopControls />}
         <DialogOutlet />

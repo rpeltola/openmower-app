@@ -28,6 +28,7 @@ import {
   mapDefaults,
   mapSchema,
   missionStateSchema,
+  plannedPathSignalSchema,
   positionSchema,
   stateDefaults,
   stateSchema,
@@ -36,6 +37,7 @@ import {
   type MapData,
   type Mission,
   type MissionState,
+  type PlannedPathSignal,
   type PositionWithAttributes,
   type StateOptionalPose,
   type TrackAttributes,
@@ -59,6 +61,7 @@ export class Mower {
   params: Record<string, unknown> = {};
   position: PositionWithAttributes | null = null;
   track: TrackPipeline = new TrackPipeline();
+  plannedPathSignal?: PlannedPathSignal;
   jobList: {job_id: string; epoch: number}[] | null = null;
   events: MowerEventState = mowerEventDefaults;
   missionState: MissionState | null = null;
@@ -174,6 +177,7 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'position/json');
             client.subscribe(clientMower.prefix + 'params/json');
             client.subscribe(clientMower.prefix + 'events/json');
+            client.subscribe(clientMower.prefix + 'map_layers/planned_path/json');
             mowers[clientMower.idx].rpc.events.history
               .list()
               .then((dates) => {
@@ -280,6 +284,17 @@ export const useMowersStore = create<MowersStore>()(
             } else if (partialTopic === 'mow_mission/state') {
               set((state) => {
                 state.mowers[idx].missionState = missionStateSchema.parse(JSON.parse(payload.toString()));
+              });
+            } else if (partialTopic === 'map_layers/planned_path/json') {
+              set((state) => {
+                // The live topic is just a {job_id, step_index} signal; an empty retained payload
+                // clears it, a malformed one is ignored. The geometry is fetched from history.
+                if (payload.length === 0) {
+                  state.mowers[idx].plannedPathSignal = undefined;
+                } else {
+                  const parsed = plannedPathSignalSchema.safeParse(JSON.parse(payload.toString()));
+                  if (parsed.success) state.mowers[idx].plannedPathSignal = parsed.data;
+                }
               });
             }
           }
