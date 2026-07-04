@@ -171,6 +171,62 @@ export const mapSchema = z.object({
 export type MapData = z.infer<typeof mapSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Mission (see OpenMowerNext sim_mow/MISSION_CONTRACT.md)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Wire format for a spot polygon vertex — the contract uses [x, y] tuples in map-frame metres,
+// unlike the area outline's {x, y} objects.
+const missionPointSchema = z.tuple([z.number(), z.number()]);
+
+const missionAreaJobSchema = z.object({
+  type: z.literal('area'),
+  area_id: z.string(),
+  direction_deg: z.number().default(0),
+  repeats: z.int().gte(1).default(1),
+});
+
+const missionSpotJobSchema = z.object({
+  type: z.literal('spot'),
+  polygon: z.array(missionPointSchema),
+  direction_deg: z.number().default(0),
+  repeats: z.int().gte(1).default(1),
+});
+
+export const missionJobSchema = z.discriminatedUnion('type', [missionAreaJobSchema, missionSpotJobSchema]);
+export type MissionJob = z.infer<typeof missionJobSchema>;
+
+export const missionSchema = z.object({
+  mission_id: z.string(),
+  jobs: z.array(missionJobSchema),
+});
+export type Mission = z.infer<typeof missionSchema>;
+
+export const missionStateStatusSchema = z.enum([
+  'queued',
+  'planning',
+  'mowing',
+  'paused',
+  'done',
+  'failed',
+  'cancelled',
+]);
+export type MissionStateStatus = z.infer<typeof missionStateStatusSchema>;
+
+export const missionStateSchema = z.object({
+  mission_id: z.string(),
+  job_index: z.number(),
+  job_total: z.number(),
+  type: z.enum(['area', 'spot']),
+  area_id: z.string().optional(),
+  pass: z.number(),
+  repeats: z.number(),
+  coverage: z.number(),
+  state: missionStateStatusSchema,
+  eta_s: z.number().optional(),
+});
+export type MissionState = z.infer<typeof missionStateSchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Legacy map
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
