@@ -21,7 +21,7 @@ export function createNavigationItems(capabilities: Capabilities = {}): Navigati
     {label: 'Map', icon: <MapIcon />, path: '/map', isGlobal: false},
     hasCapability('events') && {label: 'Events', icon: <EventIcon />, path: '/events', isGlobal: false},
     isDev && {label: 'Tasks', icon: <TaskIcon />, path: '/tasks', isGlobal: false},
-    isDev && {label: 'Sensors', icon: <SensorIcon />, path: '/sensors', isGlobal: false},
+    {label: 'Sensors', icon: <SensorIcon />, path: '/sensors', isGlobal: false},
     isDev && {label: 'Settings', icon: <SettingsIcon />, path: '/settings', isGlobal: true},
     {label: 'Debug', icon: <BugReportIcon />, path: '/debug', isGlobal: true},
   ].filter((item): item is NavigationItem => !!item);
