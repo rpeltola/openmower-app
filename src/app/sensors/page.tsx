@@ -66,6 +66,44 @@ function fmt(value: number | null | undefined, digits: number, unit?: string, pr
   return TIGHT_UNITS.has(unit) ? `${num}${unit}` : `${num} ${unit}`;
 }
 
+// GPS fix flags (xbot_msgs/msg/AbsolutePose): FLAG_GPS_RTK=1, FLAG_GPS_RTK_FIXED=2,
+// FLAG_GPS_RTK_FLOAT=4, FLAG_GPS_DEAD_RECKONING=8. The gateway pre-decodes them into
+// booleans; we translate to human-readable text here rather than showing the raw word.
+type GpsFlags = {
+  flags: number;
+  rtk: boolean;
+  rtk_fixed: boolean;
+  rtk_float: boolean;
+  dead_reckoning: boolean;
+};
+
+/** The single strongest fix state, for the primary "Fix type" readout. */
+function gpsFixLabel(gps: GpsFlags): string {
+  if (gps.rtk_fixed) return 'RTK Fixed';
+  if (gps.rtk_float) return 'RTK Float';
+  if (gps.dead_reckoning) return 'Dead Reckoning';
+  if (gps.rtk) return 'RTK (converging)';
+  return 'Single / No Fix';
+}
+
+function gpsFixColor(gps: GpsFlags): 'success' | 'warning' | 'default' {
+  if (gps.rtk_fixed) return 'success';
+  if (gps.rtk_float || gps.dead_reckoning) return 'warning';
+  return 'default';
+}
+
+/** Every active flag bit spelled out, incl. a fallback for undefined bits. */
+function gpsActiveFlags(gps: GpsFlags): string {
+  const out: string[] = [];
+  if (gps.rtk) out.push('RTK corrections');
+  if (gps.rtk_fixed) out.push('Fixed solution');
+  if (gps.rtk_float) out.push('Float solution');
+  if (gps.dead_reckoning) out.push('Dead reckoning');
+  const unknown = gps.flags & ~0b1111; // bits beyond the four defined flags
+  if (unknown) out.push(`unknown 0x${unknown.toString(16)}`);
+  return out.length > 0 ? out.join(', ') : 'none';
+}
+
 /** A labelled block with an icon header. */
 function SensorCard({title, icon, children}: {title: string; icon: ReactNode; children: ReactNode}) {
   const theme = useTheme();
@@ -267,6 +305,10 @@ export default function SensorsPage() {
             )}
             {power && (
               <>
+                {/* This HW has no smart-battery (/ll/battery) topic, so the real pack
+                    voltage/charge come from /ll/power. Only surface them here when the
+                    dedicated battery block is absent, to avoid duplicate rows. */}
+                {!battery && <Readout label="Battery voltage" value={fmt(power.battery_voltage, 2, 'V')} />}
                 <Readout label="Charger voltage" value={fmt(power.charge_voltage, 2, 'V')} />
                 <Readout label="Charger current" value={fmt(power.charge_current, 2, 'A')} />
                 {power.charger_status && <Readout label="Charger status" value={power.charger_status} />}
@@ -305,27 +347,18 @@ export default function SensorsPage() {
             {gps && (
               <>
                 <Readout
-                  label="RTK fix"
-                  value={
-                    <Chip
-                      size="small"
-                      label={
-                        gps.rtk_fixed
-                          ? 'RTK Fixed'
-                          : gps.rtk_float
-                            ? 'RTK Float'
-                            : gps.dead_reckoning
-                              ? 'Dead reckoning'
-                              : gps.rtk
-                                ? 'RTK (converging)'
-                                : 'No fix'
-                      }
-                      color={gps.rtk_fixed ? 'success' : gps.rtk_float ? 'warning' : 'default'}
-                    />
-                  }
+                  label="Fix type"
+                  value={<Chip size="small" label={gpsFixLabel(gps)} color={gpsFixColor(gps)} />}
                 />
                 <Readout label="Fix accuracy" value={fmt(gps.position_accuracy, 3, 'm', '±')} />
-                <Readout label="GPS flags" value={`0x${gps.flags.toString(16)}`} />
+                <Readout
+                  label="GPS flags"
+                  value={
+                    <Box component="span" title={`0x${gps.flags.toString(16)}`}>
+                      {gpsActiveFlags(gps)}
+                    </Box>
+                  }
+                />
               </>
             )}
             {datum && <Readout label="Datum" value={`${datum.lat.toFixed(6)}, ${datum.long.toFixed(6)}`} />}
