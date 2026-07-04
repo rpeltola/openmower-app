@@ -2,7 +2,7 @@ import {useMapboxDraw, useMapContext, useMapSelection, withDisplaySortKeys} from
 import type {AreaFeature} from '@/types/geojson';
 import {removeMiniCoords} from '@/utils/area-utils';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
-import {useTheme} from '@mui/material';
+import {Alert, useTheme} from '@mui/material';
 import {difference} from '@turf/difference';
 import {featureCollection} from '@turf/helpers';
 import {union} from '@turf/union';
@@ -57,14 +57,18 @@ export default function EditControls({
 
   const theme = useTheme();
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = useCallback(async () => {
     setIsSaving(true);
+    setSaveError(null);
     try {
       await saveMapToMower();
       setEditMode(false);
     } catch (error) {
       console.error('Error saving map to mower:', error);
+      // Keep the user in edit mode so their unsaved work isn't lost, and show why.
+      setSaveError(error instanceof Error ? error.message : 'Failed to save the map to the mower.');
     } finally {
       setIsSaving(false);
     }
@@ -129,6 +133,15 @@ export default function EditControls({
 
   return (
     <>
+      {saveError && (
+        <Alert
+          severity="error"
+          onClose={() => setSaveError(null)}
+          sx={{position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 10, maxWidth: 360}}
+        >
+          {saveError}
+        </Alert>
+      )}
       <ControlButton
         position="top-left"
         icon={SaveIcon}
