@@ -124,6 +124,10 @@ export const stateSchema = z.object({
   current_state: z.string(),
   current_action_progress: z.number(),
   current_area: z.number(),
+  // Human-readable area from mower_logic's HighLevelStatus. Empty when idle;
+  // default so older gateway payloads without these fields still parse.
+  current_area_id: z.string().default(''),
+  current_area_name: z.string().default(''),
   current_path: z.number(),
   current_path_index: z.number(),
   current_sub_state: z.string(),
@@ -384,6 +388,8 @@ export const stateDefaults: StateOptionalPose = {
   battery_percentage: 100,
   current_action_progress: 0.0,
   current_area: -1,
+  current_area_id: '',
+  current_area_name: '',
   current_path: -1,
   current_path_index: -1,
   current_state: 'UNKNOWN',

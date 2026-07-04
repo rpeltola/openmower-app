@@ -266,13 +266,6 @@ export default function SensorsPage() {
             {emergencyInfo?.active && emergencyInfo.reason && (
               <Readout label="Emergency reason" value={emergencyInfo.reason} />
             )}
-            <Divider sx={{my: 1}} />
-            <MeteredValue
-              label="Action progress"
-              displayValue={`${progressPercent}%`}
-              percent={progressPercent}
-              color="info"
-            />
           </SensorCard>
 
           {/* Battery & power */}
@@ -402,12 +395,31 @@ export default function SensorsPage() {
             )}
           </SensorCard>
 
-          {/* Current job */}
+          {/* Current job: area name + live mowing progress from HighLevelStatus. */}
           <SensorCard title="Current Job" icon={<ProgressIcon />}>
-            <Readout label="Area" value={state.current_area >= 0 ? state.current_area : '—'} />
-            <Readout label="Path" value={state.current_path >= 0 ? state.current_path : '—'} />
-            <Readout label="Path index" value={state.current_path_index >= 0 ? state.current_path_index : '—'} />
-            {position?.attributes.job_id && <Readout label="Job ID" value={position.attributes.job_id} />}
+            {state.current_area >= 0 || state.current_area_name ? (
+              <>
+                <Readout
+                  label="Area"
+                  value={
+                    state.current_area_name || (state.current_area >= 0 ? `Area ${state.current_area}` : '—')
+                  }
+                />
+                <MeteredValue
+                  label="Progress"
+                  displayValue={`${progressPercent}%`}
+                  percent={progressPercent}
+                  color="info"
+                />
+                <Readout label="Path" value={state.current_path >= 0 ? state.current_path : '—'} />
+                <Readout label="Path index" value={state.current_path_index >= 0 ? state.current_path_index : '—'} />
+                {position?.attributes.job_id && <Readout label="Job ID" value={position.attributes.job_id} />}
+              </>
+            ) : (
+              <Typography variant="body2" color="text.disabled" sx={{py: 0.5}}>
+                No active job.
+              </Typography>
+            )}
           </SensorCard>
 
           {/* Drive & mower motor telemetry (ESC status) */}
