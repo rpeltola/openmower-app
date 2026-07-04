@@ -147,6 +147,15 @@ export default function SensorsPage() {
   const isConnected = mqttStatus === 'connected';
   const pose = state.pose;
   const blades = position?.attributes.blades ?? false;
+  // Full low-level telemetry from the ROS2 gateway (robot_state.sensors). Each
+  // block is present only when its /ll/* source topic is live.
+  const sensors = state.sensors;
+  const power = sensors?.power;
+  const battery = sensors?.battery;
+  const mower = sensors?.mower;
+  const escLeft = sensors?.esc_left;
+  const escRight = sensors?.esc_right;
+  const emergencyInfo = sensors?.emergency;
   // current_action_progress is a 0..1 fraction from ROS.
   const progressPercent = Math.round(Math.max(0, Math.min(1, state.current_action_progress)) * 100);
   const headingRad = pose?.heading ?? position?.heading;
@@ -200,6 +209,9 @@ export default function SensorsPage() {
             </Box>
             <Readout label="State" value={humanizeState(state.current_state)} />
             {state.current_sub_state && <Readout label="Sub-state" value={humanizeState(state.current_sub_state)} />}
+            {emergencyInfo?.active && emergencyInfo.reason && (
+              <Readout label="Emergency reason" value={emergencyInfo.reason} />
+            )}
             <Divider sx={{my: 1}} />
             <MeteredValue
               label="Action progress"
@@ -227,6 +239,23 @@ export default function SensorsPage() {
                 />
               }
             />
+            {(battery || power) && <Divider sx={{my: 1}} />}
+            {battery && (
+              <>
+                <Readout label="Battery voltage" value={`${battery.voltage.toFixed(2)} V`} />
+                <Readout label="Battery current" value={`${battery.current.toFixed(2)} A`} />
+                <Readout label="Battery temp" value={`${battery.temperature.toFixed(1)} °C`} />
+                <Readout label="State of charge" value={`${battery.state_of_charge.toFixed(0)}%`} />
+                <Readout label="Charge cycles" value={battery.cycle_count} />
+              </>
+            )}
+            {power && (
+              <>
+                <Readout label="Charger voltage" value={`${power.charge_voltage.toFixed(2)} V`} />
+                <Readout label="Charger current" value={`${power.charge_current.toFixed(2)} A`} />
+                {power.charger_status && <Readout label="Charger status" value={power.charger_status} />}
+              </>
+            )}
           </SensorCard>
 
           {/* Positioning / GPS */}
@@ -305,6 +334,63 @@ export default function SensorsPage() {
             <Readout label="Path index" value={state.current_path_index >= 0 ? state.current_path_index : '—'} />
             {position?.attributes.job_id && <Readout label="Job ID" value={position.attributes.job_id} />}
           </SensorCard>
+
+          {/* Drive & mower motor telemetry (ESC status) */}
+          {(escLeft || escRight || mower) && (
+            <SensorCard title="Drive & Mower Motors" icon={<SensorIcon />}>
+              {escLeft && (
+                <>
+                  <Readout
+                    label="Left drive"
+                    value={`${escLeft.rpm} rpm · ${escLeft.current.toFixed(1)} A`}
+                  />
+                  <Readout
+                    label="Left temp (motor / PCB)"
+                    value={`${escLeft.temperature_motor.toFixed(1)} / ${escLeft.temperature_pcb.toFixed(1)} °C`}
+                  />
+                </>
+              )}
+              {escRight && (
+                <>
+                  <Readout
+                    label="Right drive"
+                    value={`${escRight.rpm} rpm · ${escRight.current.toFixed(1)} A`}
+                  />
+                  <Readout
+                    label="Right temp (motor / PCB)"
+                    value={`${escRight.temperature_motor.toFixed(1)} / ${escRight.temperature_pcb.toFixed(1)} °C`}
+                  />
+                </>
+              )}
+              {mower && (
+                <>
+                  {(escLeft || escRight) && <Divider sx={{my: 1}} />}
+                  <Readout
+                    label={
+                      <Box component="span" sx={{display: 'inline-flex', alignItems: 'center', gap: 0.5}}>
+                        <BladeIcon fontSize="inherit" /> Mower motor
+                      </Box>
+                    }
+                    value={`${mower.motor_rpm.toFixed(0)} rpm · ${mower.esc_current.toFixed(1)} A`}
+                  />
+                  <Readout
+                    label="Mower temp (motor / ESC)"
+                    value={`${mower.motor_temperature.toFixed(1)} / ${mower.esc_temperature.toFixed(1)} °C`}
+                  />
+                  <Readout
+                    label="Rain"
+                    value={
+                      <Chip
+                        size="small"
+                        label={mower.rain_detected ? 'Detected' : 'Dry'}
+                        color={mower.rain_detected ? 'info' : 'default'}
+                      />
+                    }
+                  />
+                </>
+              )}
+            </SensorCard>
+          )}
         </Box>
       </PageContent>
     </Page>

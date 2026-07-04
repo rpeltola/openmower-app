@@ -24,6 +24,77 @@ const gpsPercentage = z
   .max(1)
   .transform((v) => Math.round(Math.max(0, v) * 100));
 
+// Full low-level sensor telemetry, folded into robot_state by the ROS2 gateway
+// (sim_mow/app_gateway.py) from the mower_comms_v2 /ll/* topics. Every block is
+// optional: it appears only once its source topic has ticked, so the sensors page
+// can render exactly what the mower reports. Field names mirror the mower_msgs
+// definitions. looseObject tolerates future field additions without a schema bump.
+const escStatusSchema = z.looseObject({
+  status: z.number(),
+  current: z.number(),
+  tacho: z.number(),
+  rpm: z.number(),
+  temperature_motor: z.number(),
+  temperature_pcb: z.number(),
+});
+
+export const sensorsSchema = z.looseObject({
+  power: z
+    .looseObject({
+      charge_voltage: z.number(),
+      charge_current: z.number(),
+      battery_voltage: z.number(),
+      battery_pct: z.number(),
+      dcdc_input_current: z.number(),
+      charger_input_current: z.number(),
+      charger_enabled: z.boolean(),
+      charger_status: z.string(),
+    })
+    .optional(),
+  battery: z
+    .looseObject({
+      voltage: z.number(),
+      current: z.number(),
+      state_of_charge: z.number(),
+      remaining_capacity: z.number(),
+      full_charge_capacity: z.number(),
+      cycle_count: z.number(),
+      temperature: z.number(),
+      status: z.string(),
+    })
+    .optional(),
+  esc_left: escStatusSchema.optional(),
+  esc_right: escStatusSchema.optional(),
+  mower: z
+    .looseObject({
+      esc_status: z.number(),
+      esc_temperature: z.number(),
+      esc_current: z.number(),
+      motor_temperature: z.number(),
+      motor_rpm: z.number(),
+      mow_enabled: z.boolean(),
+      rain_detected: z.boolean(),
+      esc_power: z.boolean(),
+      raspberry_pi_power: z.boolean(),
+      mower_status: z.number(),
+    })
+    .optional(),
+  emergency: z
+    .looseObject({
+      active: z.boolean(),
+      latched: z.boolean(),
+      reason: z.string(),
+    })
+    .optional(),
+  imu: z
+    .looseObject({
+      linear_acceleration: z.object({x: z.number(), y: z.number(), z: z.number()}),
+      angular_velocity: z.object({x: z.number(), y: z.number(), z: z.number()}),
+    })
+    .optional(),
+});
+export type Sensors = z.infer<typeof sensorsSchema>;
+
 export const stateSchema = z.object({
   battery_percentage: percentage,
   current_state: z.string(),
@@ -35,6 +106,7 @@ export const stateSchema = z.object({
   emergency: numericBoolean,
   gps_percentage: gpsPercentage,
   is_charging: numericBoolean,
+  sensors: sensorsSchema.optional(),
   pose: z.object({
     heading: z.number(),
     heading_accuracy: z.number(),
