@@ -51,6 +51,21 @@ function humanizeState(value: string): string {
     .join(' ');
 }
 
+// Units that read better without a space between value and unit.
+const TIGHT_UNITS = new Set(['%', '°']);
+
+/**
+ * Format a telemetry number that may be null. The ROS2 gateway sends `null` for any
+ * value the hardware reports as NaN (an unpopulated current/ADC channel, etc.), so
+ * render those as an em dash instead of crashing on `null.toFixed()` or printing NaN.
+ */
+function fmt(value: number | null | undefined, digits: number, unit?: string, prefix = ''): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const num = `${prefix}${value.toFixed(digits)}`;
+  if (!unit) return num;
+  return TIGHT_UNITS.has(unit) ? `${num}${unit}` : `${num} ${unit}`;
+}
+
 /** A labelled block with an icon header. */
 function SensorCard({title, icon, children}: {title: string; icon: ReactNode; children: ReactNode}) {
   const theme = useTheme();
@@ -243,17 +258,17 @@ export default function SensorsPage() {
             {(battery || power) && <Divider sx={{my: 1}} />}
             {battery && (
               <>
-                <Readout label="Battery voltage" value={`${battery.voltage.toFixed(2)} V`} />
-                <Readout label="Battery current" value={`${battery.current.toFixed(2)} A`} />
-                <Readout label="Battery temp" value={`${battery.temperature.toFixed(1)} °C`} />
-                <Readout label="State of charge" value={`${battery.state_of_charge.toFixed(0)}%`} />
+                <Readout label="Battery voltage" value={fmt(battery.voltage, 2, 'V')} />
+                <Readout label="Battery current" value={fmt(battery.current, 2, 'A')} />
+                <Readout label="Battery temp" value={fmt(battery.temperature, 1, '°C')} />
+                <Readout label="State of charge" value={fmt(battery.state_of_charge, 0, '%')} />
                 <Readout label="Charge cycles" value={battery.cycle_count} />
               </>
             )}
             {power && (
               <>
-                <Readout label="Charger voltage" value={`${power.charge_voltage.toFixed(2)} V`} />
-                <Readout label="Charger current" value={`${power.charge_current.toFixed(2)} A`} />
+                <Readout label="Charger voltage" value={fmt(power.charge_voltage, 2, 'V')} />
+                <Readout label="Charger current" value={fmt(power.charge_current, 2, 'A')} />
                 {power.charger_status && <Readout label="Charger status" value={power.charger_status} />}
               </>
             )}
@@ -309,7 +324,7 @@ export default function SensorsPage() {
                     />
                   }
                 />
-                <Readout label="Fix accuracy" value={`±${gps.position_accuracy.toFixed(3)} m`} />
+                <Readout label="Fix accuracy" value={fmt(gps.position_accuracy, 3, 'm', '±')} />
                 <Readout label="GPS flags" value={`0x${gps.flags.toString(16)}`} />
               </>
             )}
@@ -367,25 +382,19 @@ export default function SensorsPage() {
             <SensorCard title="Drive & Mower Motors" icon={<SensorIcon />}>
               {escLeft && (
                 <>
-                  <Readout
-                    label="Left drive"
-                    value={`${escLeft.rpm} rpm · ${escLeft.current.toFixed(1)} A`}
-                  />
+                  <Readout label="Left drive" value={`${escLeft.rpm} rpm · ${fmt(escLeft.current, 1, 'A')}`} />
                   <Readout
                     label="Left temp (motor / PCB)"
-                    value={`${escLeft.temperature_motor.toFixed(1)} / ${escLeft.temperature_pcb.toFixed(1)} °C`}
+                    value={`${fmt(escLeft.temperature_motor, 1)} / ${fmt(escLeft.temperature_pcb, 1, '°C')}`}
                   />
                 </>
               )}
               {escRight && (
                 <>
-                  <Readout
-                    label="Right drive"
-                    value={`${escRight.rpm} rpm · ${escRight.current.toFixed(1)} A`}
-                  />
+                  <Readout label="Right drive" value={`${escRight.rpm} rpm · ${fmt(escRight.current, 1, 'A')}`} />
                   <Readout
                     label="Right temp (motor / PCB)"
-                    value={`${escRight.temperature_motor.toFixed(1)} / ${escRight.temperature_pcb.toFixed(1)} °C`}
+                    value={`${fmt(escRight.temperature_motor, 1)} / ${fmt(escRight.temperature_pcb, 1, '°C')}`}
                   />
                 </>
               )}
@@ -398,11 +407,11 @@ export default function SensorsPage() {
                         <BladeIcon fontSize="inherit" /> Mower motor
                       </Box>
                     }
-                    value={`${mower.motor_rpm.toFixed(0)} rpm · ${mower.esc_current.toFixed(1)} A`}
+                    value={`${fmt(mower.motor_rpm, 0)} rpm · ${fmt(mower.esc_current, 1, 'A')}`}
                   />
                   <Readout
                     label="Mower temp (motor / ESC)"
-                    value={`${mower.motor_temperature.toFixed(1)} / ${mower.esc_temperature.toFixed(1)} °C`}
+                    value={`${fmt(mower.motor_temperature, 1)} / ${fmt(mower.esc_temperature, 1, '°C')}`}
                   />
                   <Readout
                     label="Rain"

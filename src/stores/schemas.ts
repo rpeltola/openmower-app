@@ -29,37 +29,47 @@ const gpsPercentage = z
 // optional: it appears only once its source topic has ticked, so the sensors page
 // can render exactly what the mower reports. Field names mirror the mower_msgs
 // definitions. looseObject tolerates future field additions without a schema bump.
+//
+// nullableNumber: the gateway maps any NON-FINITE float (NaN/Inf) to JSON null
+// (its _json_sanitize), because a bare NaN is invalid JSON and would make the whole
+// robot_state message unparseable. The hardware legitimately reports several analog
+// readings as NaN when a sensor/rail is unpopulated (e.g. the DC-DC and charger input
+// currents, ADC channels), so EVERY raw float that passes straight through from a
+// mower_msgs field must accept null. Integer fields (flags, tacho, cycle counts,
+// enums) and booleans stay strict. Render null as "—", never NaN/0 (see sensors page).
+const nullableNumber = z.number().nullable();
+
 const escStatusSchema = z.looseObject({
   status: z.number(),
-  current: z.number(),
+  current: nullableNumber,
   tacho: z.number(),
   rpm: z.number(),
-  temperature_motor: z.number(),
-  temperature_pcb: z.number(),
+  temperature_motor: nullableNumber,
+  temperature_pcb: nullableNumber,
 });
 
 export const sensorsSchema = z.looseObject({
   power: z
     .looseObject({
-      charge_voltage: z.number(),
-      charge_current: z.number(),
-      battery_voltage: z.number(),
-      battery_pct: z.number(),
-      dcdc_input_current: z.number(),
-      charger_input_current: z.number(),
+      charge_voltage: nullableNumber,
+      charge_current: nullableNumber,
+      battery_voltage: nullableNumber,
+      battery_pct: nullableNumber,
+      dcdc_input_current: nullableNumber,
+      charger_input_current: nullableNumber,
       charger_enabled: z.boolean(),
       charger_status: z.string(),
     })
     .optional(),
   battery: z
     .looseObject({
-      voltage: z.number(),
-      current: z.number(),
-      state_of_charge: z.number(),
-      remaining_capacity: z.number(),
-      full_charge_capacity: z.number(),
+      voltage: nullableNumber,
+      current: nullableNumber,
+      state_of_charge: nullableNumber,
+      remaining_capacity: nullableNumber,
+      full_charge_capacity: nullableNumber,
       cycle_count: z.number(),
-      temperature: z.number(),
+      temperature: nullableNumber,
       status: z.string(),
     })
     .optional(),
@@ -68,10 +78,10 @@ export const sensorsSchema = z.looseObject({
   mower: z
     .looseObject({
       esc_status: z.number(),
-      esc_temperature: z.number(),
-      esc_current: z.number(),
-      motor_temperature: z.number(),
-      motor_rpm: z.number(),
+      esc_temperature: nullableNumber,
+      esc_current: nullableNumber,
+      motor_temperature: nullableNumber,
+      motor_rpm: nullableNumber,
       mow_enabled: z.boolean(),
       rain_detected: z.boolean(),
       esc_power: z.boolean(),
@@ -88,8 +98,8 @@ export const sensorsSchema = z.looseObject({
     .optional(),
   imu: z
     .looseObject({
-      linear_acceleration: z.object({x: z.number(), y: z.number(), z: z.number()}),
-      angular_velocity: z.object({x: z.number(), y: z.number(), z: z.number()}),
+      linear_acceleration: z.object({x: nullableNumber, y: nullableNumber, z: nullableNumber}),
+      angular_velocity: z.object({x: nullableNumber, y: nullableNumber, z: nullableNumber}),
     })
     .optional(),
   gps: z
@@ -99,9 +109,9 @@ export const sensorsSchema = z.looseObject({
       rtk_fixed: z.boolean(),
       rtk_float: z.boolean(),
       dead_reckoning: z.boolean(),
-      position_accuracy: z.number(),
+      position_accuracy: nullableNumber,
       orientation_valid: z.boolean(),
-      orientation_accuracy: z.number(),
+      orientation_accuracy: nullableNumber,
       motion_vector_valid: z.boolean(),
       quality: z.number(),
     })

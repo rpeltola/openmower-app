@@ -242,7 +242,14 @@ export const useMowersStore = create<MowersStore>()(
 
         client.on('message', (topic, payload) => {
           const clientMower = clientMowers.find((clientMower) => topic.startsWith(clientMower.prefix));
-          if (clientMower !== undefined) {
+          if (clientMower === undefined) {
+            return;
+          }
+          // Parse defensively: a single malformed/unexpected payload on ANY topic
+          // (e.g. a schema mismatch after a firmware/gateway change, or a field the
+          // hardware reports in a new shape) must NOT throw to the top and take down
+          // the whole UI. Drop and log that one message; the last good state stays.
+          try {
             const {idx, prefix} = clientMower;
             const partialTopic = topic.substring(prefix.length);
             if (partialTopic === 'robot_state/json') {
@@ -306,6 +313,8 @@ export const useMowersStore = create<MowersStore>()(
                 }
               });
             }
+          } catch (err) {
+            console.warn(`Dropping malformed MQTT message on ${topic}:`, err);
           }
         });
       }
