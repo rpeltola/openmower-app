@@ -10,6 +10,9 @@ const DEAD_ZONE = 8;
 const DPAD_ZONE_START = 0.55;
 const DPAD_RAMP_DURATION_MS = 1500;
 const ANGULAR_FACTOR = 1.6;
+// vx is now real m/s: cap forward speed below the mower's ~0.5 m/s max wheel
+// speed so turning-while-driving keeps wheel headroom instead of saturating.
+const MAX_LINEAR = 0.35;
 
 type DpadDirection = 'up' | 'down' | 'left' | 'right' | null;
 
@@ -51,9 +54,9 @@ export default function VirtualJoystick({onVelocityChange, disabled = false}: Vi
     const t = Math.min(elapsed / DPAD_RAMP_DURATION_MS, 1);
     switch (dir) {
       case 'up':
-        return {vx: t, vz: 0};
+        return {vx: t * MAX_LINEAR, vz: 0};
       case 'down':
-        return {vx: -t, vz: 0};
+        return {vx: -t * MAX_LINEAR, vz: 0};
       case 'left':
         return {vx: 0, vz: t * ANGULAR_FACTOR};
       case 'right':
@@ -118,7 +121,7 @@ export default function VirtualJoystick({onVelocityChange, disabled = false}: Vi
       if (normalizedDist * maxDist < DEAD_ZONE) {
         onVelocityChange(0, 0);
       } else {
-        const vx = -(dy / maxDist);
+        const vx = -(dy / maxDist) * MAX_LINEAR;
         const vz = -(dx / maxDist) * ANGULAR_FACTOR;
         onVelocityChange(vx, vz);
       }
