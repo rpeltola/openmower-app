@@ -42,3 +42,14 @@ export function pointsToAbsolute(points: RelativePoint[], datum: UtmPoint): Abso
 export function pointsToRelative(points: AbsolutePoint[], datum: UtmPoint): RelativePoint[] {
   return points.map((point) => pointToRelative(point, datum));
 }
+
+// Project a point `distance` metres along `heading` (radians, 0 = +x/east, CCW positive --
+// the same convention the gateway's quat_to_yaw / DockingStationMarker use). Mirrors
+// OpenMowerNext's GeoJSONMap::movePointTowardsOrientation (origin + distance*(cos, sin)),
+// used to encode a docking station's heading as a synthetic second LineString point.
+export function movePointTowardsHeading(point: RelativePoint, heading: number, distance: number): RelativePoint {
+  return {
+    x: point.x + distance * Math.cos(heading),
+    y: point.y + distance * Math.sin(heading),
+  };
+}

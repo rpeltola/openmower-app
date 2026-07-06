@@ -180,7 +180,7 @@ export type Area = z.infer<typeof areaSchema>;
 export type AreaProps = Area['properties'];
 export type AreaType = AreaProps['type'];
 
-const dockingStationSchema = z.object({
+export const dockingStationSchema = z.object({
   id: z.string(),
   properties: z.object({
     name: z.string().optional(),
@@ -188,7 +188,12 @@ const dockingStationSchema = z.object({
   }),
   position: pointSchema,
   heading: z.number(),
+  // Staging distance (m) the robot approaches from before its final docking approach.
+  // 0 (also the default for maps recorded before this field existed) means "not set" --
+  // the docking system falls back to its own configured default.
+  approach_distance: z.number().default(0),
 });
+export type DockingStation = z.infer<typeof dockingStationSchema>;
 
 export const mapSchema = z.object({
   datum: datumSchema.optional(),
@@ -253,6 +258,36 @@ export const missionStateSchema = z.object({
   eta_s: z.number().optional(),
 });
 export type MissionState = z.infer<typeof missionStateSchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Docking-station recording (record_docking/start|cancel -> record_docking/status)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Mirrors open_mower_next/action/RecordDockingStation's Feedback.STATUS_* names, plus the two
+// terminal outcomes the gateway adds once the action finishes (see sim_mow/app_gateway.py's
+// _RECORD_DOCK_PHASE / _on_record_dock_result). 'idle' doubles as "nothing in progress".
+export const recordDockingPhaseSchema = z.enum([
+  'idle',
+  'driving',
+  'waiting_for_charging',
+  'recording',
+  'saving',
+  'success',
+  'failed',
+]);
+export type RecordDockingPhase = z.infer<typeof recordDockingPhaseSchema>;
+
+export const recordDockingStatusSchema = z.object({
+  phase: recordDockingPhaseSchema,
+  // Raw RecordDockingStation.Feedback.STATUS_* value (0 while idle/on a terminal phase).
+  status: z.number(),
+  message: z.string().default(''),
+  // RecordDockingStation.Result.CODE_* value; only present once phase is 'success'/'failed'.
+  code: z.number().optional(),
+  // Only present when phase === 'success'; same shape as a map/json docking_stations[] entry.
+  docking_station: dockingStationSchema.optional(),
+});
+export type RecordDockingStatus = z.infer<typeof recordDockingStatusSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Planned path (slic3r planned path map layer)

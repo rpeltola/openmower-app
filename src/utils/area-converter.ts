@@ -1,7 +1,8 @@
-import {fallbackDatum, type Area, type AreaProps, type MapData} from '@/stores/schemas';
-import type {AreaFeature} from '@/types/geojson';
+import {fallbackDatum, type Area, type AreaProps, type DockingStation, type MapData} from '@/stores/schemas';
+import type {AreaFeature, DockingStationFeature} from '@/types/geojson';
 import {
   datumToRelative,
+  movePointTowardsHeading,
   pointsToAbsolute,
   pointsToRelative,
   type AbsolutePoint,
@@ -9,9 +10,14 @@ import {
   type UtmPoint,
 } from '@/utils/coordinates';
 import area from '@turf/area';
-import {featureCollection, polygon} from '@turf/helpers';
+import {featureCollection, lineString, polygon} from '@turf/helpers';
 import type {Feature, FeatureCollection, Polygon} from 'geojson';
 import {produce} from 'immer';
+
+// Synthetic second point of a docking station's LineString, `0.5m` along its heading --
+// purely to encode orientation (GeoJSON has no native oriented-point type). Matches the
+// backend's dockingStationToGeoJSONFeature (movePointTowardsOrientation(pos, orientation, 0.5)).
+const DOCK_ORIENTATION_POINT_DISTANCE_M = 0.5;
 
 // Remove consecutive duplicate or near-duplicate points — floating point artifacts from the mower,
 // including low-precision truncated coordinates (~2mm apart in meter-space).
@@ -56,6 +62,61 @@ function featureToArea(feature: AreaFeature, datum: UtmPoint): Area {
   };
 }
 
+// Docking stations round-trip through the SAME 2-point-LineString convention the backend
+// uses on disk (see src/types/geojson.ts DockingStationFeature), so DownloadButton/
+// UploadButton and the backend's own map.geojson stay symmetric with what the app edits.
+function dockingStationToFeature(dock: DockingStation, datum: UtmPoint): DockingStationFeature | null {
+  const orientationPoint = movePointTowardsHeading(dock.position, dock.heading, DOCK_ORIENTATION_POINT_DISTANCE_M);
+  const coordinates = pointsToAbsolute([dock.position, orientationPoint], datum);
+  if (coordinates.length < 2) {
+    // pointToAbsolute dropped a non-finite/out-of-range point; skip rather than emit a
+    // malformed 1-point (or empty) LineString.
+    return null;
+  }
+  return lineString(
+    coordinates,
+    {
+      type: 'docking_station',
+      name: dock.properties.name,
+      active: dock.properties.active,
+      approach_distance: dock.approach_distance,
+    },
+    {id: dock.id},
+  ) as DockingStationFeature;
+}
+
+function featureToDockingStation(feature: DockingStationFeature, datum: UtmPoint): DockingStation {
+  const [originAbs, orientationAbs] = feature.geometry.coordinates as AbsolutePoint[];
+  const [origin, orientationPoint] = pointsToRelative([originAbs, orientationAbs], datum);
+  return {
+    id: feature.id as string,
+    properties: {
+      name: feature.properties.name,
+      active: feature.properties.active,
+    },
+    position: origin,
+    heading: Math.atan2(orientationPoint.y - origin.y, orientationPoint.x - origin.x),
+    approach_distance: feature.properties.approach_distance ?? 0,
+  };
+}
+
+// Exported so components that need docking stations *as data* (e.g. map markers) can
+// derive them from the live Draw feature collection instead of a second, easily-desynced
+// copy -- see MowerMap.tsx's rendering-source note. Defensive on coordinate count: a user
+// could, in principle, delete/duplicate a vertex on a dock's LineString via Draw's default
+// direct_select editing (the backend's own parser is similarly defensive, see
+// GeoJSONMap::parseLineStringFeature).
+export function featuresToDockingStations(features: FeatureCollection, datum: UtmPoint): DockingStation[] {
+  return features.features
+    .filter(
+      (feature): feature is DockingStationFeature =>
+        feature.geometry.type === 'LineString' &&
+        (feature.properties as {type?: string} | null)?.type === 'docking_station' &&
+        feature.geometry.coordinates.length >= 2,
+    )
+    .map((feature) => featureToDockingStation(feature, datum));
+}
+
 function convertDatum(datum: {lat: number; long: number}) {
   return datumToRelative([datum.long, datum.lat]);
 }
@@ -65,10 +126,16 @@ export function mapToFeatures(map?: MapData): FeatureCollection {
     return featureCollection([]);
   }
   const datum = convertDatum(map.datum ?? fallbackDatum);
-  const features = map.areas
+  const areaFeatures = map.areas
     .map((area) => areaToFeature(area, datum))
     .filter((f): f is Feature<Polygon, AreaProps> => f !== null);
-  return featureCollection(features);
+  const dockFeatures = map.docking_stations
+    .map((dock) => dockingStationToFeature(dock, datum))
+    .filter((f): f is DockingStationFeature => f !== null);
+  // Cast to the broad `Feature` type: featureCollection() is generic over a single
+  // geometry/properties pair, but this collection intentionally mixes area Polygons
+  // and docking-station LineStrings.
+  return featureCollection([...areaFeatures, ...dockFeatures] as Feature[]);
 }
 
 // Thrown when a save is attempted before the mower has reported its GPS datum.
@@ -92,7 +159,7 @@ export function featuresToMap(map: MapData, features: FeatureCollection) {
       .filter((feature) => feature.geometry.type === 'Polygon')
       .map((feature) => featureToArea(feature as AreaFeature, datum));
 
-    // TODO: Convert docking stations (but we don't say the orientation, so we can't convert them back).
+    draft.docking_stations = featuresToDockingStations(features, datum);
   });
 }
 
@@ -115,6 +182,9 @@ export function getFeatureDescription(feature: Feature) {
   }
 
   if (type === 'LineString') {
+    if (properties?.type === 'docking_station') {
+      return 'Docking station';
+    }
     const coordinates = feature.geometry.coordinates;
     return `LineString (${coordinates.length} points)`;
   }

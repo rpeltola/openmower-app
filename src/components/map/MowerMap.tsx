@@ -8,6 +8,7 @@ import {useMapDisplayStore} from '@/stores/mapDisplayStore';
 import {useSelectedMower} from '@/stores/mowersStore';
 import {MapData, type AreaProps} from '@/stores/schemas';
 import type {AreaFeature} from '@/types/geojson';
+import {featuresToDockingStations} from '@/utils/area-converter';
 import {generateId, splitPolygonWithLine} from '@/utils/area-utils';
 import {datumToRelative, pointsToRelative, type AbsolutePoint} from '@/utils/coordinates';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
@@ -61,7 +62,7 @@ interface MowerMapProps {
   sx: SxProps;
 }
 
-export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
+export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
   const {
     id,
     datum,
@@ -90,6 +91,15 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
     [features],
   );
   const workingAreas = useMemo(() => areas.filter((area) => area.properties.type === 'mow'), [areas]);
+  // Docking stations are sourced from the SAME `features` collection the Draw layer edits
+  // (single source of truth), not from `mapData.docking_stations` directly: in view mode
+  // `features` already mirrors mapData (see app/map/page.tsx's sync effect), and in edit
+  // mode it's the live, being-edited copy -- reading mapData directly here would show a
+  // stale marker mid-edit, out of sync with the LineString the user is dragging.
+  const dockingStations = useMemo(
+    () => featuresToDockingStations(features, datumToRelative([datumOrFallback.long, datumOrFallback.lat])),
+    [features, datumOrFallback],
+  );
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const {showSatelliteLayer, showTrackLayer, showPlannedPath, showAreaList, selectedJobId, setShowAreaList} =
@@ -374,7 +384,7 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
             <MissionPanel composer={missionComposer} areas={workingAreas} onClose={() => setShowMissionPanel(false)} />
           </MapDialog>
         )}
-        {mapData.docking_stations.map((station) => (
+        {dockingStations.map((station) => (
           <DockingStationMarker key={station.id} station={station} datum={datumOrFallback} isDocked={isDocked} />
         ))}
         {mowerPosition && !isDocked && <MowerMarker position={mowerPosition} datum={datumOrFallback} />}

@@ -41,7 +41,15 @@ export const drawStyles = [
   {
     id: 'gl-draw-lines',
     type: 'line',
-    filter: ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
+    // Docking stations are a 2-point LineString purely to encode heading (see
+    // area-converter.ts dockingStationToFeature) -- the connecting segment isn't
+    // meaningful geometry to a user, so hide it; DockingStationMarker draws the actual
+    // icon, and the (still-visible) vertex/midpoint circles remain draggable when selected.
+    filter: [
+      'all',
+      ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
+      ['!=', ['get', 'user_type'], 'docking_station'],
+    ],
     layout: {
       'line-cap': 'round',
       'line-join': 'round',

@@ -24,6 +24,7 @@ import {useDialog} from 'react-dialog-async';
 import ControlButton from '../ControlButton';
 import {AreaSettingsDialog} from './AreaSettingsDialog';
 import {CancelConfirmDialog} from './CancelConfirmDialog';
+import {DockingStationSettingsDialog} from './DockingStationSettingsDialog';
 import MergeDialog from './MergeDialog';
 import SubtractDialog from './SubtractDialog';
 
@@ -50,7 +51,14 @@ export default function EditControls({
   const selectedIds = useMapSelection();
   const selectedAreas = areas.filter((area) => selectedIds.includes(area.id as string));
   const isDrawing = drawMode === MapboxDraw.constants.modes.DRAW_POLYGON;
+  // The Settings button opens the dialog matching the SINGLE selected feature's type --
+  // a docking station is a LineString (see area-converter.ts's dockingStationToFeature),
+  // not a Polygon, so it needs its own dialog rather than AreaSettingsDialog.
+  const selectedFeature = selectedIds.length === 1 ? draw?.get(selectedIds[0]) : undefined;
+  const isDockSelected =
+    selectedFeature?.geometry.type === 'LineString' && selectedFeature.properties?.type === 'docking_station';
   const areaSettingsDialog = useDialog(AreaSettingsDialog);
+  const dockingStationSettingsDialog = useDialog(DockingStationSettingsDialog);
   const mergeDialog = useDialog(MergeDialog);
   const subtractDialog = useDialog(SubtractDialog);
   const cancelConfirmDialog = useDialog(CancelConfirmDialog);
@@ -183,7 +191,7 @@ export default function EditControls({
         title="Settings"
         //active={areaSettingsDialog.isOpen}
         disabled={selectedIds.length != 1}
-        onClick={() => areaSettingsDialog.open()}
+        onClick={() => (isDockSelected ? dockingStationSettingsDialog.open() : areaSettingsDialog.open())}
         spaced={true}
       />
       <ControlButton
