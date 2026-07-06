@@ -24,9 +24,17 @@ interface LayersButtonProps {
   datum: Datum | null;
   trackLoading?: boolean;
   editMode?: boolean;
+  heatmapLoading?: boolean;
+  heatmapEmpty?: boolean;
 }
 
-export default function LayersButton({datum, trackLoading, editMode}: LayersButtonProps) {
+export default function LayersButton({
+  datum,
+  trackLoading,
+  editMode,
+  heatmapLoading,
+  heatmapEmpty,
+}: LayersButtonProps) {
   const {container} = useRControl({position: 'top-right'});
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -248,6 +256,19 @@ export default function LayersButton({datum, trackLoading, editMode}: LayersButt
               </MenuItem>
             ))}
           </Select>
+          {heatmapLoading && (
+            <Box sx={{display: 'flex', alignItems: 'center', gap: 1, mt: 0.75}}>
+              <CircularProgress size={12} />
+              <Typography variant="caption" color="text.secondary">
+                Loading heatmap…
+              </Typography>
+            </Box>
+          )}
+          {heatmapEmpty && (
+            <Typography variant="caption" color="text.disabled" sx={{display: 'block', mt: 0.75}}>
+              No heatmap data
+            </Typography>
+          )}
         </Box>
       </Popover>
     </>

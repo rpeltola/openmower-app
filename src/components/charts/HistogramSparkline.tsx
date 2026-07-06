@@ -8,7 +8,6 @@ interface HistogramSparklineProps {
   buckets?: HistogramBuckets;
   unit?: string;
   digits?: number;
-  isMock?: boolean;
   width?: number;
   height?: number;
 }
@@ -24,17 +23,17 @@ export default function HistogramSparkline({
   buckets,
   unit = '',
   digits = 1,
-  isMock = false,
   width = 140,
   height = 32,
 }: HistogramSparklineProps) {
   const theme = useTheme();
   const titleId = useId();
 
-  if (!buckets || buckets.counts.length === 0) {
+  // No feed yet, or an all-empty window: a muted placeholder, never a drawn distribution.
+  if (!buckets || buckets.counts.length === 0 || buckets.counts.every((c) => c === 0)) {
     return (
       <Typography variant="caption" color="text.disabled">
-        No recent samples
+        No recent data
       </Typography>
     );
   }
@@ -44,7 +43,7 @@ export default function HistogramSparkline({
   const max = Math.max(...counts, 1);
   const gap = 1;
   const barWidth = Math.max(1, (width - gap * (n - 1)) / n);
-  const color = isMock ? theme.palette.text.disabled : theme.palette.primary.main;
+  const color = theme.palette.primary.main;
   const peakIdx = counts.reduce((best, count, i) => (count > counts[best] ? i : best), 0);
   const peakLabel = `${(min + peakIdx * bucketWidth).toFixed(digits)}-${(min + (peakIdx + 1) * bucketWidth).toFixed(digits)}${unit}`;
 
@@ -74,11 +73,6 @@ export default function HistogramSparkline({
           );
         })}
       </svg>
-      {isMock && (
-        <Typography variant="caption" color="text.disabled" sx={{lineHeight: 1.2, mt: 0.25}}>
-          sample data
-        </Typography>
-      )}
     </Box>
   );
 }

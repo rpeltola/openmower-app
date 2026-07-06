@@ -317,7 +317,13 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
           title="Fit to bounds"
           onClick={() => fitToBounds(false, padding)}
         />
-        <LayersButton datum={datum} trackLoading={trackLoading} editMode={editMode} />
+        <LayersButton
+          datum={datum}
+          trackLoading={trackLoading}
+          editMode={editMode}
+          heatmapLoading={heatmap.loading}
+          heatmapEmpty={!!heatmapMetric && !heatmap.loading && heatmap.cells.length === 0}
+        />
         <ControlButton
           position="top-right"
           icon={LayoutListIcon}
@@ -394,7 +400,9 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
             <MissionPanel composer={missionComposer} areas={workingAreas} onClose={() => setShowMissionPanel(false)} />
           </MapDialog>
         )}
-        {heatmapMetric && !editMode && (
+        {/* Legend only when there's actual heatmap data to explain -- no cells means nothing
+            is drawn, so no legend (the "no data" note lives in the layer selector instead). */}
+        {heatmapMetric && !editMode && heatmap.cells.length > 0 && (
           <Box
             sx={{
               position: 'absolute',
@@ -408,10 +416,7 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
               minWidth: 160,
             }}
           >
-            <Box sx={{fontSize: 12, fontWeight: 600, mb: 0.5}}>
-              {HEATMAP_METRIC_LABELS[heatmapMetric]}
-              {heatmap.isMock ? ' (sample)' : ''}
-            </Box>
+            <Box sx={{fontSize: 12, fontWeight: 600, mb: 0.5}}>{HEATMAP_METRIC_LABELS[heatmapMetric]}</Box>
             <Box
               sx={{
                 height: 8,

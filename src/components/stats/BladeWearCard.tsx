@@ -23,14 +23,14 @@ import {useState} from 'react';
 
 interface BladeWearCardProps {
   blade: BladeStatus | null;
-  isMock?: boolean;
   onResetBlade: () => void;
 }
 
 /** Blade-wear card: total + left/right run hours, a change-due indicator, and the
  * "Changed blades" action that publishes `blade/reset` (see persistence/DESIGN.md's
- * ResetBlade service / MQTT contract) after a confirm dialog. */
-export default function BladeWearCard({blade, isMock = false, onResetBlade}: BladeWearCardProps) {
+ * ResetBlade service / MQTT contract) after a confirm dialog. Shows a clean "no data" state
+ * until stats/json arrives -- never fabricated wear figures. */
+export default function BladeWearCard({blade, onResetBlade}: BladeWearCardProps) {
   const theme = useTheme();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -56,7 +56,6 @@ export default function BladeWearCard({blade, isMock = false, onResetBlade}: Bla
             Blade wear
           </Typography>
           {blade?.due && <Chip size="small" color="error" label="Change due" />}
-          {isMock && <Chip size="small" variant="outlined" label="sample data" />}
         </Box>
 
         {blade ? (

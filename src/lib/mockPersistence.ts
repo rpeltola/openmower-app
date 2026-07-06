@@ -10,12 +10,18 @@ import type {
 
 /**
  * Deterministic sample data for the stats/histogram/heatmap MQTT contract (see
- * OpenMowerNext persistence/DESIGN.md "MQTT contract"). The persistence node this UI
- * talks to doesn't exist yet, so every consumer of these topics/queries falls back to a
- * fixture from here on failure/timeout -- pages render something sane during development,
- * and swap to live data the moment the real topics/queries respond. Not randomised per
- * render (seeded), so screenshots/tests are stable.
+ * OpenMowerNext persistence/DESIGN.md "MQTT contract"), for DEVELOPMENT AND TESTS ONLY.
+ *
+ * IMPORTANT: this is NEVER shown in a normal run. Fabricated readings in a deployed app
+ * read as real telemetry and are misleading, so the live UI renders real data or a clean
+ * empty state -- never these fixtures. They're used only by component tests and, as a
+ * developer convenience, when the explicit opt-in flag below is set. Seeded (not random per
+ * render) so screenshots/tests are stable.
+ *
+ * Opt-in: set `NEXT_PUBLIC_USE_MOCK_PERSISTENCE=true` at build time. Off by default, and
+ * evaluated once here so no accidental toggle leaks it into a deployment.
  */
+export const USE_MOCK_PERSISTENCE = process.env.NEXT_PUBLIC_USE_MOCK_PERSISTENCE === 'true';
 
 function seededRandom(seed: number): () => number {
   let s = seed % 2147483647;

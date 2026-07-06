@@ -3,7 +3,7 @@
 import HistogramSparkline from '@/components/charts/HistogramSparkline';
 import {HeaderStat, Page, PageContent, PageHeader} from '@/components/page';
 import {outerCardStyles} from '@/lib/cardStyles';
-import {mockHistograms} from '@/lib/mockPersistence';
+import {mockHistograms, USE_MOCK_PERSISTENCE} from '@/lib/mockPersistence';
 import {useMowersStore, useSelectedMower} from '@/stores/mowersStore';
 import type {HistogramBuckets} from '@/stores/schemas';
 
@@ -20,7 +20,7 @@ import {
   Sensors as SensorIcon,
 } from '@mui/icons-material';
 import {Box, Card, CardContent, Chip, Divider, LinearProgress, Typography, useTheme} from '@mui/material';
-import {useMemo, type ReactNode} from 'react';
+import type {ReactNode} from 'react';
 
 // The sensor values shown here come live from the robot over MQTT (see stores/mowersStore).
 // The mower publishes a consolidated `robot_state/json` (parsed into `state`) and a live
@@ -163,13 +163,11 @@ function MeteredValue({
 function HistogramRow({
   label,
   buckets,
-  isMock,
   unit,
   digits,
 }: {
   label: string;
   buckets?: HistogramBuckets;
-  isMock: boolean;
   unit?: string;
   digits?: number;
 }) {
@@ -178,7 +176,7 @@ function HistogramRow({
       <Typography variant="caption" color="text.secondary">
         {label}
       </Typography>
-      <HistogramSparkline buckets={buckets} isMock={isMock} unit={unit} digits={digits} width={120} height={28} />
+      <HistogramSparkline buckets={buckets} unit={unit} digits={digits} width={120} height={28} />
     </Box>
   );
 }
@@ -205,12 +203,11 @@ export default function SensorsPage() {
   const position = useSelectedMower((mower) => mower?.position);
   const datum = useSelectedMower((mower) => mower?.map.datum);
   const mqttStatus = useMowersStore((store) => (mowerId ? store.mqttStatuses[mowerId] : undefined));
-  // histograms/json is a ~2-5s recent-window feed; fall back to sample data until it arrives
-  // (see src/lib/mockPersistence.ts).
+  // histograms/json is a ~2-5s recent-window feed. Until it arrives this is undefined and each
+  // sparkline shows its own "no recent data" placeholder -- never a fabricated distribution in a
+  // normal run. The dev-only mock flag (off by default) is the sole exception, for local UI work.
   const liveHistograms = useSelectedMower((mower) => mower?.histograms);
-  const fallbackHistograms = useMemo(() => mockHistograms(), []);
-  const histograms = liveHistograms ?? fallbackHistograms;
-  const histogramsAreMock = !liveHistograms;
+  const histograms = liveHistograms ?? (USE_MOCK_PERSISTENCE ? mockHistograms() : undefined);
 
   if (!mowerId || !state) {
     return (
@@ -352,13 +349,7 @@ export default function SensorsPage() {
               percent={state.gps_percentage}
               color={gpsColor(state.gps_percentage)}
             />
-            <HistogramRow
-              label="Recent GPS quality"
-              buckets={histograms.gps_quality}
-              isMock={histogramsAreMock}
-              unit="%"
-              digits={0}
-            />
+            <HistogramRow label="Recent GPS quality" buckets={histograms?.gps_quality} unit="%" digits={0} />
             {pose ? (
               <>
                 <Readout label="Position accuracy" value={`±${pose.pos_accuracy.toFixed(2)} m`} />
@@ -472,8 +463,7 @@ export default function SensorsPage() {
                   <Readout label="Left drive" value={`${escLeft.rpm} rpm · ${fmt(escLeft.current, 1, 'A')}`} />
                   <HistogramRow
                     label="Recent left speed"
-                    buckets={histograms.drive_speed_left}
-                    isMock={histogramsAreMock}
+                    buckets={histograms?.drive_speed_left}
                     unit=" m/s"
                     digits={2}
                   />
@@ -488,8 +478,7 @@ export default function SensorsPage() {
                   <Readout label="Right drive" value={`${escRight.rpm} rpm · ${fmt(escRight.current, 1, 'A')}`} />
                   <HistogramRow
                     label="Recent right speed"
-                    buckets={histograms.drive_speed_right}
-                    isMock={histogramsAreMock}
+                    buckets={histograms?.drive_speed_right}
                     unit=" m/s"
                     digits={2}
                   />
@@ -512,8 +501,7 @@ export default function SensorsPage() {
                   />
                   <HistogramRow
                     label="Recent motor current"
-                    buckets={histograms.mow_motor_current}
-                    isMock={histogramsAreMock}
+                    buckets={histograms?.mow_motor_current}
                     unit=" A"
                     digits={1}
                   />

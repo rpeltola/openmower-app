@@ -12,7 +12,6 @@ interface BarTimeSeriesChartProps {
   data: TimeSeriesPoint[];
   unit?: string;
   formatValue?: (value: number) => string;
-  isMock?: boolean;
   height?: number;
 }
 
@@ -36,13 +35,7 @@ function formatDateLabel(date: string): string {
  * Single series, inline SVG, no charting library -- real axes + a hover tooltip (this is a
  * primary chart, unlike the compact sparklines on the Sensors page).
  */
-export default function BarTimeSeriesChart({
-  data,
-  unit = '',
-  formatValue,
-  isMock = false,
-  height = 200,
-}: BarTimeSeriesChartProps) {
+export default function BarTimeSeriesChart({data, unit = '', formatValue, height = 200}: BarTimeSeriesChartProps) {
   const theme = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -76,18 +69,47 @@ export default function BarTimeSeriesChart({
   const labelEvery = Math.max(1, Math.ceil(n / 8));
   const yTicks = [0, 0.5, 1].map((f) => Math.round(maxValue * f * 10) / 10);
 
-  const color = isMock ? theme.palette.text.disabled : theme.palette.primary.main;
+  const color = theme.palette.primary.main;
   const axisColor = theme.palette.divider;
   const textColor = theme.palette.text.secondary;
 
   const hovered = hoverIdx !== null ? data[hoverIdx] : null;
 
+  // Empty range: still draw the axis frame (a baseline + a top gridline) with a centered
+  // muted label, so it reads as "an empty chart" rather than a broken/missing one.
   if (n === 0) {
     return (
-      <Box sx={{py: 4, textAlign: 'center'}}>
-        <Typography variant="body2" color="text.disabled">
-          No data for this range.
-        </Typography>
+      <Box ref={containerRef} sx={{position: 'relative', width: '100%'}}>
+        <svg width={width} height={height} role="img" aria-label="No data for this range">
+          <line
+            x1={paddingLeft}
+            x2={width - paddingRight}
+            y1={paddingTop}
+            y2={paddingTop}
+            stroke={axisColor}
+            strokeWidth={1}
+            shapeRendering="crispEdges"
+          />
+          <line
+            x1={paddingLeft}
+            x2={width - paddingRight}
+            y1={paddingTop + plotHeight}
+            y2={paddingTop + plotHeight}
+            stroke={axisColor}
+            strokeWidth={1}
+            shapeRendering="crispEdges"
+          />
+          <text
+            x={paddingLeft + plotWidth / 2}
+            y={paddingTop + plotHeight / 2}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={13}
+            fill={theme.palette.text.disabled}
+          >
+            No data for this range
+          </text>
+        </svg>
       </Box>
     );
   }

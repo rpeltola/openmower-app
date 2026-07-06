@@ -6,7 +6,7 @@ import BladeWearCard from '@/components/stats/BladeWearCard';
 import StatsRangeSelector, {type RangePreset} from '@/components/stats/StatsRangeSelector';
 import {useStatsRange} from '@/hooks/useStatsRange';
 import {outerCardStyles} from '@/lib/cardStyles';
-import {MOCK_STATS} from '@/lib/mockPersistence';
+import {MOCK_STATS, USE_MOCK_PERSISTENCE} from '@/lib/mockPersistence';
 import {useSelectedMower} from '@/stores/mowersStore';
 import {
   AccessTime as HoursIcon,
@@ -15,7 +15,7 @@ import {
   QueryStats as StatsIcon,
   SquareFoot as AreaIcon,
 } from '@mui/icons-material';
-import {Box, Card, CardContent, Chip, Stack, Typography, useTheme} from '@mui/material';
+import {Box, Card, CardContent, Chip, Skeleton, Stack, Typography, useTheme} from '@mui/material';
 import {type ReactNode, useMemo, useState} from 'react';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -56,19 +56,34 @@ function rangeForPreset(preset: RangePreset, customFrom: string, customTo: strin
   }
 }
 
-function StatTile({icon, label, value, isMock}: {icon: ReactNode; label: string; value: string; isMock?: boolean}) {
+/** A stat tile that distinguishes three states: loading (skeleton), a real value, or a muted
+ * em-dash "no data" when the query resolved without a value. Never shows fabricated numbers. */
+function StatTile({
+  icon,
+  label,
+  value,
+  loading,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string | null;
+  loading: boolean;
+}) {
   const theme = useTheme();
   return (
     <Card sx={outerCardStyles(theme)}>
       <CardContent sx={{display: 'flex', alignItems: 'center', gap: 2}}>
         <Box sx={{color: 'primary.main', display: 'flex'}}>{icon}</Box>
         <Box sx={{minWidth: 0}}>
-          <Typography variant="h5" fontWeight={700} noWrap>
-            {value}
-          </Typography>
+          {loading ? (
+            <Skeleton variant="text" width={72} sx={{fontSize: '1.5rem'}} />
+          ) : (
+            <Typography variant="h5" fontWeight={700} noWrap color={value === null ? 'text.disabled' : 'text.primary'}>
+              {value ?? '—'}
+            </Typography>
+          )}
           <Typography variant="body2" color="text.secondary" noWrap>
             {label}
-            {isMock ? ' (sample)' : ''}
           </Typography>
         </Box>
       </CardContent>
@@ -76,13 +91,23 @@ function StatTile({icon, label, value, isMock}: {icon: ReactNode; label: string;
   );
 }
 
+/** Lifetime header value: the retained stats/json total, or a muted em-dash until it arrives. */
+function lifetimeValue(value: number | undefined, format: (v: number) => string): string {
+  return value === undefined ? '—' : format(value);
+}
+
 type ChartMetric = 'mowed_m2' | 'mowed_hours';
 
 export default function StatsPage() {
   const theme = useTheme();
   const name = useSelectedMower((m) => m?.name);
-  const lifetimeStats = useSelectedMower((m) => m?.stats);
+  const liveLifetimeStats = useSelectedMower((m) => m?.stats);
   const mower = useSelectedMower((m) => m);
+
+  // stats/json (retained lifetime totals + blade wear). Undefined until it arrives -> the header
+  // and blade card show clean "—"/"no data" states, never fabricated numbers. The dev-only mock
+  // flag (off by default) is the sole exception, for local UI work.
+  const lifetimeStats = liveLifetimeStats ?? (USE_MOCK_PERSISTENCE ? MOCK_STATS : undefined);
 
   const [preset, setPreset] = useState<RangePreset>('month');
   const [customFrom, setCustomFrom] = useState(() => toDateInput(new Date(Date.now() - 7 * DAY_MS)));
@@ -90,12 +115,9 @@ export default function StatsPage() {
   const [chartMetric, setChartMetric] = useState<ChartMetric>('mowed_m2');
 
   const {from, to} = useMemo(() => rangeForPreset(preset, customFrom, customTo), [preset, customFrom, customTo]);
-  const {data, loading, isMock} = useStatsRange(from, to);
+  const {data, loading} = useStatsRange(from, to);
 
-  // stats/json is retained/always-on (lifetime totals + blade wear); falls back to sample
-  // data if it hasn't arrived yet, same as the range query.
-  const blade = lifetimeStats?.blade ?? MOCK_STATS.blade;
-  const bladeIsMock = lifetimeStats === null || lifetimeStats === undefined;
+  const blade = lifetimeStats?.blade ?? null;
 
   const chartData = useMemo(
     () => (data?.per_day ?? []).map((d) => ({date: d.date, value: d[chartMetric]})),
@@ -105,9 +127,21 @@ export default function StatsPage() {
   return (
     <Page>
       <PageHeader title="Stats" subtitle={`Lifetime mowing stats for ${name ?? 'the selected mower'}`}>
-        <HeaderStat icon={<HoursIcon />} value={`${(lifetimeStats?.mowed_hours ?? MOCK_STATS.mowed_hours).toFixed(1)} h`} label="Lifetime mowed" />
-        <HeaderStat icon={<AreaIcon />} value={`${Math.round(lifetimeStats?.mowed_m2 ?? MOCK_STATS.mowed_m2)} m²`} label="Lifetime area" />
-        <HeaderStat icon={<MowCountIcon />} value={lifetimeStats?.mow_count ?? MOCK_STATS.mow_count} label="Lifetime mows" />
+        <HeaderStat
+          icon={<HoursIcon />}
+          value={lifetimeValue(lifetimeStats?.mowed_hours, (v) => `${v.toFixed(1)} h`)}
+          label="Lifetime mowed"
+        />
+        <HeaderStat
+          icon={<AreaIcon />}
+          value={lifetimeValue(lifetimeStats?.mowed_m2, (v) => `${Math.round(v)} m²`)}
+          label="Lifetime area"
+        />
+        <HeaderStat
+          icon={<MowCountIcon />}
+          value={lifetimeValue(lifetimeStats?.mow_count, (v) => `${v}`)}
+          label="Lifetime mows"
+        />
       </PageHeader>
 
       <PageContent>
@@ -137,26 +171,26 @@ export default function StatsPage() {
             <StatTile
               icon={<HoursIcon />}
               label="Mowed hours"
-              value={`${(data?.mowed_hours ?? 0).toFixed(1)} h`}
-              isMock={isMock}
+              value={data ? `${data.mowed_hours.toFixed(1)} h` : null}
+              loading={loading}
             />
             <StatTile
               icon={<AreaIcon />}
               label="Mowed area"
-              value={`${Math.round(data?.mowed_m2 ?? 0)} m²`}
-              isMock={isMock}
+              value={data ? `${Math.round(data.mowed_m2)} m²` : null}
+              loading={loading}
             />
             <StatTile
               icon={<MowCountIcon />}
               label="Number of mows"
-              value={`${data?.mow_count ?? 0}`}
-              isMock={isMock}
+              value={data ? `${data.mow_count}` : null}
+              loading={loading}
             />
             <StatTile
               icon={<BladeIcon />}
               label="Blade hours (range)"
-              value={`${(data?.blade_hours ?? 0).toFixed(1)} h`}
-              isMock={isMock}
+              value={data ? `${data.blade_hours.toFixed(1)} h` : null}
+              loading={loading}
             />
           </Box>
 
@@ -168,7 +202,6 @@ export default function StatsPage() {
                   <Typography variant="h6" component="h2">
                     Mowed per day
                   </Typography>
-                  {isMock && <Chip size="small" variant="outlined" label="sample data" />}
                 </Box>
                 <Box sx={{display: 'flex', gap: 1}}>
                   <Chip
@@ -186,21 +219,18 @@ export default function StatsPage() {
                 </Box>
               </Box>
               {loading && !data ? (
-                <Typography variant="body2" color="text.disabled">
-                  Loading…
-                </Typography>
+                <Skeleton variant="rounded" height={200} />
               ) : (
                 <BarTimeSeriesChart
                   data={chartData}
                   unit={chartMetric === 'mowed_m2' ? 'm²' : 'h'}
                   formatValue={(v) => (chartMetric === 'mowed_m2' ? Math.round(v).toString() : v.toFixed(1))}
-                  isMock={isMock}
                 />
               )}
             </CardContent>
           </Card>
 
-          <BladeWearCard blade={blade} isMock={bladeIsMock} onResetBlade={() => mower?.publishBladeReset()} />
+          <BladeWearCard blade={blade} onResetBlade={() => mower?.publishBladeReset()} />
         </Stack>
       </PageContent>
     </Page>
