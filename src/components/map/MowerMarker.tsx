@@ -1,8 +1,8 @@
 'use client';
 
+import {useSmoothedPosition} from '@/hooks/useSmoothedPosition';
 import {useSelectedMower} from '@/stores/mowersStore';
-import type {Datum} from '@/stores/schemas';
-import {useMemo} from 'react';
+import type {Datum, Position} from '@/stores/schemas';
 import MapMarker from './MapMarker';
 
 export const MOWER_LENGTH_M = 0.55;
@@ -35,24 +35,24 @@ export function MowerArrow({scale = 1, fill}: MowerArrowProps) {
 }
 
 interface MowerMarkerProps {
+  position: Position;
   datum: Datum;
-  isDocked: boolean;
 }
 
-export default function MowerMarker({datum, isDocked}: MowerMarkerProps) {
-  const pose = useSelectedMower((s) => s?.state.pose);
+export default function MowerMarker({position, datum}: MowerMarkerProps) {
+  const smoothedPosition = useSmoothedPosition(position);
+  const accuracy = useSelectedMower((s) => s?.state.pose?.pos_accuracy);
 
-  const position = useMemo(() => {
-    if (!pose) return null;
-    return {x: pose.x, y: pose.y};
-  }, [pose]);
-
-  if (!position || !pose || isDocked) return null;
-
-  const markerColor = pose.pos_accuracy === 0 ? '#F44336' : '#4CAF50';
+  const markerColor = accuracy === 0 ? '#F44336' : '#4CAF50';
 
   return (
-    <MapMarker position={position} heading={pose.heading} sizeM={MOWER_LENGTH_M} datum={datum} className="mower-marker">
+    <MapMarker
+      position={smoothedPosition}
+      heading={smoothedPosition?.heading ?? 0}
+      sizeM={MOWER_LENGTH_M}
+      datum={datum}
+      className="mower-marker"
+    >
       {(sizePx) => (
         <svg width={sizePx} height={sizePx} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
           <MowerArrow fill={markerColor} />

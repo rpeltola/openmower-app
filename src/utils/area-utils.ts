@@ -12,6 +12,8 @@ import sweeplineIntersections from 'sweepline-intersections';
 
 export const generateId = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 32);
 
+export const formatAreaSize = (squareMeters: number): string => `${Math.round(squareMeters)}m²`;
+
 export const getBiggestArea = <P extends GeoJsonProperties = AreaProps>(areas: Feature<Polygon, P>[]) => {
   if (areas.length === 0) throw new Error('Cannot get biggest area from empty array');
   return areas.reduce(
@@ -26,7 +28,17 @@ export const getBiggestArea = <P extends GeoJsonProperties = AreaProps>(areas: F
 export const removeMiniCoords = (feature: Feature<Polygon | MultiPolygon> | null) => {
   if (feature === null) return null;
   const coords = feature.geometry.type === 'Polygon' ? [feature.geometry.coordinates] : feature.geometry.coordinates;
-  const filteredCoords = coords.filter((coord) => turfArea(polygon(coord)) >= 0.001);
+  // Drawn/edited rings aren't guaranteed valid (unclosed, degenerate, or too few
+  // points); turf polygon() throws on those. Treat un-constructable rings as
+  // zero-area so they're filtered out instead of crashing the editor.
+  const safeArea = (coord: Position[][]): number => {
+    try {
+      return turfArea(polygon(coord));
+    } catch {
+      return 0;
+    }
+  };
+  const filteredCoords = coords.filter((coord) => safeArea(coord) >= 0.001);
   if (filteredCoords.length === 0) {
     return undefined;
   } else if (filteredCoords.length === 1) {

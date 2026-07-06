@@ -1,6 +1,8 @@
 import type {MowerConfig} from '@/components/types';
+import {MqttQueryClient} from '@/lib/queryClient';
 import {OpenMowerRpc} from '@/lib/rpc';
 import {generateId} from '@/utils/area-utils';
+import {TrackPipeline} from '@/utils/track-pipeline';
 import {BSON} from 'bson';
 import {immerable} from 'immer';
 import mqtt, {MqttClient} from 'mqtt';
@@ -8,26 +10,49 @@ import {create, useStore} from 'zustand';
 import {immer} from 'zustand/middleware/immer';
 import {useConfigStore} from './configStore';
 import {
+  applyLiveEvent,
+  mowerEventDefaults,
+  seedHistoryEvents,
+  seedTodayEvents,
+  setAvailableDates,
+  type MowerEventState,
+} from './mowerEvents';
+import {
   Area,
   AreaType,
   capabilitiesSchema,
   datumSchema,
+  eventSchema,
+  histogramsSchema,
   LegacyArea,
   LegacyMapData,
   legacyMapSchema,
   mapDefaults,
   mapSchema,
+  missionStateSchema,
+  plannedPathSignalSchema,
+  positionSchema,
+  recordDockingStatusSchema,
   stateDefaults,
   stateSchema,
+  statsSchema,
   type Capabilities,
   type Datum,
+  type Histograms,
   type MapData,
-  type State,
+  type Mission,
+  type MissionState,
+  type PlannedPathSignal,
+  type PositionWithAttributes,
+  type RecordDockingStatus,
+  type StateOptionalPose,
+  type Stats,
+  type TrackAttributes,
 } from './schemas';
 
 export type MqttStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'offline';
 
-class Mower {
+export class Mower {
   [immerable] = true;
 
   readonly id: string;
@@ -37,10 +62,22 @@ class Mower {
   readonly mqttClient: MqttClient;
   readonly mqttPrefix: string;
   readonly rpc: OpenMowerRpc;
+  readonly queryClient: MqttQueryClient;
   capabilities: Capabilities = {};
-  state: State = stateDefaults;
+  state: StateOptionalPose = stateDefaults;
   map: MapData = mapDefaults;
   params: Record<string, unknown> = {};
+  position: PositionWithAttributes | null = null;
+  track: TrackPipeline = new TrackPipeline();
+  plannedPathSignal?: PlannedPathSignal;
+  jobList: {job_id: string; epoch: number}[] | null = null;
+  events: MowerEventState = mowerEventDefaults;
+  missionState: MissionState | null = null;
+  recordDockingStatus: RecordDockingStatus | null = null;
+  // Always-on persistence topics (see persistence/DESIGN.md "MQTT contract"): lifetime
+  // stats + blade wear (retained, on-change), and recent-window mini-histograms (~2-5s).
+  stats: Stats | null = null;
+  histograms: Histograms | null = null;
 
   constructor(config: MowerConfig, mqttClient: MqttClient) {
     this.id = config.id;
@@ -50,6 +87,7 @@ class Mower {
     this.mqttClient = mqttClient;
     this.mqttPrefix = config.mqtt_prefix;
     this.rpc = new OpenMowerRpc(mqttClient, config.mqtt_prefix);
+    this.queryClient = new MqttQueryClient(mqttClient, config.mqtt_prefix);
   }
 
   hasCapability(capability: string, minLevel: number = 1): boolean {
@@ -70,13 +108,49 @@ class Mower {
     const payload = BSON.serialize({vx, vz});
     this.mqttClient.publish(this.mqttPrefix + 'teleop', Buffer.from(payload.buffer));
   }
+
+  publishMissionStart(mission: Mission) {
+    this.mqttClient.publish(this.mqttPrefix + 'mow_mission/start', JSON.stringify(mission));
+  }
+
+  publishMissionCancel() {
+    this.mqttClient.publish(this.mqttPrefix + 'mow_mission/cancel', '');
+  }
+
+  // Docking-station recording -> app_gateway's record_docking_station ActionClient bridge
+  // (see sim_mow/app_gateway.py's "Wire contract" header). Progress streams back on
+  // record_docking/status (see the message handler below -> Mower.recordDockingStatus).
+  publishRecordDockingStart(name: string) {
+    this.mqttClient.publish(this.mqttPrefix + 'record_docking/start', JSON.stringify({name}));
+  }
+
+  publishRecordDockingCancel() {
+    this.mqttClient.publish(this.mqttPrefix + 'record_docking/cancel', '');
+  }
+
+  // High-level control -> app_gateway -> mower_logic mower_service/high_level_control
+  // (and the area-recorder). One topic, one JSON action; the gateway maps each
+  // action to the matching command.
+  sendCommand(action: MowerCommand) {
+    this.mqttClient.publish(this.mqttPrefix + 'command', JSON.stringify({action}));
+  }
+
+  // Blade-changed acknowledgement -> app_gateway -> persistence's ResetBlade service.
+  // The updated stats/json (blade.total_hours reset to 0) reflects it once applied.
+  publishBladeReset() {
+    this.mqttClient.publish(this.mqttPrefix + 'blade/reset', '');
+  }
 }
+
+export type MowerCommand = 'start' | 'stop' | 'dock' | 'record_on' | 'record_off' | 'reset_emergency';
 
 interface MowersStore {
   mowers: Mower[];
   mqttStatuses: Record<string, MqttStatus>;
   selected: number;
   loadMowers: () => void;
+  fetchEventsForDate: (mowerId: string, date: string) => Promise<void>;
+  reconnectNow: () => void;
 }
 
 export const useMowersStore = create<MowersStore>()(
@@ -98,6 +172,7 @@ export const useMowersStore = create<MowersStore>()(
           username: urlObj.username,
           password: urlObj.password,
           clean: true,
+          reconnectPeriod: 30000,
         });
         const clientMowers: {prefix: string; idx: number}[] = [];
         for (const config of mowerConfigs) {
@@ -140,12 +215,80 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'map/json');
             client.subscribe(clientMower.prefix + 'rpc/response');
             client.subscribe(clientMower.prefix + 'params/json');
+            client.subscribe(clientMower.prefix + 'mow_mission/state');
+            client.subscribe(clientMower.prefix + 'record_docking/status');
+            client.subscribe(clientMower.prefix + 'position/json');
+            client.subscribe(clientMower.prefix + 'params/json');
+            client.subscribe(clientMower.prefix + 'events/json');
+            client.subscribe(clientMower.prefix + 'map_layers/planned_path/json');
+            client.subscribe(clientMower.prefix + 'stats/json');
+            client.subscribe(clientMower.prefix + 'histograms/json');
+            // On-demand query replies (stats/histogram/heatmap/events/mapversions/track/mowjobs),
+            // correlated by request_id -- see lib/queryClient.ts.
+            client.subscribe(clientMower.prefix + 'query/+/res');
+            mowers[clientMower.idx].rpc.events.history
+              .list()
+              .then((dates) => {
+                set((state) => {
+                  setAvailableDates(state.mowers[clientMower.idx].events, dates ?? []);
+                });
+              })
+              .catch(() => {
+                // server may not support events.history yet
+              });
+            mowers[clientMower.idx].rpc.events
+              .history({})
+              .then((events) => {
+                set((state) => {
+                  const parsedEvents = (events ?? []).flatMap((event) => {
+                    const parsed = eventSchema.safeParse(event);
+                    return parsed.success ? [parsed.data] : [];
+                  });
+                  seedTodayEvents(state.mowers[clientMower.idx].events, parsedEvents);
+                });
+              })
+              .catch(() => {
+                // server may not support events.history yet
+              });
+            mowers[clientMower.idx].rpc.position.history
+              .list()
+              .then((jobs) => {
+                set((state) => {
+                  state.mowers[clientMower.idx].jobList = (jobs ?? []).map((j) => ({
+                    job_id: j.job_id,
+                    epoch: j.timestamp,
+                  }));
+                });
+              })
+              .catch(() => {
+                // server may not support position.history.list yet
+              });
+            mowers[clientMower.idx].rpc.position
+              .history({})
+              .then((result) => {
+                set((state) => {
+                  state.mowers[clientMower.idx].track.seedFromHistory(
+                    (result.segments ?? []) as {attributes: TrackAttributes; points: [number, number][]}[],
+                    (result.buffer ?? []) as [number, number][],
+                  );
+                });
+              })
+              .catch(() => {
+                // server may not support position.history yet
+              });
           }
         });
 
         client.on('message', (topic, payload) => {
           const clientMower = clientMowers.find((clientMower) => topic.startsWith(clientMower.prefix));
-          if (clientMower !== undefined) {
+          if (clientMower === undefined) {
+            return;
+          }
+          // Parse defensively: a single malformed/unexpected payload on ANY topic
+          // (e.g. a schema mismatch after a firmware/gateway change, or a field the
+          // hardware reports in a new shape) must NOT throw to the top and take down
+          // the whole UI. Drop and log that one message; the last good state stays.
+          try {
             const {idx, prefix} = clientMower;
             const partialTopic = topic.substring(prefix.length);
             if (partialTopic === 'robot_state/json') {
@@ -171,11 +314,96 @@ export const useMowersStore = create<MowersStore>()(
                 mower.params = JSON.parse(payload.toString()) as Record<string, unknown>;
                 mower.map.datum ??= mower.getDatumFromParams();
               });
+            } else if (partialTopic === 'position/json') {
+              set((state) => {
+                const parsed = positionSchema.parse(JSON.parse(payload.toString()));
+                const mower = state.mowers[idx];
+                mower.position = parsed;
+                if (parsed.attributes.session_id) {
+                  mower.track.addPoint(parsed);
+                }
+              });
+            } else if (partialTopic === 'params/json') {
+              set((state) => {
+                const mower = state.mowers[idx];
+                mower.params = JSON.parse(payload.toString()) as Record<string, unknown>;
+                mower.map.datum ??= mower.getDatumFromParams();
+              });
+            } else if (partialTopic === 'events/json') {
+              set((state) => {
+                const parsed = eventSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) {
+                  applyLiveEvent(state.mowers[idx].events, parsed.data);
+                }
+              });
+            } else if (partialTopic === 'mow_mission/state') {
+              set((state) => {
+                state.mowers[idx].missionState = missionStateSchema.parse(JSON.parse(payload.toString()));
+              });
+            } else if (partialTopic === 'record_docking/status') {
+              set((state) => {
+                state.mowers[idx].recordDockingStatus = recordDockingStatusSchema.parse(
+                  JSON.parse(payload.toString()),
+                );
+              });
+            } else if (partialTopic === 'map_layers/planned_path/json') {
+              set((state) => {
+                // The live topic is just a {job_id, step_index} signal; an empty retained payload
+                // clears it, a malformed one is ignored. The geometry is fetched from history.
+                if (payload.length === 0) {
+                  state.mowers[idx].plannedPathSignal = undefined;
+                } else {
+                  const parsed = plannedPathSignalSchema.safeParse(JSON.parse(payload.toString()));
+                  if (parsed.success) state.mowers[idx].plannedPathSignal = parsed.data;
+                }
+              });
+            } else if (partialTopic === 'stats/json') {
+              set((state) => {
+                const parsed = statsSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) state.mowers[idx].stats = parsed.data;
+              });
+            } else if (partialTopic === 'histograms/json') {
+              set((state) => {
+                const parsed = histogramsSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) state.mowers[idx].histograms = parsed.data;
+              });
+            } else if (partialTopic.startsWith('query/') && partialTopic.endsWith('/res')) {
+              // Routed to whichever caller is awaiting this request_id; doesn't touch store
+              // state directly (see MqttQueryClient), so no `set()` needed here.
+              mowers[idx].queryClient.handleResponse(payload.toString());
             }
+          } catch (err) {
+            console.warn(`Dropping malformed MQTT message on ${topic}:`, err);
           }
         });
       }
       set({mowers, selected: 0});
+    },
+    fetchEventsForDate: async (mowerId, date) => {
+      const mower = get().mowers.find((m) => m.id === mowerId);
+      if (!mower || mower.events.loadedDates[date]) {
+        return;
+      }
+      try {
+        const events = await mower.rpc.events.history({date});
+        set((state) => {
+          const target = state.mowers.find((m) => m.id === mowerId);
+          if (target) {
+            const parsedEvents = (events ?? []).flatMap((event) => {
+              const parsed = eventSchema.safeParse(event);
+              return parsed.success ? [parsed.data] : [];
+            });
+            seedHistoryEvents(target.events, date, parsedEvents);
+          }
+        });
+      } catch {
+        // server may not support events.history yet
+      }
+    },
+    reconnectNow: () => {
+      for (const mower of get().mowers) {
+        mower.mqttClient.reconnect();
+      }
     },
   })),
 );
@@ -219,6 +447,7 @@ const convertLegacyDockingStation = (docking_pose: LegacyMapData['docking_pose']
   },
   position: {x: docking_pose.x, y: docking_pose.y},
   heading: docking_pose.heading!,
+  approach_distance: 0, // legacy (v1/ROS1) maps never recorded a per-dock approach distance
 });
 
 export const useMowers = () => {

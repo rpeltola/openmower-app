@@ -42,3 +42,7 @@ next-env.d.ts
 
 # project-specific
 /config.json
+
+# serwist (generated service worker)
+/public/sw.js
+/public/swe-worker-*.js

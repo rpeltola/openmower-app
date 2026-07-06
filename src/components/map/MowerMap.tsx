@@ -1,17 +1,24 @@
 'use client';
 
-import {useFitToBounds, useMapboxDraw, useMapContext, useMapHover} from '@/contexts/MapContext';
+import {useFitToBounds, useMapboxDraw, useMapContext, useMapHover, useSpotDrawTool} from '@/contexts/MapContext';
+import {useHeatmap} from '@/hooks/useHeatmap';
+import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
+import {useJobTrack} from '@/hooks/useJobTrack';
+import {useMissionComposer} from '@/hooks/useMissionComposer';
+import {useMapDisplayStore} from '@/stores/mapDisplayStore';
 import {useSelectedMower} from '@/stores/mowersStore';
-import {MapData, type AreaProps} from '@/stores/schemas';
+import {HEATMAP_METRIC_LABELS, MapData, type AreaProps} from '@/stores/schemas';
 import type {AreaFeature} from '@/types/geojson';
+import {featuresToDockingStations} from '@/utils/area-converter';
 import {generateId, splitPolygonWithLine} from '@/utils/area-utils';
+import {datumToRelative, pointsToRelative, type AbsolutePoint} from '@/utils/coordinates';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import StaticMode from '@mapbox/mapbox-gl-draw-static-mode';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import {Box, useMediaQuery, useTheme, type SxProps} from '@mui/material';
 import {featureCollection} from '@turf/helpers';
 import type {Feature, LineString, Polygon} from 'geojson';
-import {FocusIcon, GlobeIcon, LayoutListIcon, PencilIcon} from 'lucide-react';
+import {FocusIcon, LassoIcon, LayoutListIcon, ListChecksIcon, PencilIcon} from 'lucide-react';
 import type {Map} from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import {RFullscreenControl, RMap} from 'maplibre-react-components';
@@ -27,10 +34,29 @@ import {DownloadButton} from './edit/DownloadButton';
 import EditControls from './edit/EditControls';
 import {IssuesButton} from './edit/IssuesButton';
 import {UploadButton} from './edit/UploadButton';
+import HeatmapLayer, {HEATMAP_LEGEND_COLORS} from './HeatmapLayer';
+import LayersButton from './LayersButton';
 import MapDialog from './MapDialog';
 import {mapStyles} from './mapStyles';
+import MissionPanel from './mission/MissionPanel';
 import MowerMarker from './MowerMarker';
+import PlannedPathLayer from './PlannedPathLayer';
 import TeleopControls from './teleop/TeleopControls';
+import MowerControls from './control/MowerControls';
+import TrackLayer from './TrackLayer';
+
+// A GeoJSON polygon ring repeats its first point as the last — the mission contract's polygon is
+// an open ring, so drop the closing duplicate before converting to map-frame metres.
+function openRing(ring: AbsolutePoint[]): AbsolutePoint[] {
+  if (ring.length > 1) {
+    const [first] = ring;
+    const last = ring[ring.length - 1];
+    if (first[0] === last[0] && first[1] === last[1]) {
+      return ring.slice(0, -1);
+    }
+  }
+  return ring;
+}
 
 interface MowerMapProps {
   mapData: MapData;
@@ -38,7 +64,7 @@ interface MowerMapProps {
   sx: SxProps;
 }
 
-export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
+export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
   const {
     id,
     datum,
@@ -56,16 +82,44 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
   const [hoveredId, setHoveredId] = useMapHover();
   const currentState = useSelectedMower((s) => s?.state.current_state);
   const isDocked = useSelectedMower((s) => s?.state.is_charging ?? false);
-  const showTeleop = currentState === 'AREA_RECORDING' && !editMode;
+  const mowerPosition = useSelectedMower((s) => s?.position ?? s?.state.pose);
+  // The joystick is always visible while not editing the map, but only ENABLED in
+  // AREA_RECORDING mode (greyed + hinted otherwise) so manual driving can't fight
+  // the autonomous nav.
+  const showTeleop = !editMode;
+  const teleopDisabled = currentState !== 'AREA_RECORDING';
   const areas = useMemo(
     () => features.features.filter((feature) => feature.geometry.type === 'Polygon') as Feature<Polygon, AreaProps>[],
     [features],
   );
+  const workingAreas = useMemo(() => areas.filter((area) => area.properties.type === 'mow'), [areas]);
+  // Docking stations are sourced from the SAME `features` collection the Draw layer edits
+  // (single source of truth), not from `mapData.docking_stations` directly: in view mode
+  // `features` already mirrors mapData (see app/map/page.tsx's sync effect), and in edit
+  // mode it's the live, being-edited copy -- reading mapData directly here would show a
+  // stale marker mid-edit, out of sync with the LineString the user is dragging.
+  const dockingStations = useMemo(
+    () => featuresToDockingStations(features, datumToRelative([datumOrFallback.long, datumOrFallback.lat])),
+    [features, datumOrFallback],
+  );
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [showAreaList, setShowAreaList] = useState(!isMobile);
-  const [showSatelliteLayer, setShowSatelliteLayer] = useState(false);
+  const {
+    showSatelliteLayer,
+    showTrackLayer,
+    showPlannedPath,
+    showAreaList,
+    selectedJobId,
+    heatmapMetric,
+    setShowAreaList,
+  } = useMapDisplayStore();
+  const {pastTrack, loading: trackLoading} = useJobTrack(selectedJobId);
+  const heatmap = useHeatmap(heatmapMetric);
+  const [showMissionPanel, setShowMissionPanel] = useState(false);
+  const {plannedPath} = useJobPlannedPath(selectedJobId);
   const areaSettingsDialog = useDialog(AreaSettingsDialog);
+  const missionComposer = useMissionComposer();
+  const {isDrawingSpot, toggle: toggleSpotDraw} = useSpotDrawTool();
   const padding = useMemo(() => ({top: 10, bottom: 10, left: 60, right: showAreaList ? 390 : 60}), [showAreaList]);
   const fitToBounds = useFitToBounds();
 
@@ -191,11 +245,19 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
           });
         }
         setDrawWorkflow(null);
+      } else if (drawWorkflow?.type === 'spot_mow') {
+        draw?.delete(createdFeatures.map((feature) => feature.id as string));
+        const spotFeature = createdFeatures[0] as Feature<Polygon>;
+        const utmDatum = datumToRelative([datumOrFallback.long, datumOrFallback.lat]);
+        const ring = openRing(spotFeature.geometry.coordinates[0] as AbsolutePoint[]);
+        missionComposer.addSpotJob(pointsToRelative(ring, utmDatum));
+        setDrawWorkflow(null);
+        setShowMissionPanel(true);
       } else {
         areaSettingsDialog.open();
       }
     },
-    [areaSettingsDialog, draw, drawWorkflow, setDrawWorkflow, features, setFeatures],
+    [areaSettingsDialog, draw, drawWorkflow, setDrawWorkflow, features, setFeatures, missionComposer, datumOrFallback],
   );
 
   return (
@@ -231,6 +293,21 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
         ) : (
           <ControlButton position="top-left" icon={PencilIcon} title="Edit mode" onClick={() => setEditMode(true)} />
         )}
+        <ControlButton
+          position="top-left"
+          icon={LassoIcon}
+          title="Draw spot mow area"
+          active={isDrawingSpot}
+          onClick={toggleSpotDraw}
+          spaced
+        />
+        <ControlButton
+          position="top-left"
+          icon={ListChecksIcon}
+          title="Mission"
+          active={showMissionPanel}
+          onClick={() => setShowMissionPanel(!showMissionPanel)}
+        />
 
         {/* Right controls */}
         <RFullscreenControl />
@@ -240,15 +317,13 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
           title="Fit to bounds"
           onClick={() => fitToBounds(false, padding)}
         />
-        {datum && (
-          <ControlButton
-            position="top-right"
-            title="Toggle satellite layer"
-            icon={GlobeIcon}
-            active={showSatelliteLayer}
-            onClick={() => setShowSatelliteLayer(!showSatelliteLayer)}
-          />
-        )}
+        <LayersButton
+          datum={datum}
+          trackLoading={trackLoading}
+          editMode={editMode}
+          heatmapLoading={heatmap.loading}
+          heatmapEmpty={!!heatmapMetric && !heatmap.loading && heatmap.cells.length === 0}
+        />
         <ControlButton
           position="top-right"
           icon={LayoutListIcon}
@@ -293,11 +368,84 @@ export function MowerMap({mapData, saveMapToMower, sx}: MowerMapProps) {
             <AreasList areas={areas} onClose={() => setShowAreaList(false)} />
           </MapDialog>
         )}
-        {mapData.docking_stations.map((station) => (
+        {!isMobile && showMissionPanel && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 10,
+              left: 60,
+              bottom: 10,
+              width: '320px',
+            }}
+          >
+            <MissionPanel composer={missionComposer} areas={workingAreas} onClose={() => setShowMissionPanel(false)} />
+          </Box>
+        )}
+        {isMobile && (
+          <MapDialog
+            open={showMissionPanel}
+            onClose={() => setShowMissionPanel(false)}
+            slotProps={{
+              paper: {
+                sx: {
+                  margin: 0,
+                  width: 'calc(100% - 2rem)',
+                  height: 'calc(100% - 2rem)',
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                },
+              },
+            }}
+          >
+            <MissionPanel composer={missionComposer} areas={workingAreas} onClose={() => setShowMissionPanel(false)} />
+          </MapDialog>
+        )}
+        {/* Legend only when there's actual heatmap data to explain -- no cells means nothing
+            is drawn, so no legend (the "no data" note lives in the layer selector instead). */}
+        {heatmapMetric && !editMode && heatmap.cells.length > 0 && (
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 10,
+              left: 60,
+              bgcolor: 'background.paper',
+              borderRadius: 1,
+              px: 1.5,
+              py: 1,
+              boxShadow: 2,
+              minWidth: 160,
+            }}
+          >
+            <Box sx={{fontSize: 12, fontWeight: 600, mb: 0.5}}>{HEATMAP_METRIC_LABELS[heatmapMetric]}</Box>
+            <Box
+              sx={{
+                height: 8,
+                borderRadius: 1,
+                background: `linear-gradient(90deg, ${HEATMAP_LEGEND_COLORS.low}, ${HEATMAP_LEGEND_COLORS.high})`,
+              }}
+            />
+            <Box sx={{display: 'flex', justifyContent: 'space-between', fontSize: 10, opacity: 0.7, mt: 0.25}}>
+              <span>Low</span>
+              <span>High</span>
+            </Box>
+          </Box>
+        )}
+        {dockingStations.map((station) => (
           <DockingStationMarker key={station.id} station={station} datum={datumOrFallback} isDocked={isDocked} />
         ))}
-        <MowerMarker datum={datumOrFallback} isDocked={isDocked} />
-        {showTeleop && <TeleopControls />}
+        {mowerPosition && !isDocked && <MowerMarker position={mowerPosition} datum={datumOrFallback} />}
+        <PlannedPathLayer visible={showPlannedPath && !editMode} datum={datumOrFallback} plannedPath={plannedPath} />
+        <TrackLayer visible={showTrackLayer && !editMode} pastTrack={pastTrack} loading={trackLoading} />
+        {heatmapMetric && (
+          <HeatmapLayer
+            visible={!editMode}
+            cells={heatmap.cells}
+            cellSize={heatmap.cellSize}
+            datum={datumOrFallback}
+          />
+        )}
+        {!editMode && <MowerControls />}
+        {showTeleop && <TeleopControls disabled={teleopDisabled} />}
         <DialogOutlet />
       </RMap>
     </Box>

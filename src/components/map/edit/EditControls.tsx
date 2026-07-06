@@ -2,7 +2,7 @@ import {useMapboxDraw, useMapContext, useMapSelection, withDisplaySortKeys} from
 import type {AreaFeature} from '@/types/geojson';
 import {removeMiniCoords} from '@/utils/area-utils';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
-import {useTheme} from '@mui/material';
+import {Alert, useTheme} from '@mui/material';
 import {difference} from '@turf/difference';
 import {featureCollection} from '@turf/helpers';
 import {union} from '@turf/union';
@@ -24,6 +24,7 @@ import {useDialog} from 'react-dialog-async';
 import ControlButton from '../ControlButton';
 import {AreaSettingsDialog} from './AreaSettingsDialog';
 import {CancelConfirmDialog} from './CancelConfirmDialog';
+import {DockingStationSettingsDialog} from './DockingStationSettingsDialog';
 import MergeDialog from './MergeDialog';
 import SubtractDialog from './SubtractDialog';
 
@@ -50,21 +51,32 @@ export default function EditControls({
   const selectedIds = useMapSelection();
   const selectedAreas = areas.filter((area) => selectedIds.includes(area.id as string));
   const isDrawing = drawMode === MapboxDraw.constants.modes.DRAW_POLYGON;
+  // The Settings button opens the dialog matching the SINGLE selected feature's type --
+  // a docking station is a LineString (see area-converter.ts's dockingStationToFeature),
+  // not a Polygon, so it needs its own dialog rather than AreaSettingsDialog.
+  const selectedFeature = selectedIds.length === 1 ? draw?.get(selectedIds[0]) : undefined;
+  const isDockSelected =
+    selectedFeature?.geometry.type === 'LineString' && selectedFeature.properties?.type === 'docking_station';
   const areaSettingsDialog = useDialog(AreaSettingsDialog);
+  const dockingStationSettingsDialog = useDialog(DockingStationSettingsDialog);
   const mergeDialog = useDialog(MergeDialog);
   const subtractDialog = useDialog(SubtractDialog);
   const cancelConfirmDialog = useDialog(CancelConfirmDialog);
 
   const theme = useTheme();
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = useCallback(async () => {
     setIsSaving(true);
+    setSaveError(null);
     try {
       await saveMapToMower();
       setEditMode(false);
     } catch (error) {
       console.error('Error saving map to mower:', error);
+      // Keep the user in edit mode so their unsaved work isn't lost, and show why.
+      setSaveError(error instanceof Error ? error.message : 'Failed to save the map to the mower.');
     } finally {
       setIsSaving(false);
     }
@@ -129,6 +141,15 @@ export default function EditControls({
 
   return (
     <>
+      {saveError && (
+        <Alert
+          severity="error"
+          onClose={() => setSaveError(null)}
+          sx={{position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 10, maxWidth: 360}}
+        >
+          {saveError}
+        </Alert>
+      )}
       <ControlButton
         position="top-left"
         icon={SaveIcon}
@@ -170,7 +191,7 @@ export default function EditControls({
         title="Settings"
         //active={areaSettingsDialog.isOpen}
         disabled={selectedIds.length != 1}
-        onClick={() => areaSettingsDialog.open()}
+        onClick={() => (isDockSelected ? dockingStationSettingsDialog.open() : areaSettingsDialog.open())}
         spaced={true}
       />
       <ControlButton

@@ -6,6 +6,9 @@ WORKDIR /app
 
 FROM base AS builder
 
+ARG BUILD_ID=dev
+ENV NEXT_PUBLIC_BUILD_ID=$BUILD_ID
+
 COPY --chown=node:node package*.json .
 RUN npm ci
 

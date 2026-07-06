@@ -47,7 +47,7 @@ export default function MapMarker({position, heading, sizeM, datum, className, c
   }, [datum, position]);
 
   const sizePx = useMemo(() => {
-    const lat = absPosition[1];
+    const lat = absPosition ? absPosition[1] : 0;
     const raw = metersToPixels(sizeM, zoom, lat);
     return Math.round(raw);
   }, [sizeM, zoom, absPosition]);
@@ -55,17 +55,21 @@ export default function MapMarker({position, heading, sizeM, datum, className, c
   // Convert from mower heading (radians, 0 = east, CCW positive) to CSS rotation (degrees, 0 = north, CW positive)
   const headingDeg = 90 - (heading * 180) / Math.PI;
 
+  // A position outside the datum's UTM range can't be placed on the map; skip it
+  // rather than crashing (guards against stale/foreign-datum track/robot points).
+  if (!absPosition) return null;
+
   return (
     <RMarker longitude={absPosition[0]} latitude={absPosition[1]} className={className}>
       <Box
         sx={{
           width: sizePx,
           height: sizePx,
-          transform: `rotate(${headingDeg}deg)`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
+        style={{transform: `rotate(${headingDeg}deg)`}}
       >
         {children(sizePx)}
       </Box>

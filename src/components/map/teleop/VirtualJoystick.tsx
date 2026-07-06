@@ -10,14 +10,18 @@ const DEAD_ZONE = 8;
 const DPAD_ZONE_START = 0.55;
 const DPAD_RAMP_DURATION_MS = 1500;
 const ANGULAR_FACTOR = 1.6;
+// vx is now real m/s: cap forward speed below the mower's ~0.5 m/s max wheel
+// speed so turning-while-driving keeps wheel headroom instead of saturating.
+const MAX_LINEAR = 0.35;
 
 type DpadDirection = 'up' | 'down' | 'left' | 'right' | null;
 
 interface VirtualJoystickProps {
   onVelocityChange: (vx: number, vz: number) => void;
+  disabled?: boolean;
 }
 
-export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps) {
+export default function VirtualJoystick({onVelocityChange, disabled = false}: VirtualJoystickProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [knobPos, setKnobPos] = useState({x: 0, y: 0});
   const [dragging, setDragging] = useState(false);
@@ -50,9 +54,9 @@ export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps
     const t = Math.min(elapsed / DPAD_RAMP_DURATION_MS, 1);
     switch (dir) {
       case 'up':
-        return {vx: t, vz: 0};
+        return {vx: t * MAX_LINEAR, vz: 0};
       case 'down':
-        return {vx: -t, vz: 0};
+        return {vx: -t * MAX_LINEAR, vz: 0};
       case 'left':
         return {vx: 0, vz: t * ANGULAR_FACTOR};
       case 'right':
@@ -78,6 +82,7 @@ export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      if (disabled) return;
       if (pointerIdRef.current !== null) return;
       e.preventDefault();
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -90,7 +95,7 @@ export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps
         setDragging(true);
       }
     },
-    [getDpadDirection],
+    [getDpadDirection, disabled],
   );
 
   const handlePointerMove = useCallback(
@@ -116,7 +121,7 @@ export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps
       if (normalizedDist * maxDist < DEAD_ZONE) {
         onVelocityChange(0, 0);
       } else {
-        const vx = -(dy / maxDist);
+        const vx = -(dy / maxDist) * MAX_LINEAR;
         const vz = -(dx / maxDist) * ANGULAR_FACTOR;
         onVelocityChange(vx, vz);
       }
@@ -156,6 +161,10 @@ export default function VirtualJoystick({onVelocityChange}: VirtualJoystickProps
         background: 'radial-gradient(circle, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.4) 100%)',
         border: '2px solid rgba(255,255,255,0.3)',
         backdropFilter: 'blur(4px)',
+        opacity: disabled ? 0.4 : 1,
+        filter: disabled ? 'grayscale(1)' : 'none',
+        cursor: disabled ? 'not-allowed' : 'grab',
+        transition: 'opacity 0.15s, filter 0.15s',
       }}
     >
       {/* D-pad arrows */}

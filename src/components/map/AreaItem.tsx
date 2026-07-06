@@ -1,5 +1,5 @@
-import {formatAreaSize} from '@/app/map/page';
 import {AreaProps} from '@/stores/schemas';
+import {formatAreaSize} from '@/utils/area-utils';
 import type {DraggableSyntheticListeners} from '@dnd-kit/core';
 import {Box, ListItem, Typography, useTheme} from '@mui/material';
 import {area as turfArea} from '@turf/area';

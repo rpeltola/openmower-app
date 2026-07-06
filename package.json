@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "genrpc": "scripts/generate-rpc-client.ts openrpc.json > src/lib/rpc.ts"
@@ -24,6 +24,7 @@
     "@mui/material": "^7.3.9",
     "@mui/material-nextjs": "^7.3.9",
     "@remoteoss/json-schema-form": "^1.2.11",
+    "@serwist/next": "^9.5.11",
     "@turf/area": "^7.3.4",
     "@turf/bbox": "^7.3.4",
     "@turf/boolean-point-in-polygon": "^7.3.4",
@@ -62,6 +63,7 @@
     "@eslint/eslintrc": "^3",
     "@open-rpc/schema-utils-js": "^2.2.1",
     "@open-rpc/typings": "^1.13.1",
+    "@serwist/window": "^9.5.11",
     "@types/geodesy": "^2.2.8",
     "@types/geojson": "^7946.0.16",
     "@types/lodash.merge": "^4.6.9",
@@ -71,6 +73,7 @@
     "@types/utm": "^1.1.4",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.1",
+    "serwist": "^9.5.11",
     "typescript": "^5"
   },
   "overrides": {
