@@ -30,6 +30,7 @@ import {
   missionStateSchema,
   plannedPathSignalSchema,
   positionSchema,
+  recordDockingStatusSchema,
   stateDefaults,
   stateSchema,
   type Capabilities,
@@ -39,6 +40,7 @@ import {
   type MissionState,
   type PlannedPathSignal,
   type PositionWithAttributes,
+  type RecordDockingStatus,
   type StateOptionalPose,
   type TrackAttributes,
 } from './schemas';
@@ -65,6 +67,7 @@ export class Mower {
   jobList: {job_id: string; epoch: number}[] | null = null;
   events: MowerEventState = mowerEventDefaults;
   missionState: MissionState | null = null;
+  recordDockingStatus: RecordDockingStatus | null = null;
 
   constructor(config: MowerConfig, mqttClient: MqttClient) {
     this.id = config.id;
@@ -101,6 +104,17 @@ export class Mower {
 
   publishMissionCancel() {
     this.mqttClient.publish(this.mqttPrefix + 'mow_mission/cancel', '');
+  }
+
+  // Docking-station recording -> app_gateway's record_docking_station ActionClient bridge
+  // (see sim_mow/app_gateway.py's "Wire contract" header). Progress streams back on
+  // record_docking/status (see the message handler below -> Mower.recordDockingStatus).
+  publishRecordDockingStart(name: string) {
+    this.mqttClient.publish(this.mqttPrefix + 'record_docking/start', JSON.stringify({name}));
+  }
+
+  publishRecordDockingCancel() {
+    this.mqttClient.publish(this.mqttPrefix + 'record_docking/cancel', '');
   }
 
   // High-level control -> app_gateway -> mower_logic mower_service/high_level_control
@@ -183,6 +197,7 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'rpc/response');
             client.subscribe(clientMower.prefix + 'params/json');
             client.subscribe(clientMower.prefix + 'mow_mission/state');
+            client.subscribe(clientMower.prefix + 'record_docking/status');
             client.subscribe(clientMower.prefix + 'position/json');
             client.subscribe(clientMower.prefix + 'params/json');
             client.subscribe(clientMower.prefix + 'events/json');
@@ -301,6 +316,12 @@ export const useMowersStore = create<MowersStore>()(
               set((state) => {
                 state.mowers[idx].missionState = missionStateSchema.parse(JSON.parse(payload.toString()));
               });
+            } else if (partialTopic === 'record_docking/status') {
+              set((state) => {
+                state.mowers[idx].recordDockingStatus = recordDockingStatusSchema.parse(
+                  JSON.parse(payload.toString()),
+                );
+              });
             } else if (partialTopic === 'map_layers/planned_path/json') {
               set((state) => {
                 // The live topic is just a {job_id, step_index} signal; an empty retained payload
@@ -383,6 +404,7 @@ const convertLegacyDockingStation = (docking_pose: LegacyMapData['docking_pose']
   },
   position: {x: docking_pose.x, y: docking_pose.y},
   heading: docking_pose.heading!,
+  approach_distance: 0, // legacy (v1/ROS1) maps never recorded a per-dock approach distance
 });
 
 export const useMowers = () => {
