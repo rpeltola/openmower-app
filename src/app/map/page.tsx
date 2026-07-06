@@ -7,16 +7,13 @@ import {outerCardStyles} from '@/lib/cardStyles';
 import {useSelectedMower} from '@/stores/mowersStore';
 import {AreaProps} from '@/stores/schemas';
 import {featuresToMap, mapToFeatures} from '@/utils/area-converter';
+import {formatAreaSize} from '@/utils/area-utils';
 import {CheckCircle as CheckIcon, LocationOn as LocationIcon, PlayArrow as PlayIcon} from '@mui/icons-material';
 import {useTheme} from '@mui/material';
 import {area as turfArea} from '@turf/area';
 import {featureCollection} from '@turf/helpers';
 import {Feature, Polygon} from 'geojson';
 import {useCallback, useEffect, useMemo} from 'react';
-
-export function formatAreaSize(squareMeters: number): string {
-  return `${Math.round(squareMeters)}m²`;
-}
 
 export default function MapPage() {
   const theme = useTheme();

@@ -46,6 +46,8 @@ jobs:
           push: true
           provenance: false
           sbom: false
+          build-args: |
+            BUILD_ID=${{ github.sha }}
           tags: |
             ${{ env.IMAGE }}:${{ steps.slug.outputs.ref }}-${{ matrix.arch }}
             ${{ env.IMAGE }}:${{ github.sha }}-${{ matrix.arch }}

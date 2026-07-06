@@ -150,6 +150,7 @@ interface MowersStore {
   selected: number;
   loadMowers: () => void;
   fetchEventsForDate: (mowerId: string, date: string) => Promise<void>;
+  reconnectNow: () => void;
 }
 
 export const useMowersStore = create<MowersStore>()(
@@ -171,6 +172,7 @@ export const useMowersStore = create<MowersStore>()(
           username: urlObj.username,
           password: urlObj.password,
           clean: true,
+          reconnectPeriod: 30000,
         });
         const clientMowers: {prefix: string; idx: number}[] = [];
         for (const config of mowerConfigs) {
@@ -396,6 +398,11 @@ export const useMowersStore = create<MowersStore>()(
         });
       } catch {
         // server may not support events.history yet
+      }
+    },
+    reconnectNow: () => {
+      for (const mower of get().mowers) {
+        mower.mqttClient.reconnect();
       }
     },
   })),

@@ -12,6 +12,8 @@ import sweeplineIntersections from 'sweepline-intersections';
 
 export const generateId = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 32);
 
+export const formatAreaSize = (squareMeters: number): string => `${Math.round(squareMeters)}m²`;
+
 export const getBiggestArea = <P extends GeoJsonProperties = AreaProps>(areas: Feature<Polygon, P>[]) => {
   if (areas.length === 0) throw new Error('Cannot get biggest area from empty array');
   return areas.reduce(
