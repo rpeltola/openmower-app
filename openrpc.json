@@ -100,6 +100,113 @@
           "description": "Keys are relative file paths, values are YAML file contents as strings"
         }
       }
+    },
+    {
+      "name": "fs.list",
+      "summary": "List files in a directory.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "path",
+          "description": "The directory path to list.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "description": "The files found in the directory.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "number"
+                  }
+                },
+                "required": ["name", "size"]
+              }
+            }
+          },
+          "required": ["files"]
+        }
+      }
+    },
+    {
+      "name": "fs.remove",
+      "summary": "Remove a file.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "path",
+          "description": "The file path to remove.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "description": "Whether the removal succeeded.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            }
+          },
+          "required": ["ok"]
+        }
+      }
+    },
+    {
+      "name": "fs.write",
+      "summary": "Write a file.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "path",
+          "description": "The file path to write.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "data",
+          "description": "The file contents, base64-encoded.",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "description": "Whether the write succeeded, and how many bytes were written.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "bytes": {
+              "type": "number"
+            }
+          },
+          "required": ["ok", "bytes"]
+        }
+      }
     }
   ]
 }
