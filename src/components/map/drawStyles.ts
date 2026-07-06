@@ -48,7 +48,7 @@ export const drawStyles = [
     filter: [
       'all',
       ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
-      ['!=', ['get', 'user_type'], 'docking_station'],
+      ['!=', 'user_type', 'docking_station'],
     ],
     layout: {
       'line-cap': 'round',
