@@ -15,7 +15,7 @@ export function createNavigationItems(): NavigationItem[] {
     {label: 'Map', icon: <MapIcon />, path: '/map', isGlobal: false},
     isDev && {label: 'Tasks', icon: <TaskIcon />, path: '/tasks', isGlobal: false},
     isDev && {label: 'Sensors', icon: <SensorIcon />, path: '/sensors', isGlobal: false},
-    isDev && {label: 'Settings', icon: <SettingsIcon />, path: '/settings', isGlobal: true},
+    {label: 'Settings', icon: <SettingsIcon />, path: '/settings', isGlobal: true},
     {label: 'Debug', icon: <BugReportIcon />, path: '/debug', isGlobal: true},
   ].filter((item): item is NavigationItem => !!item);
 }

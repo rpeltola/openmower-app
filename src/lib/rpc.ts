@@ -10,7 +10,14 @@ export type StringDoaGddGA = string;
  *
  */
 export type StringXJCrhoiv = string;
-export type String88NWwqIE = string;
+export type NumberHo1ClIqD = number;
+export interface ObjectOfNumberHo1ClIqDStringDoaGddGALG8TMFRt {
+  name: StringDoaGddGA;
+  size: NumberHo1ClIqD;
+  [k: string]: any;
+}
+export type UnorderedSetOfObjectOfNumberHo1ClIqDStringDoaGddGALG8TMFRtjAx5GKqv = ObjectOfNumberHo1ClIqDStringDoaGddGALG8TMFRt[];
+export type BooleanVyG3AETh = boolean;
 export interface ObjectHAgrRKSz { [key: string]: any; }
 export type StringZDJW5SIj = "pong";
 export type UnorderedSetOfStringDoaGddGADvj0XlFa = StringDoaGddGA[];
@@ -20,13 +27,26 @@ export type NullQu0Arl1F = null;
  * Keys are relative file paths, values are YAML file contents as strings
  *
  */
-export interface ObjectUDrdQYBN { [key: string]: any; }
+export interface ObjectHicl3T4F { [key: string]: any; }
+export interface ObjectOfUnorderedSetOfObjectOfNumberHo1ClIqDStringDoaGddGALG8TMFRtjAx5GKqv3GMmcQyp {
+  files: UnorderedSetOfObjectOfNumberHo1ClIqDStringDoaGddGALG8TMFRtjAx5GKqv;
+  [k: string]: any;
+}
+export interface ObjectOfBooleanVyG3AEThJlPixWl2 {
+  ok: BooleanVyG3AETh;
+  [k: string]: any;
+}
+export interface ObjectOfBooleanVyG3AEThNumberHo1ClIqDPgcv2SGw {
+  ok: BooleanVyG3AETh;
+  bytes: NumberHo1ClIqD;
+  [k: string]: any;
+}
 /**
  *
  * Generated! Represents an alias to any of the provided schemas
  *
  */
-export type AnyOfObjectHAgrRKSzStringZDJW5SIjUnorderedSetOfStringDoaGddGADvj0XlFaNullQu0Arl1FStringZDJW5SIjStringDoaGddGAObjectUDrdQYBN = ObjectHAgrRKSz | StringZDJW5SIj | UnorderedSetOfStringDoaGddGADvj0XlFa | NullQu0Arl1F | StringDoaGddGA | ObjectUDrdQYBN;
+export type AnyOfObjectHAgrRKSzStringDoaGddGAStringDoaGddGAStringDoaGddGAStringDoaGddGAStringZDJW5SIjUnorderedSetOfStringDoaGddGADvj0XlFaNullQu0Arl1FStringZDJW5SIjStringDoaGddGAObjectHicl3T4FObjectOfUnorderedSetOfObjectOfNumberHo1ClIqDStringDoaGddGALG8TMFRtjAx5GKqv3GMmcQypObjectOfBooleanVyG3AEThJlPixWl2ObjectOfBooleanVyG3AEThNumberHo1ClIqDPgcv2SGw = ObjectHAgrRKSz | StringDoaGddGA | StringZDJW5SIj | UnorderedSetOfStringDoaGddGADvj0XlFa | NullQu0Arl1F | ObjectHicl3T4F | ObjectOfUnorderedSetOfObjectOfNumberHo1ClIqDStringDoaGddGALG8TMFRtjAx5GKqv3GMmcQyp | ObjectOfBooleanVyG3AEThJlPixWl2 | ObjectOfBooleanVyG3AEThNumberHo1ClIqDPgcv2SGw;
 
 export class OpenMowerRpc extends OpenMowerBaseRpc {
   rpc = {
@@ -60,7 +80,21 @@ export class OpenMowerRpc extends OpenMowerBaseRpc {
       /**
       * Get the default configuration values.
       */
-      defaults: async (): Promise<ObjectUDrdQYBN> => this.call('meta.config.defaults'),
+      defaults: async (): Promise<ObjectHicl3T4F> => this.call('meta.config.defaults'),
     },
+  };
+  fs = {
+    /**
+    * List files in a directory.
+    */
+    list: async (args: {path: StringDoaGddGA}): Promise<ObjectOfUnorderedSetOfObjectOfNumberHo1ClIqDStringDoaGddGALG8TMFRtjAx5GKqv3GMmcQyp> => this.call('fs.list', args),
+    /**
+    * Remove a file.
+    */
+    remove: async (args: {path: StringDoaGddGA}): Promise<ObjectOfBooleanVyG3AEThJlPixWl2> => this.call('fs.remove', args),
+    /**
+    * Write a file.
+    */
+    write: async (args: {path: StringDoaGddGA, data: StringDoaGddGA}): Promise<ObjectOfBooleanVyG3AEThNumberHo1ClIqDPgcv2SGw> => this.call('fs.write', args),
   };
 }

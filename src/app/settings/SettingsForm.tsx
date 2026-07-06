@@ -24,6 +24,7 @@ import merge from 'lodash.merge';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {FormProvider, useForm, useFormContext, useWatch} from 'react-hook-form';
 import {parse as parseYaml} from 'yaml';
+import {AudioFilesCard} from './AudioFilesCard';
 import {FieldsetField} from './fields/FieldsetField';
 import {SettingsContext} from './SettingsContext';
 import {StickyBreadcrumb} from './StickyBreadcrumb';
@@ -124,6 +125,9 @@ function SettingsFormContent({formState}: {formState: FormState}) {
 
   const confirmedFieldsRef = useRef(new Set<string>());
   const [confirmedFields, setConfirmedFields] = useState(new Set<string>());
+  // Audio playback is a V2-mainboard feature (I2S amp); the ROS gateway only advertises the
+  // "audio" capability on V2 hardware, so only show the audio management widget there.
+  const supportsAudio = useSelectedMower((s) => s?.hasCapability('audio') ?? false);
 
   const onFieldChange = useCallback((path: string) => {
     confirmedFieldsRef.current.add(path);
@@ -196,6 +200,10 @@ function SettingsFormContent({formState}: {formState: FormState}) {
             </Box>
 
             <StickyBreadcrumb />
+
+            <Box sx={{mb: 3}}>
+              {supportsAudio && <AudioFilesCard />}
+            </Box>
 
             {topLevelFieldsets.map((fieldset) => (
               <SettingsAccordion key={fieldset.name} fieldset={fieldset} />

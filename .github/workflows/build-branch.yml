@@ -1,0 +1,75 @@
+# Build + push the app image to GHCR on every push to a deploy branch (native
+# arm64/amd64 runners, no external reusable workflow). Produces
+# ghcr.io/<owner>/openmower-app:{<branch>,<branch>-<arch>,<sha>-<arch>} so the
+# mower can pull a fresh image after each push. The multi-arch <branch> tag
+# auto-selects arm64 on the CM4.
+name: build-branch-image
+
+on:
+  push:
+    branches: [main, events-sensors-mission, feature/audio-fs-rpc]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    name: build-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04-arm
+            arch: arm64
+          - os: ubuntu-24.04
+            arch: amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: slug
+        run: echo "ref=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            BUILD_ID=${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.slug.outputs.ref }}-${{ matrix.arch }}
+            ${{ env.IMAGE }}:${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=branch-${{ matrix.arch }}
+          cache-to: type=gha,scope=branch-${{ matrix.arch }},mode=max
+
+  manifest:
+    name: multi-arch manifest
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: slug
+        run: echo "ref=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+      - name: Create + push :<branch> manifest
+        run: |
+          docker buildx imagetools create -t "${IMAGE}:${{ steps.slug.outputs.ref }}" \
+            "${IMAGE}:${{ steps.slug.outputs.ref }}-amd64" \
+            "${IMAGE}:${{ steps.slug.outputs.ref }}-arm64"
