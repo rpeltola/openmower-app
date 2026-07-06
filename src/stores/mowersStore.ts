@@ -1,4 +1,5 @@
 import type {MowerConfig} from '@/components/types';
+import {MqttQueryClient} from '@/lib/queryClient';
 import {OpenMowerRpc} from '@/lib/rpc';
 import {generateId} from '@/utils/area-utils';
 import {TrackPipeline} from '@/utils/track-pipeline';
@@ -22,6 +23,7 @@ import {
   capabilitiesSchema,
   datumSchema,
   eventSchema,
+  histogramsSchema,
   LegacyArea,
   LegacyMapData,
   legacyMapSchema,
@@ -33,8 +35,10 @@ import {
   recordDockingStatusSchema,
   stateDefaults,
   stateSchema,
+  statsSchema,
   type Capabilities,
   type Datum,
+  type Histograms,
   type MapData,
   type Mission,
   type MissionState,
@@ -42,6 +46,7 @@ import {
   type PositionWithAttributes,
   type RecordDockingStatus,
   type StateOptionalPose,
+  type Stats,
   type TrackAttributes,
 } from './schemas';
 
@@ -57,6 +62,7 @@ export class Mower {
   readonly mqttClient: MqttClient;
   readonly mqttPrefix: string;
   readonly rpc: OpenMowerRpc;
+  readonly queryClient: MqttQueryClient;
   capabilities: Capabilities = {};
   state: StateOptionalPose = stateDefaults;
   map: MapData = mapDefaults;
@@ -68,6 +74,10 @@ export class Mower {
   events: MowerEventState = mowerEventDefaults;
   missionState: MissionState | null = null;
   recordDockingStatus: RecordDockingStatus | null = null;
+  // Always-on persistence topics (see persistence/DESIGN.md "MQTT contract"): lifetime
+  // stats + blade wear (retained, on-change), and recent-window mini-histograms (~2-5s).
+  stats: Stats | null = null;
+  histograms: Histograms | null = null;
 
   constructor(config: MowerConfig, mqttClient: MqttClient) {
     this.id = config.id;
@@ -77,6 +87,7 @@ export class Mower {
     this.mqttClient = mqttClient;
     this.mqttPrefix = config.mqtt_prefix;
     this.rpc = new OpenMowerRpc(mqttClient, config.mqtt_prefix);
+    this.queryClient = new MqttQueryClient(mqttClient, config.mqtt_prefix);
   }
 
   hasCapability(capability: string, minLevel: number = 1): boolean {
@@ -122,6 +133,12 @@ export class Mower {
   // action to the matching command.
   sendCommand(action: MowerCommand) {
     this.mqttClient.publish(this.mqttPrefix + 'command', JSON.stringify({action}));
+  }
+
+  // Blade-changed acknowledgement -> app_gateway -> persistence's ResetBlade service.
+  // The updated stats/json (blade.total_hours reset to 0) reflects it once applied.
+  publishBladeReset() {
+    this.mqttClient.publish(this.mqttPrefix + 'blade/reset', '');
   }
 }
 
@@ -202,6 +219,11 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'params/json');
             client.subscribe(clientMower.prefix + 'events/json');
             client.subscribe(clientMower.prefix + 'map_layers/planned_path/json');
+            client.subscribe(clientMower.prefix + 'stats/json');
+            client.subscribe(clientMower.prefix + 'histograms/json');
+            // On-demand query replies (stats/histogram/heatmap/events/mapversions/track/mowjobs),
+            // correlated by request_id -- see lib/queryClient.ts.
+            client.subscribe(clientMower.prefix + 'query/+/res');
             mowers[clientMower.idx].rpc.events.history
               .list()
               .then((dates) => {
@@ -333,6 +355,20 @@ export const useMowersStore = create<MowersStore>()(
                   if (parsed.success) state.mowers[idx].plannedPathSignal = parsed.data;
                 }
               });
+            } else if (partialTopic === 'stats/json') {
+              set((state) => {
+                const parsed = statsSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) state.mowers[idx].stats = parsed.data;
+              });
+            } else if (partialTopic === 'histograms/json') {
+              set((state) => {
+                const parsed = histogramsSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) state.mowers[idx].histograms = parsed.data;
+              });
+            } else if (partialTopic.startsWith('query/') && partialTopic.endsWith('/res')) {
+              // Routed to whichever caller is awaiting this request_id; doesn't touch store
+              // state directly (see MqttQueryClient), so no `set()` needed here.
+              mowers[idx].queryClient.handleResponse(payload.toString());
             }
           } catch (err) {
             console.warn(`Dropping malformed MQTT message on ${topic}:`, err);

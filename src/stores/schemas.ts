@@ -319,6 +319,98 @@ export const plannedPathSignalSchema = z.object({
 export type PlannedPathSignal = z.infer<typeof plannedPathSignalSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Stats & histograms (see OpenMowerNext persistence/DESIGN.md "MQTT contract"):
+// `stats/json` + `histograms/json` are always-on/retained topics; `query/stats/req|res`
+// and `query/heatmap/req|res` are the on-demand request/reply pair (see lib/queryClient.ts).
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const bladeStatusSchema = z.object({
+  total_hours: z.number(),
+  left_hours: z.number(),
+  right_hours: z.number(),
+  due: z.boolean(),
+  interval_hours: z.number(),
+});
+export type BladeStatus = z.infer<typeof bladeStatusSchema>;
+
+// stats/json (retained, on-change / ~30s)
+export const statsSchema = z.object({
+  mowed_hours: z.number(),
+  mowed_m2: z.number(),
+  mow_count: z.number(),
+  blade: bladeStatusSchema,
+});
+export type Stats = z.infer<typeof statsSchema>;
+
+export const histogramBucketsSchema = z.object({
+  min: z.number(),
+  width: z.number(),
+  counts: z.array(z.number()),
+});
+export type HistogramBuckets = z.infer<typeof histogramBucketsSchema>;
+
+// histograms/json (~2-5s), served from the persistence node's RAM window
+export const histogramsSchema = z.object({
+  mow_motor_current: histogramBucketsSchema.optional(),
+  drive_speed_left: histogramBucketsSchema.optional(),
+  drive_speed_right: histogramBucketsSchema.optional(),
+  gps_quality: histogramBucketsSchema.optional(),
+});
+export type Histograms = z.infer<typeof histogramsSchema>;
+export type HistogramMetric = keyof Histograms;
+
+// query/stats/res -- per-day rollup entry, decoded from the `per_day_json` string field
+// (services with list/complex responses forward a JSON string verbatim; see DESIGN.md's
+// ROS services table). date is a YYYY-MM-DD string.
+export const statsPerDaySchema = z.object({
+  date: z.string(),
+  mowed_hours: z.number().default(0),
+  mowed_m2: z.number().default(0),
+  mow_count: z.number().default(0),
+});
+export type StatsPerDay = z.infer<typeof statsPerDaySchema>;
+
+export const statsQueryResultSchema = z.object({
+  mowed_hours: z.number().default(0),
+  mowed_m2: z.number().default(0),
+  mow_count: z.number().default(0),
+  blade_hours: z.number().default(0),
+  per_day: z.array(statsPerDaySchema).default([]),
+});
+export type StatsQueryResult = z.infer<typeof statsQueryResultSchema>;
+
+// query/heatmap/res -- cells decoded from the `json` string field, keyed by the current
+// map version. Coordinates are 0.25m-cell grid indices in datum-relative local metres
+// (HEATMAP_CELL_SIZE_M, see DESIGN.md).
+export const heatmapCellSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  mean: z.number(),
+  count: z.number(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+});
+export type HeatmapCell = z.infer<typeof heatmapCellSchema>;
+
+export const HEATMAP_METRICS = ['gps_quality', 'mow_motor_current', 'slip_pct'] as const;
+export type HeatmapMetric = (typeof HEATMAP_METRICS)[number];
+
+export const HEATMAP_METRIC_LABELS: Record<HeatmapMetric, string> = {
+  gps_quality: 'GPS quality',
+  mow_motor_current: 'Mower motor current',
+  slip_pct: 'Wheel slip',
+};
+
+// query/mapversions/res -- decoded from its `json` string field (ListMapVersions service).
+export const mapVersionEntrySchema = z.object({
+  id: z.number(),
+  created_at: z.number().optional(),
+  note: z.string().optional(),
+  is_current: z.boolean().default(false),
+});
+export type MapVersionEntry = z.infer<typeof mapVersionEntrySchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Legacy map
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 

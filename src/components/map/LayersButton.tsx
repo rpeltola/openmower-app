@@ -2,12 +2,15 @@
 
 import {useMapDisplayStore} from '@/stores/mapDisplayStore';
 import {useSelectedMower} from '@/stores/mowersStore';
-import type {Datum} from '@/stores/schemas';
+import {HEATMAP_METRIC_LABELS, HEATMAP_METRICS, type Datum, type HeatmapMetric} from '@/stores/schemas';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
+import Divider from '@mui/material/Divider';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
+import MenuItem from '@mui/material/MenuItem';
 import Popover from '@mui/material/Popover';
+import Select from '@mui/material/Select';
 import Skeleton from '@mui/material/Skeleton';
 import Switch from '@mui/material/Switch';
 import Tooltip from '@mui/material/Tooltip';
@@ -33,10 +36,12 @@ export default function LayersButton({datum, trackLoading, editMode}: LayersButt
     showTrackLayer,
     showPlannedPath,
     selectedJobId,
+    heatmapMetric,
     setShowSatelliteLayer,
     setShowTrackLayer,
     setShowPlannedPath,
     setSelectedJobId,
+    setHeatmapMetric,
   } = useMapDisplayStore();
 
   const hasPositionCapability = useSelectedMower((s) => s?.hasCapability('position') ?? false);
@@ -222,6 +227,28 @@ export default function LayersButton({datum, trackLoading, editMode}: LayersButt
             )}
           </>
         )}
+
+        <Divider sx={{my: 1}} />
+
+        <Typography variant="overline" sx={{px: 1, display: 'block', lineHeight: 2}}>
+          Coverage heatmap
+        </Typography>
+        <Box sx={{px: 1, pb: 0.5}}>
+          <Select<HeatmapMetric | ''>
+            size="small"
+            fullWidth
+            value={heatmapMetric ?? ''}
+            displayEmpty
+            onChange={(e) => setHeatmapMetric(e.target.value === '' ? null : e.target.value)}
+          >
+            <MenuItem value="">Off</MenuItem>
+            {HEATMAP_METRICS.map((metric) => (
+              <MenuItem key={metric} value={metric}>
+                {HEATMAP_METRIC_LABELS[metric]}
+              </MenuItem>
+            ))}
+          </Select>
+        </Box>
       </Popover>
     </>
   );

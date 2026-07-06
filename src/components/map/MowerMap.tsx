@@ -1,12 +1,13 @@
 'use client';
 
 import {useFitToBounds, useMapboxDraw, useMapContext, useMapHover, useSpotDrawTool} from '@/contexts/MapContext';
+import {useHeatmap} from '@/hooks/useHeatmap';
 import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
 import {useJobTrack} from '@/hooks/useJobTrack';
 import {useMissionComposer} from '@/hooks/useMissionComposer';
 import {useMapDisplayStore} from '@/stores/mapDisplayStore';
 import {useSelectedMower} from '@/stores/mowersStore';
-import {MapData, type AreaProps} from '@/stores/schemas';
+import {HEATMAP_METRIC_LABELS, MapData, type AreaProps} from '@/stores/schemas';
 import type {AreaFeature} from '@/types/geojson';
 import {featuresToDockingStations} from '@/utils/area-converter';
 import {generateId, splitPolygonWithLine} from '@/utils/area-utils';
@@ -33,6 +34,7 @@ import {DownloadButton} from './edit/DownloadButton';
 import EditControls from './edit/EditControls';
 import {IssuesButton} from './edit/IssuesButton';
 import {UploadButton} from './edit/UploadButton';
+import HeatmapLayer, {HEATMAP_LEGEND_COLORS} from './HeatmapLayer';
 import LayersButton from './LayersButton';
 import MapDialog from './MapDialog';
 import {mapStyles} from './mapStyles';
@@ -102,9 +104,17 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
   );
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const {showSatelliteLayer, showTrackLayer, showPlannedPath, showAreaList, selectedJobId, setShowAreaList} =
-    useMapDisplayStore();
+  const {
+    showSatelliteLayer,
+    showTrackLayer,
+    showPlannedPath,
+    showAreaList,
+    selectedJobId,
+    heatmapMetric,
+    setShowAreaList,
+  } = useMapDisplayStore();
   const {pastTrack, loading: trackLoading} = useJobTrack(selectedJobId);
+  const heatmap = useHeatmap(heatmapMetric);
   const [showMissionPanel, setShowMissionPanel] = useState(false);
   const {plannedPath} = useJobPlannedPath(selectedJobId);
   const areaSettingsDialog = useDialog(AreaSettingsDialog);
@@ -384,12 +394,51 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
             <MissionPanel composer={missionComposer} areas={workingAreas} onClose={() => setShowMissionPanel(false)} />
           </MapDialog>
         )}
+        {heatmapMetric && !editMode && (
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 10,
+              left: 60,
+              bgcolor: 'background.paper',
+              borderRadius: 1,
+              px: 1.5,
+              py: 1,
+              boxShadow: 2,
+              minWidth: 160,
+            }}
+          >
+            <Box sx={{fontSize: 12, fontWeight: 600, mb: 0.5}}>
+              {HEATMAP_METRIC_LABELS[heatmapMetric]}
+              {heatmap.isMock ? ' (sample)' : ''}
+            </Box>
+            <Box
+              sx={{
+                height: 8,
+                borderRadius: 1,
+                background: `linear-gradient(90deg, ${HEATMAP_LEGEND_COLORS.low}, ${HEATMAP_LEGEND_COLORS.high})`,
+              }}
+            />
+            <Box sx={{display: 'flex', justifyContent: 'space-between', fontSize: 10, opacity: 0.7, mt: 0.25}}>
+              <span>Low</span>
+              <span>High</span>
+            </Box>
+          </Box>
+        )}
         {dockingStations.map((station) => (
           <DockingStationMarker key={station.id} station={station} datum={datumOrFallback} isDocked={isDocked} />
         ))}
         {mowerPosition && !isDocked && <MowerMarker position={mowerPosition} datum={datumOrFallback} />}
         <PlannedPathLayer visible={showPlannedPath && !editMode} datum={datumOrFallback} plannedPath={plannedPath} />
         <TrackLayer visible={showTrackLayer && !editMode} pastTrack={pastTrack} loading={trackLoading} />
+        {heatmapMetric && (
+          <HeatmapLayer
+            visible={!editMode}
+            cells={heatmap.cells}
+            cellSize={heatmap.cellSize}
+            datum={datumOrFallback}
+          />
+        )}
         {!editMode && <MowerControls />}
         {showTeleop && <TeleopControls disabled={teleopDisabled} />}
         <DialogOutlet />

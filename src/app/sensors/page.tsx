@@ -1,8 +1,11 @@
 'use client';
 
+import HistogramSparkline from '@/components/charts/HistogramSparkline';
 import {HeaderStat, Page, PageContent, PageHeader} from '@/components/page';
 import {outerCardStyles} from '@/lib/cardStyles';
+import {mockHistograms} from '@/lib/mockPersistence';
 import {useMowersStore, useSelectedMower} from '@/stores/mowersStore';
+import type {HistogramBuckets} from '@/stores/schemas';
 
 import {
   BatteryChargingFull as BatteryChargingIcon,
@@ -17,7 +20,7 @@ import {
   Sensors as SensorIcon,
 } from '@mui/icons-material';
 import {Box, Card, CardContent, Chip, Divider, LinearProgress, Typography, useTheme} from '@mui/material';
-import type {ReactNode} from 'react';
+import {useMemo, type ReactNode} from 'react';
 
 // The sensor values shown here come live from the robot over MQTT (see stores/mowersStore).
 // The mower publishes a consolidated `robot_state/json` (parsed into `state`) and a live
@@ -154,6 +157,32 @@ function MeteredValue({
   );
 }
 
+/** A label + compact recent-distribution histogram (see histograms/json in
+ * persistence/DESIGN.md's MQTT contract), for the handful of readouts where the recent
+ * spread matters more than the instantaneous value alone. */
+function HistogramRow({
+  label,
+  buckets,
+  isMock,
+  unit,
+  digits,
+}: {
+  label: string;
+  buckets?: HistogramBuckets;
+  isMock: boolean;
+  unit?: string;
+  digits?: number;
+}) {
+  return (
+    <Box sx={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, py: 0.5}}>
+      <Typography variant="caption" color="text.secondary">
+        {label}
+      </Typography>
+      <HistogramSparkline buckets={buckets} isMock={isMock} unit={unit} digits={digits} width={120} height={28} />
+    </Box>
+  );
+}
+
 /** A simple label/value pair for readouts that aren't metered. */
 function Readout({label, value}: {label: ReactNode; value: ReactNode}) {
   return (
@@ -176,6 +205,12 @@ export default function SensorsPage() {
   const position = useSelectedMower((mower) => mower?.position);
   const datum = useSelectedMower((mower) => mower?.map.datum);
   const mqttStatus = useMowersStore((store) => (mowerId ? store.mqttStatuses[mowerId] : undefined));
+  // histograms/json is a ~2-5s recent-window feed; fall back to sample data until it arrives
+  // (see src/lib/mockPersistence.ts).
+  const liveHistograms = useSelectedMower((mower) => mower?.histograms);
+  const fallbackHistograms = useMemo(() => mockHistograms(), []);
+  const histograms = liveHistograms ?? fallbackHistograms;
+  const histogramsAreMock = !liveHistograms;
 
   if (!mowerId || !state) {
     return (
@@ -317,6 +352,13 @@ export default function SensorsPage() {
               percent={state.gps_percentage}
               color={gpsColor(state.gps_percentage)}
             />
+            <HistogramRow
+              label="Recent GPS quality"
+              buckets={histograms.gps_quality}
+              isMock={histogramsAreMock}
+              unit="%"
+              digits={0}
+            />
             {pose ? (
               <>
                 <Readout label="Position accuracy" value={`±${pose.pos_accuracy.toFixed(2)} m`} />
@@ -428,6 +470,13 @@ export default function SensorsPage() {
               {escLeft && (
                 <>
                   <Readout label="Left drive" value={`${escLeft.rpm} rpm · ${fmt(escLeft.current, 1, 'A')}`} />
+                  <HistogramRow
+                    label="Recent left speed"
+                    buckets={histograms.drive_speed_left}
+                    isMock={histogramsAreMock}
+                    unit=" m/s"
+                    digits={2}
+                  />
                   <Readout
                     label="Left temp (motor / PCB)"
                     value={`${fmt(escLeft.temperature_motor, 1)} / ${fmt(escLeft.temperature_pcb, 1, '°C')}`}
@@ -437,6 +486,13 @@ export default function SensorsPage() {
               {escRight && (
                 <>
                   <Readout label="Right drive" value={`${escRight.rpm} rpm · ${fmt(escRight.current, 1, 'A')}`} />
+                  <HistogramRow
+                    label="Recent right speed"
+                    buckets={histograms.drive_speed_right}
+                    isMock={histogramsAreMock}
+                    unit=" m/s"
+                    digits={2}
+                  />
                   <Readout
                     label="Right temp (motor / PCB)"
                     value={`${fmt(escRight.temperature_motor, 1)} / ${fmt(escRight.temperature_pcb, 1, '°C')}`}
@@ -453,6 +509,13 @@ export default function SensorsPage() {
                       </Box>
                     }
                     value={`${fmt(mower.motor_rpm, 0)} rpm · ${fmt(mower.esc_current, 1, 'A')}`}
+                  />
+                  <HistogramRow
+                    label="Recent motor current"
+                    buckets={histograms.mow_motor_current}
+                    isMock={histogramsAreMock}
+                    unit=" A"
+                    digits={1}
                   />
                   <Readout
                     label="Mower temp (motor / ESC)"
