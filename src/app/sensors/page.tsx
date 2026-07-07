@@ -521,6 +521,7 @@ export default function SensorsPage() {
                     }
                     value={`${fmt(mower.motor_rpm, 0)} rpm · ${fmt(mower.esc_current, 1, 'A')}`}
                   />
+                  <Readout label="Mow direction" value={fmtDirection(mower.mow_direction)} />
                   <HistogramRow
                     label="Recent motor current"
                     buckets={histograms?.mow_motor_current}
