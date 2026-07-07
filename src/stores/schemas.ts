@@ -46,6 +46,10 @@ const escStatusSchema = z.looseObject({
   rpm: z.number(),
   temperature_motor: nullableNumber,
   temperature_pcb: nullableNumber,
+  duty_cycle: nullableNumber,
+  input_voltage: nullableNumber,
+  tacho_absolute: nullableNumber,
+  direction: nullableNumber,
 });
 
 export const sensorsSchema = z.looseObject({
@@ -84,6 +88,8 @@ export const sensorsSchema = z.looseObject({
       motor_rpm: nullableNumber,
       mow_enabled: z.boolean(),
       rain_detected: z.boolean(),
+      rain_value: nullableNumber,
+      mow_direction: nullableNumber,
       esc_power: z.boolean(),
       raspberry_pi_power: z.boolean(),
       mower_status: z.number(),

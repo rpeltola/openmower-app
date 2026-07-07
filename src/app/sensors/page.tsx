@@ -181,6 +181,12 @@ function HistogramRow({
   );
 }
 
+/** ESC direction bit (0/1) as a short human label; `null`/`undefined` renders as "—". */
+function fmtDirection(value: number | null | undefined): string {
+  if (value == null) return '—';
+  return value === 1 ? 'FWD' : 'REV';
+}
+
 /** A simple label/value pair for readouts that aren't metered. */
 function Readout({label, value}: {label: ReactNode; value: ReactNode}) {
   return (
@@ -471,6 +477,14 @@ export default function SensorsPage() {
                     label="Left temp (motor / PCB)"
                     value={`${fmt(escLeft.temperature_motor, 1)} / ${fmt(escLeft.temperature_pcb, 1, '°C')}`}
                   />
+                  <Readout
+                    label="Left duty / input voltage"
+                    value={`${fmt(escLeft.duty_cycle, 2)} / ${fmt(escLeft.input_voltage, 1, 'V')}`}
+                  />
+                  <Readout
+                    label="Left tacho / direction"
+                    value={`${fmt(escLeft.tacho_absolute, 0)} / ${fmtDirection(escLeft.direction)}`}
+                  />
                 </>
               )}
               {escRight && (
@@ -485,6 +499,14 @@ export default function SensorsPage() {
                   <Readout
                     label="Right temp (motor / PCB)"
                     value={`${fmt(escRight.temperature_motor, 1)} / ${fmt(escRight.temperature_pcb, 1, '°C')}`}
+                  />
+                  <Readout
+                    label="Right duty / input voltage"
+                    value={`${fmt(escRight.duty_cycle, 2)} / ${fmt(escRight.input_voltage, 1, 'V')}`}
+                  />
+                  <Readout
+                    label="Right tacho / direction"
+                    value={`${fmt(escRight.tacho_absolute, 0)} / ${fmtDirection(escRight.direction)}`}
                   />
                 </>
               )}
@@ -519,6 +541,7 @@ export default function SensorsPage() {
                       />
                     }
                   />
+                  <Readout label="Rain value" value={fmt(mower.rain_value, 0)} />
                 </>
               )}
             </SensorCard>
