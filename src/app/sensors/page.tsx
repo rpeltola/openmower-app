@@ -35,6 +35,23 @@ function normalizeDegrees(rad: number): number {
   return deg < 0 ? deg + 360 : deg;
 }
 
+/**
+ * Roll/pitch (radians), estimated from a single accelerometer sample. The gateway's
+ * IMU source is the raw `/ll/imu/data_raw` topic -- gyro + accel only, no fused
+ * orientation -- and the EKF-derived `pose.heading` is yaw-only (the localization
+ * EKF fuses 2D motion, not tilt). So a gravity-vector tilt estimate from the
+ * accelerometer is the only way to surface roll/pitch at all. It assumes the
+ * mower is roughly static (reading dominated by gravity, not drive acceleration)
+ * and REP-103 body axes (x forward, y left, z up); treat it as an approximation,
+ * not a precise attitude.
+ */
+function accelTilt(x: number | null, y: number | null, z: number | null): {roll: number; pitch: number} | undefined {
+  if (x == null || y == null || z == null) return undefined;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return undefined;
+  if (x === 0 && y === 0 && z === 0) return undefined; // no samples yet
+  return {roll: Math.atan2(y, z), pitch: Math.atan2(-x, Math.hypot(y, z))};
+}
+
 function batteryColor(pct: number): 'success' | 'warning' | 'error' {
   if (pct >= 50) return 'success';
   if (pct >= 20) return 'warning';
@@ -248,9 +265,11 @@ export default function SensorsPage() {
   const escRight = sensors?.esc_right;
   const emergencyInfo = sensors?.emergency;
   const gps = sensors?.gps;
+  const imu = sensors?.imu;
   // current_action_progress is a 0..1 fraction from ROS.
   const progressPercent = Math.round(Math.max(0, Math.min(1, state.current_action_progress)) * 100);
   const headingRad = pose?.heading ?? position?.heading;
+  const tilt = imu ? accelTilt(imu.linear_acceleration.x, imu.linear_acceleration.y, imu.linear_acceleration.z) : undefined;
 
   return (
     <Page>
@@ -408,6 +427,12 @@ export default function SensorsPage() {
                 value={`${normalizeDegrees(headingRad).toFixed(1)}°`}
               />
             ) : null}
+            {tilt && (
+              <>
+                <Readout label="Roll (est. from IMU)" value={`${(tilt.roll * RAD_TO_DEG).toFixed(1)}°`} />
+                <Readout label="Pitch (est. from IMU)" value={`${(tilt.pitch * RAD_TO_DEG).toFixed(1)}°`} />
+              </>
+            )}
             {pose && (
               <>
                 <Readout label="X (east)" value={`${pose.x.toFixed(2)} m`} />
