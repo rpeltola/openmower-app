@@ -1,7 +1,15 @@
 import {generateId} from '@/utils/area-utils';
 import type {MqttClient} from 'mqtt';
 
-export type QueryName = 'stats' | 'histogram' | 'heatmap' | 'events' | 'mapversions' | 'track' | 'mowjobs';
+export type QueryName =
+  | 'stats'
+  | 'histogram'
+  | 'heatmap'
+  | 'heatmap_metrics'
+  | 'events'
+  | 'mapversions'
+  | 'track'
+  | 'mowjobs';
 
 interface PendingQuery {
   resolve: (value: Record<string, unknown>) => void;

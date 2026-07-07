@@ -13,6 +13,9 @@ interface HeatmapLayerProps {
   cells: HeatmapCell[];
   cellSize: number;
   datum: Datum;
+  /** When true, a high reading is the "good" end -- invert the ramp so low readings (the
+   * alarming end) render in HIGH_COLOR instead of high readings. */
+  higherIsBetter?: boolean;
 }
 
 const emptyCollection: FeatureCollection<Polygon> = featureCollection([]);
@@ -25,7 +28,7 @@ const HIGH_COLOR = '#0b3d91';
 
 /** Coverage heatmap overlay: one colored square per 0.25m grid cell (see heatmap_cell /
  * query/heatmap in persistence/DESIGN.md), normalized to the current cell range. */
-export default function HeatmapLayer({visible, cells, cellSize, datum}: HeatmapLayerProps) {
+export default function HeatmapLayer({visible, cells, cellSize, datum, higherIsBetter}: HeatmapLayerProps) {
   const data = useMemo(() => {
     if (cells.length === 0) return emptyCollection;
     const utmDatum = datumToRelative([datum.long, datum.lat]);
@@ -47,11 +50,12 @@ export default function HeatmapLayer({visible, cells, cellSize, datum}: HeatmapL
       if (ring.length < 4) return [];
 
       const closedRing = [...ring, ring[0]];
-      const norm = (cell.mean - min) / range;
+      const normalized = (cell.mean - min) / range;
+      const norm = higherIsBetter ? 1 - normalized : normalized;
       return [polygon([closedRing], {norm, mean: cell.mean, count: cell.count})];
     });
     return featureCollection(features);
-  }, [cells, cellSize, datum]);
+  }, [cells, cellSize, datum, higherIsBetter]);
 
   const paint: FillLayerSpecification['paint'] = {
     'fill-color': ['interpolate', ['linear'], ['get', 'norm'], 0, LOW_COLOR, 1, HIGH_COLOR],

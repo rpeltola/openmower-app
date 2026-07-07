@@ -1,11 +1,14 @@
-import type {
-  HeatmapCell,
-  HeatmapMetric,
-  HistogramBuckets,
-  Histograms,
-  Stats,
-  StatsPerDay,
-  StatsQueryResult,
+import {
+  HEATMAP_METRIC_LABELS,
+  HEATMAP_METRICS,
+  type HeatmapCell,
+  type HeatmapMetric,
+  type HeatmapMetricInfo,
+  type HistogramBuckets,
+  type Histograms,
+  type Stats,
+  type StatsPerDay,
+  type StatsQueryResult,
 } from '@/stores/schemas';
 
 /**
@@ -102,6 +105,14 @@ export function mockHistograms(): Histograms {
     drive_speed_right: mockHistogramBuckets(-0.5, 0.05, 20, 13, 3, 3),
     gps_quality: mockHistogramBuckets(0, 5, 20, 17, 2.5, 4),
   };
+}
+
+export function mockHeatmapMetrics(): HeatmapMetricInfo[] {
+  return HEATMAP_METRICS.map((key) => ({
+    key,
+    label: HEATMAP_METRIC_LABELS[key],
+    higher_is_better: key === 'gps_quality',
+  }));
 }
 
 export function mockHeatmap(metric: HeatmapMetric): {cell_size: number; cells: HeatmapCell[]} {

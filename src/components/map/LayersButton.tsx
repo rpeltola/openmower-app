@@ -1,8 +1,9 @@
 'use client';
 
+import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
 import {useMapDisplayStore} from '@/stores/mapDisplayStore';
 import {useSelectedMower} from '@/stores/mowersStore';
-import {HEATMAP_METRIC_LABELS, HEATMAP_METRICS, type Datum, type HeatmapMetric} from '@/stores/schemas';
+import type {Datum, HeatmapMetric} from '@/stores/schemas';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
@@ -55,6 +56,7 @@ export default function LayersButton({
   const hasPositionCapability = useSelectedMower((s) => s?.hasCapability('position') ?? false);
   const jobList = useSelectedMower((s) => s?.jobList ?? null);
   const liveJobId = useSelectedMower((s) => s?.track.attributes.job_id ?? null);
+  const {metrics: heatmapMetrics, loading: heatmapMetricsLoading} = useHeatmapMetrics();
 
   const jobListLoaded = jobList !== null;
   // Exclude the live job — it's represented by "Current" (server returns newest first)
@@ -247,15 +249,24 @@ export default function LayersButton({
             fullWidth
             value={heatmapMetric ?? ''}
             displayEmpty
+            disabled={heatmapMetrics.length === 0}
             onChange={(e) => setHeatmapMetric(e.target.value === '' ? null : e.target.value)}
           >
             <MenuItem value="">Off</MenuItem>
-            {HEATMAP_METRICS.map((metric) => (
-              <MenuItem key={metric} value={metric}>
-                {HEATMAP_METRIC_LABELS[metric]}
+            {heatmapMetrics.map((metric) => (
+              <MenuItem key={metric.key} value={metric.key}>
+                {metric.label}
               </MenuItem>
             ))}
           </Select>
+          {heatmapMetricsLoading && heatmapMetrics.length === 0 && (
+            <Box sx={{display: 'flex', alignItems: 'center', gap: 1, mt: 0.75}}>
+              <CircularProgress size={12} />
+              <Typography variant="caption" color="text.secondary">
+                Loading metrics…
+              </Typography>
+            </Box>
+          )}
           {heatmapLoading && (
             <Box sx={{display: 'flex', alignItems: 'center', gap: 1, mt: 0.75}}>
               <CircularProgress size={12} />

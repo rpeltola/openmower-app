@@ -398,10 +398,23 @@ export const heatmapCellSchema = z.object({
 });
 export type HeatmapCell = z.infer<typeof heatmapCellSchema>;
 
-export const HEATMAP_METRICS = ['gps_quality', 'mow_motor_current', 'slip_pct'] as const;
-export type HeatmapMetric = (typeof HEATMAP_METRICS)[number];
+// The metric is now a dynamic key served by `query/heatmap_metrics` (see below) -- any string.
+export type HeatmapMetric = string;
 
-export const HEATMAP_METRIC_LABELS: Record<HeatmapMetric, string> = {
+// query/heatmap_metrics/res -- entries decoded from the `json` string field (ListHeatmapMetrics
+// service). Drives the "Coverage heatmap" metric picker; see useHeatmapMetrics.
+export const heatmapMetricInfoSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  higher_is_better: z.boolean(),
+});
+export type HeatmapMetricInfo = z.infer<typeof heatmapMetricInfoSchema>;
+
+// Fallback metric list for the dev-only mock persistence flag (see mockHeatmapMetrics), used
+// only until query/heatmap_metrics resolves for real -- not the source of truth.
+export const HEATMAP_METRICS = ['gps_quality', 'mow_motor_current', 'slip_pct'] as const;
+
+export const HEATMAP_METRIC_LABELS: Record<(typeof HEATMAP_METRICS)[number], string> = {
   gps_quality: 'GPS quality',
   mow_motor_current: 'Mower motor current',
   slip_pct: 'Wheel slip',

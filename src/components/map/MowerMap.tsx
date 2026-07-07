@@ -2,12 +2,13 @@
 
 import {useFitToBounds, useMapboxDraw, useMapContext, useMapHover, useSpotDrawTool} from '@/contexts/MapContext';
 import {useHeatmap} from '@/hooks/useHeatmap';
+import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
 import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
 import {useJobTrack} from '@/hooks/useJobTrack';
 import {useMissionComposer} from '@/hooks/useMissionComposer';
 import {useMapDisplayStore} from '@/stores/mapDisplayStore';
 import {useSelectedMower} from '@/stores/mowersStore';
-import {HEATMAP_METRIC_LABELS, MapData, type AreaProps} from '@/stores/schemas';
+import {MapData, type AreaProps} from '@/stores/schemas';
 import type {AreaFeature} from '@/types/geojson';
 import {featuresToDockingStations} from '@/utils/area-converter';
 import {generateId, splitPolygonWithLine} from '@/utils/area-utils';
@@ -115,6 +116,8 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
   } = useMapDisplayStore();
   const {pastTrack, loading: trackLoading} = useJobTrack(selectedJobId);
   const heatmap = useHeatmap(heatmapMetric);
+  const {metrics: heatmapMetrics} = useHeatmapMetrics();
+  const heatmapMetricInfo = heatmapMetrics.find((m) => m.key === heatmapMetric);
   const [showMissionPanel, setShowMissionPanel] = useState(false);
   const {plannedPath} = useJobPlannedPath(selectedJobId);
   const areaSettingsDialog = useDialog(AreaSettingsDialog);
@@ -416,7 +419,7 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
               minWidth: 160,
             }}
           >
-            <Box sx={{fontSize: 12, fontWeight: 600, mb: 0.5}}>{HEATMAP_METRIC_LABELS[heatmapMetric]}</Box>
+            <Box sx={{fontSize: 12, fontWeight: 600, mb: 0.5}}>{heatmapMetricInfo?.label ?? heatmapMetric}</Box>
             <Box
               sx={{
                 height: 8,
@@ -442,6 +445,7 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
             cells={heatmap.cells}
             cellSize={heatmap.cellSize}
             datum={datumOrFallback}
+            higherIsBetter={heatmapMetricInfo?.higher_is_better}
           />
         )}
         {!editMode && <MowerControls />}
