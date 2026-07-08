@@ -2,10 +2,12 @@
 
 import HistogramSparkline from '@/components/charts/HistogramSparkline';
 import {HeaderStat, Page, PageContent, PageHeader} from '@/components/page';
+import {useChargeSessions} from '@/hooks/useChargeSessions';
 import {outerCardStyles} from '@/lib/cardStyles';
 import {mockHistograms, USE_MOCK_PERSISTENCE} from '@/lib/mockPersistence';
 import {useMowersStore, useSelectedMower} from '@/stores/mowersStore';
 import type {HistogramBuckets} from '@/stores/schemas';
+import {estimateMinutesToFull, formatMinutesToFull} from '@/utils/charge-estimate';
 
 import {
   BatteryChargingFull as BatteryChargingIcon,
@@ -21,7 +23,7 @@ import {
   Sensors as SensorIcon,
 } from '@mui/icons-material';
 import {Box, Card, CardContent, Chip, Divider, LinearProgress, Typography, useTheme} from '@mui/material';
-import type {ReactNode} from 'react';
+import {useMemo, type ReactNode} from 'react';
 
 // The sensor values shown here come live from the robot over MQTT (see stores/mowersStore).
 // The mower publishes a consolidated `robot_state/json` (parsed into `state`) and a live
@@ -30,6 +32,7 @@ import type {ReactNode} from 'react';
 // pose/GPS quality). Only fields the bridge actually exposes are surfaced here.
 
 const RAD_TO_DEG = 180 / Math.PI;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function normalizeDegrees(rad: number): number {
   const deg = (rad * RAD_TO_DEG) % 360;
@@ -241,6 +244,10 @@ export default function SensorsPage() {
   // normal run. The dev-only mock flag (off by default) is the sole exception, for local UI work.
   const liveHistograms = useSelectedMower((mower) => mower?.histograms);
   const histograms = liveHistograms ?? (USE_MOCK_PERSISTENCE ? mockHistograms() : undefined);
+  // Recent charge history feeding the time-to-full estimate (see utils/charge-estimate) -- a
+  // 30-day window is plenty to find a handful of completed sessions without refetching every render.
+  const chargeRange = useMemo(() => ({from: Date.now() - 30 * DAY_MS, to: Date.now()}), []);
+  const {sessions: chargeSessions} = useChargeSessions(chargeRange.from, chargeRange.to);
 
   if (!mowerId || !state) {
     return (
@@ -282,6 +289,9 @@ export default function SensorsPage() {
   const docked = state.current_state === 'DOCKED';
   const chargeDone = power?.charger_status === 'Done';
   const charging = state.is_charging && !chargeDone;
+  // Projected from the historical charge rate (utils/charge-estimate) -- null until at least one
+  // completed charge session has been seen, and only shown while actively charging.
+  const minutesToFull = charging ? estimateMinutesToFull(chargeSessions, state.battery_percentage) : null;
   // current_action_progress is a 0..1 fraction from ROS.
   const progressPercent = Math.round(Math.max(0, Math.min(1, state.current_action_progress)) * 100);
   const headingRad = pose?.heading ?? position?.heading;
@@ -361,6 +371,20 @@ export default function SensorsPage() {
                 />
               }
             />
+            {charging && (
+              <Readout
+                label="Time to full"
+                value={
+                  minutesToFull != null ? (
+                    formatMinutesToFull(minutesToFull)
+                  ) : (
+                    <Typography component="span" variant="body2" color="text.disabled">
+                      estimating…
+                    </Typography>
+                  )
+                }
+              />
+            )}
             {(battery || power) && <Divider sx={{my: 1}} />}
             {battery && (
               <>

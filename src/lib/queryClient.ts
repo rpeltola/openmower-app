@@ -10,7 +10,8 @@ export type QueryName =
   | 'mapversions'
   | 'mapversion'
   | 'track'
-  | 'mowjobs';
+  | 'mowjobs'
+  | 'charge_sessions';
 
 interface PendingQuery {
   resolve: (value: Record<string, unknown>) => void;
