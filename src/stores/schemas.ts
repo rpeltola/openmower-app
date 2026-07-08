@@ -456,6 +456,17 @@ export const mowJobSchema = z.object({
 });
 export type MowJob = z.infer<typeof mowJobSchema>;
 
+// query/job_track/res -- the job's driven positions WITH timestamps (downsampled to <=1000
+// evenly-spaced points server-side, first & last kept), for TRUE real-world-paced replay -- unlike
+// the untimed `track` query (see useJobTrack), each point here carries its own `t`. `t` is unix
+// MILLIS (from telemetry); see useJobTimedTrack for the seconds conversion.
+export const jobTrackPointSchema = z.object({
+  t: z.number(),
+  x: z.number(),
+  y: z.number(),
+});
+export type JobTrackPoint = z.infer<typeof jobTrackPointSchema>;
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Charge sessions (query/charge_sessions, battery time-to-full estimate)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
