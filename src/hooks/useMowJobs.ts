@@ -18,7 +18,7 @@ export type MowJobsResult = {
  */
 export function useMowJobs(fromMs: number, toMs: number): MowJobsResult {
   const mower = useSelectedMower((m) => m);
-  const [result, setResult] = useState<MowJobsResult>({jobs: [], loading: true, error: null});
+  const [result, setResult] = useState<MowJobsResult>({jobs: [], loading: false, error: null});
   const requestKeyRef = useRef<string>('');
 
   const fetchJobs = useCallback(async () => {
