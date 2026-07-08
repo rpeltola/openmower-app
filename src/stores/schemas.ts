@@ -457,6 +457,36 @@ export const mowJobSchema = z.object({
 export type MowJob = z.infer<typeof mowJobSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Charge sessions (query/charge_sessions, battery time-to-full estimate)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const chargeSessionResultSchema = z.enum(['completed', 'interrupted', 'fault']);
+export type ChargeSessionResult = z.infer<typeof chargeSessionResultSchema>;
+
+// query/charge_sessions/res -- one entry per past charge session, used to estimate the
+// battery's time-to-full charge rate. `result` falls back to the raw string for a value this
+// build doesn't know about yet, matching mowJobSchema's `status` handling.
+export const chargeSessionSchema = z.object({
+  id: z.string(),
+  dock_id: z.string(),
+  session_id: z.string(),
+  started_at: z.number(),
+  ended_at: z.number().nullable().optional(),
+  start_voltage: z.number(),
+  end_voltage: z.number(),
+  start_pct: z.number(),
+  end_pct: z.number(),
+  duration_s: z.number().default(0),
+  charge_ah: z.number(),
+  energy_wh: z.number(),
+  avg_current_a: z.number(),
+  peak_current_a: z.number(),
+  max_battery_voltage: z.number(),
+  result: z.union([chargeSessionResultSchema, z.string()]),
+});
+export type ChargeSession = z.infer<typeof chargeSessionSchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Legacy map
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
