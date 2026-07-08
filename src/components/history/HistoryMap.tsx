@@ -2,6 +2,8 @@
 
 import EventMarkers from '@/components/history/EventMarkers';
 import HistoryLayersButton from '@/components/history/HistoryLayersButton';
+import ReplayControls from '@/components/history/ReplayControls';
+import ReplayMarker from '@/components/history/ReplayMarker';
 import ControlButton from '@/components/map/ControlButton';
 import DockingStationMarker from '@/components/map/DockingStationMarker';
 import {DrawControl} from '@/components/map/DrawControl';
@@ -10,16 +12,24 @@ import HeatmapLayer from '@/components/map/HeatmapLayer';
 import {mapStyles} from '@/components/map/mapStyles';
 import PlannedPathLayer from '@/components/map/PlannedPathLayer';
 import TrackLayer from '@/components/map/TrackLayer';
-import {MapContextProvider, useFitToBounds, useMapboxDraw, useMapContext, withDisplaySortKeys} from '@/contexts/MapContext';
+import {
+  MapContextProvider,
+  useFitToBounds,
+  useMapboxDraw,
+  useMapContext,
+  withDisplaySortKeys,
+} from '@/contexts/MapContext';
 import {useHeatmap} from '@/hooks/useHeatmap';
 import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
 import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
 import {useJobTrack} from '@/hooks/useJobTrack';
 import {useMapVersion} from '@/hooks/useMapVersion';
+import {useReplay} from '@/hooks/useReplay';
 import {useSelectedMower} from '@/stores/mowersStore';
 import type {AreaProps, HeatmapMetric, MowerEvent, MowJob} from '@/stores/schemas';
 import {featuresToDockingStations} from '@/utils/area-converter';
 import {datumToRelative} from '@/utils/coordinates';
+import {countTrackPoints, replayPointCount, sampleTrackAt, trimPastTrack} from '@/utils/replay-track';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import StaticMode from '@mapbox/mapbox-gl-draw-static-mode';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
@@ -112,103 +122,146 @@ function HistoryMapInner({job, events, activeEventId, onSelectEvent, onHoverEven
     [features],
   );
 
+  // Animated replay: the playhead drives a progressive (up-to-t) view of the track + events
+  // instead of always showing the whole job at once. `job.started_at`/`ended_at` are unix
+  // seconds, matching the event `t` convention (see useJobEvents); NOT wall-clock "now".
+  const startedAt = job?.started_at ?? 0;
+  const endedAt = job ? (job.ended_at ?? Math.floor(Date.now() / 1000)) : 0;
+  const replay = useReplay(jobId, startedAt, endedAt);
+
+  // Track points carry no per-point timestamp (see useJobTrack), so the marker + progressive
+  // track are driven by INDEX, mapped from the playhead's 0..1 progress -- see utils/replay-track.
+  const totalTrackPoints = useMemo(() => countTrackPoints(pastTrack), [pastTrack]);
+  const trackIndex = totalTrackPoints > 1 ? replay.progress * (totalTrackPoints - 1) : 0;
+  const replaySample = useMemo(() => sampleTrackAt(pastTrack, trackIndex), [pastTrack, trackIndex]);
+  const replayTrack = useMemo(
+    () => (pastTrack ? trimPastTrack(pastTrack, replayPointCount(totalTrackPoints, trackIndex)) : null),
+    [pastTrack, totalTrackPoints, trackIndex],
+  );
+
+  // Events do carry their own `t` (unix seconds), so they're filtered directly against the playhead.
+  const visibleEvents = useMemo(() => events.filter((e) => e.t <= replay.t), [events, replay.t]);
+
   return (
-    <Box sx={{...sx, overflow: 'hidden', position: 'relative'}}>
-      <RMap
-        id="history-map"
-        style={{width: '100%', height: '100%'}}
-        mapStyle={mapStyles[datum && showSatellite ? 'satellite' : 'white']}
-        initialAttributionControl={false}
-        maxZoom={25}
-        initialPitchWithRotate={false}
-        dragRotate={false}
-        onLoad={(e) => e.target.touchZoomRotate.disableRotation()}
-      >
-        <DrawControl
-          displayControlsDefault={false}
-          controls={{}}
-          styles={drawStyles}
-          modes={{...MapboxDraw.modes, static: StaticMode}}
-          defaultMode="static"
-          userProperties={true}
-        />
-
-        <RFullscreenControl />
-        <ControlButton position="top-right" icon={FocusIcon} title="Fit to bounds" onClick={() => fitToBounds(false)} />
-        <HistoryLayersButton
-          datum={datum}
-          showSatellite={showSatellite}
-          onShowSatelliteChange={setShowSatellite}
-          showTrack={showTrack}
-          onShowTrackChange={setShowTrack}
-          trackLoading={trackLoading}
-          showPlannedPath={showPlannedPath}
-          onShowPlannedPathChange={setShowPlannedPath}
-          heatmapMetric={heatmapMetric}
-          onHeatmapMetricChange={setHeatmapMetric}
-          heatmapLoading={heatmap.loading}
-          heatmapEmpty={!!heatmapMetric && !heatmap.loading && heatmap.cells.length === 0}
-        />
-
-        {dockingStations.map((station) => (
-          <DockingStationMarker key={station.id} station={station} datum={datumOrFallback} />
-        ))}
-        <PlannedPathLayer visible={showPlannedPath} datum={datumOrFallback} plannedPath={plannedPath} />
-        <TrackLayer visible={showTrack} pastTrack={pastTrack} loading={trackLoading} />
-        {heatmapMetric && (
-          <HeatmapLayer
-            visible
-            cells={heatmap.cells}
-            cellSize={heatmap.cellSize}
-            datum={datumOrFallback}
-            higherIsBetter={heatmapMetricInfo?.higher_is_better}
-          />
-        )}
-        {job && (
-          <EventMarkers
-            events={events}
-            datum={datumOrFallback}
-            mapVersionId={job.map_version_id}
-            activeEventId={activeEventId}
-            onSelectEvent={onSelectEvent}
-            onHoverEvent={onHoverEvent}
-          />
-        )}
-      </RMap>
-
-      {!job && (
-        <Box
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)',
-            pointerEvents: 'none',
-          }}
+    <Box sx={{...sx, overflow: 'hidden', display: 'flex', flexDirection: 'column'}}>
+      <Box sx={{flex: 1, minHeight: 0, position: 'relative'}}>
+        <RMap
+          id="history-map"
+          style={{width: '100%', height: '100%'}}
+          mapStyle={mapStyles[datum && showSatellite ? 'satellite' : 'white']}
+          initialAttributionControl={false}
+          maxZoom={25}
+          initialPitchWithRotate={false}
+          dragRotate={false}
+          onLoad={(e) => e.target.touchZoomRotate.disableRotation()}
         >
-          <Typography variant="body2" color="text.secondary">
-            Select a job to see its map
-          </Typography>
-        </Box>
-      )}
-      {job && areaCount === 0 && !versionFeatures.features.length && (
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: 10,
-            left: 10,
-            bgcolor: 'background.paper',
-            borderRadius: 1,
-            px: 1.5,
-            py: 0.75,
-            boxShadow: 2,
-          }}
-        >
-          <Typography variant="caption" color="text.secondary">
-            No map data for this job&apos;s version.
-          </Typography>
+          <DrawControl
+            displayControlsDefault={false}
+            controls={{}}
+            styles={drawStyles}
+            modes={{...MapboxDraw.modes, static: StaticMode}}
+            defaultMode="static"
+            userProperties={true}
+          />
+
+          <RFullscreenControl />
+          <ControlButton
+            position="top-right"
+            icon={FocusIcon}
+            title="Fit to bounds"
+            onClick={() => fitToBounds(false)}
+          />
+          <HistoryLayersButton
+            datum={datum}
+            showSatellite={showSatellite}
+            onShowSatelliteChange={setShowSatellite}
+            showTrack={showTrack}
+            onShowTrackChange={setShowTrack}
+            trackLoading={trackLoading}
+            showPlannedPath={showPlannedPath}
+            onShowPlannedPathChange={setShowPlannedPath}
+            heatmapMetric={heatmapMetric}
+            onHeatmapMetricChange={setHeatmapMetric}
+            heatmapLoading={heatmap.loading}
+            heatmapEmpty={!!heatmapMetric && !heatmap.loading && heatmap.cells.length === 0}
+          />
+
+          {dockingStations.map((station) => (
+            <DockingStationMarker key={station.id} station={station} datum={datumOrFallback} />
+          ))}
+          <PlannedPathLayer visible={showPlannedPath} datum={datumOrFallback} plannedPath={plannedPath} />
+          <TrackLayer visible={showTrack} pastTrack={replayTrack} loading={trackLoading} />
+          {heatmapMetric && (
+            <HeatmapLayer
+              visible
+              cells={heatmap.cells}
+              cellSize={heatmap.cellSize}
+              datum={datumOrFallback}
+              higherIsBetter={heatmapMetricInfo?.higher_is_better}
+            />
+          )}
+          {job && (
+            <EventMarkers
+              events={visibleEvents}
+              datum={datumOrFallback}
+              mapVersionId={job.map_version_id}
+              activeEventId={activeEventId}
+              onSelectEvent={onSelectEvent}
+              onHoverEvent={onHoverEvent}
+            />
+          )}
+          {job && <ReplayMarker sample={replaySample} datum={datumOrFallback} />}
+        </RMap>
+
+        {!job && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)',
+              pointerEvents: 'none',
+            }}
+          >
+            <Typography variant="body2" color="text.secondary">
+              Select a job to see its map
+            </Typography>
+          </Box>
+        )}
+        {job && areaCount === 0 && !versionFeatures.features.length && (
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 10,
+              left: 10,
+              bgcolor: 'background.paper',
+              borderRadius: 1,
+              px: 1.5,
+              py: 0.75,
+              boxShadow: 2,
+            }}
+          >
+            <Typography variant="caption" color="text.secondary">
+              No map data for this job&apos;s version.
+            </Typography>
+          </Box>
+        )}
+      </Box>
+
+      {job && (
+        <Box sx={{flexShrink: 0, borderTop: 1, borderColor: 'divider'}}>
+          <ReplayControls
+            t={replay.t}
+            startedAt={replay.startedAt}
+            endedAt={replay.endedAt}
+            playing={replay.playing}
+            speed={replay.speed}
+            onScrub={replay.setT}
+            onTogglePlay={replay.togglePlay}
+            onSpeedChange={replay.setSpeed}
+          />
         </Box>
       )}
     </Box>
