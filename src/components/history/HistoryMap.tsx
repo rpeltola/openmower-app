@@ -22,6 +22,7 @@ import {
 import {useHeatmap} from '@/hooks/useHeatmap';
 import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
 import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
+import {useJobTimedTrack} from '@/hooks/useJobTimedTrack';
 import {useJobTrack} from '@/hooks/useJobTrack';
 import {useMapVersion} from '@/hooks/useMapVersion';
 import {useReplay} from '@/hooks/useReplay';
@@ -29,7 +30,14 @@ import {useSelectedMower} from '@/stores/mowersStore';
 import type {AreaProps, HeatmapMetric, MowerEvent, MowJob} from '@/stores/schemas';
 import {featuresToDockingStations} from '@/utils/area-converter';
 import {datumToRelative} from '@/utils/coordinates';
-import {countTrackPoints, replayPointCount, sampleTrackAt, trimPastTrack} from '@/utils/replay-track';
+import {
+  countTrackPoints,
+  replayPointCount,
+  sampleTimedTrackAt,
+  sampleTrackAt,
+  trimPastTrack,
+  trimTimedTrack,
+} from '@/utils/replay-track';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import StaticMode from '@mapbox/mapbox-gl-draw-static-mode';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
@@ -112,6 +120,8 @@ function HistoryMapInner({job, events, activeEventId, onSelectEvent, onHoverEven
 
   const jobId = job?.id ?? null;
   const {pastTrack, loading: trackLoading} = useJobTrack(jobId);
+  const {points: timedTrack} = useJobTimedTrack(jobId);
+  const hasTimedTrack = timedTrack.length > 0;
   const {plannedPath} = useJobPlannedPath(jobId);
   const heatmap = useHeatmap(heatmapMetric, job?.map_version_id);
   const {metrics: heatmapMetrics} = useHeatmapMetrics();
@@ -124,20 +134,47 @@ function HistoryMapInner({job, events, activeEventId, onSelectEvent, onHoverEven
 
   // Animated replay: the playhead drives a progressive (up-to-t) view of the track + events
   // instead of always showing the whole job at once. `job.started_at`/`ended_at` are unix
-  // seconds, matching the event `t` convention (see useJobEvents); NOT wall-clock "now".
-  const startedAt = job?.started_at ?? 0;
-  const endedAt = job ? (job.ended_at ?? Math.floor(Date.now() / 1000)) : 0;
+  // seconds, matching the event `t` convention (see useJobEvents); NOT wall-clock "now". When the
+  // timed track (query/job_track) has data, its first/last timestamp is used instead -- tighter
+  // than the job window when telemetry is sparse or the job is still running.
+  const jobStartedAt = job?.started_at ?? 0;
+  const jobEndedAt = job ? (job.ended_at ?? Math.floor(Date.now() / 1000)) : 0;
+  const startedAt = hasTimedTrack ? timedTrack[0].t : jobStartedAt;
+  const endedAt = hasTimedTrack ? timedTrack[timedTrack.length - 1].t : jobEndedAt;
   const replay = useReplay(jobId, startedAt, endedAt);
 
-  // Track points carry no per-point timestamp (see useJobTrack), so the marker + progressive
-  // track are driven by INDEX, mapped from the playhead's 0..1 progress -- see utils/replay-track.
+  // Prefer the timed track: its points carry a real `t`, so the marker + progressive track move
+  // at the mower's TRUE real-world pace (pausing/speeding up exactly where it did) instead of a
+  // uniform per-point pace. Fall back to the untimed, INDEX-interpolated pastTrack (mapped from
+  // the playhead's 0..1 progress -- see utils/replay-track) for jobs that predate job_track or
+  // have no telemetry, so nothing regresses.
   const totalTrackPoints = useMemo(() => countTrackPoints(pastTrack), [pastTrack]);
   const trackIndex = totalTrackPoints > 1 ? replay.progress * (totalTrackPoints - 1) : 0;
-  const replaySample = useMemo(() => sampleTrackAt(pastTrack, trackIndex), [pastTrack, trackIndex]);
-  const replayTrack = useMemo(
+
+  const timedSample = useMemo(
+    () => (hasTimedTrack ? sampleTimedTrackAt(timedTrack, replay.t) : null),
+    [hasTimedTrack, timedTrack, replay.t],
+  );
+  const timedReplayTrack = useMemo(
+    () =>
+      hasTimedTrack && jobId
+        ? trimTimedTrack(jobId, timedTrack, replay.t, {
+            job_id: jobId,
+            session_id: job?.session_id ?? '',
+            blades: true,
+          })
+        : null,
+    [hasTimedTrack, jobId, timedTrack, replay.t, job?.session_id],
+  );
+
+  const indexSample = useMemo(() => sampleTrackAt(pastTrack, trackIndex), [pastTrack, trackIndex]);
+  const indexReplayTrack = useMemo(
     () => (pastTrack ? trimPastTrack(pastTrack, replayPointCount(totalTrackPoints, trackIndex)) : null),
     [pastTrack, totalTrackPoints, trackIndex],
   );
+
+  const replaySample = hasTimedTrack ? timedSample : indexSample;
+  const replayTrack = hasTimedTrack ? timedReplayTrack : indexReplayTrack;
 
   // Events do carry their own `t` (unix seconds), so they're filtered directly against the playhead.
   const visibleEvents = useMemo(() => events.filter((e) => e.t <= replay.t), [events, replay.t]);

@@ -10,6 +10,7 @@ export type QueryName =
   | 'mapversions'
   | 'mapversion'
   | 'track'
+  | 'job_track'
   | 'mowjobs'
   | 'charge_sessions';
 
