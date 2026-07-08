@@ -14,6 +14,7 @@ import {
   ContentCut as BladeIcon,
   Explore as HeadingIcon,
   GpsFixed as GpsIcon,
+  Home as DockedIcon,
   MyLocation as PositionIcon,
   PlayArrow as ProgressIcon,
   ReportProblem as EmergencyIcon,
@@ -69,6 +70,15 @@ function humanizeState(value: string): string {
     .split('_')
     .map((word) => (word.length > 0 ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word))
     .join(' ');
+}
+
+// "Charging" label for battery.percentage/state combos. Docked-while-charging reads
+// "Docked · Charging"; a charger reporting "Done" is a distinct, non-animated state from
+// the still-charging one, so it gets its own "Charged" label rather than falling back to
+// a generic "Battery".
+function batteryStatusLabel(docked: boolean, charging: boolean, chargeDone: boolean): string {
+  const suffix = charging ? 'Charging' : chargeDone ? 'Charged' : 'Battery';
+  return docked ? `Docked · ${suffix}` : suffix;
 }
 
 // Units that read better without a space between value and unit.
@@ -266,6 +276,12 @@ export default function SensorsPage() {
   const emergencyInfo = sensors?.emergency;
   const gps = sensors?.gps;
   const imu = sensors?.imu;
+  // battery_percentage already arrives charging-aware (capped <100% while charging, only 100%
+  // once the charger reports done) -- no client-side math needed, just the right label/icon.
+  // "Done" is a distinct, non-animated state from the still-charging is_charging flag.
+  const docked = state.current_state === 'DOCKED';
+  const chargeDone = power?.charger_status === 'Done';
+  const charging = state.is_charging && !chargeDone;
   // current_action_progress is a 0..1 fraction from ROS.
   const progressPercent = Math.round(Math.max(0, Math.min(1, state.current_action_progress)) * 100);
   const headingRad = pose?.heading ?? position?.heading;
@@ -278,13 +294,13 @@ export default function SensorsPage() {
         subtitle={`Live low-level telemetry for ${name ?? 'the selected mower'}`}
       >
         <HeaderStat
-          icon={state.is_charging ? <BatteryChargingIcon /> : <BatteryIcon />}
+          icon={charging ? <BatteryChargingIcon /> : <BatteryIcon />}
           value={`${state.battery_percentage}%`}
-          label={state.is_charging ? 'Battery (charging)' : 'Battery'}
+          label={batteryStatusLabel(docked, charging, chargeDone)}
         />
         <HeaderStat icon={<GpsIcon />} value={`${state.gps_percentage}%`} label="GPS quality" />
         <HeaderStat
-          icon={state.emergency ? <EmergencyIcon /> : <CheckIcon />}
+          icon={state.emergency ? <EmergencyIcon /> : docked ? <DockedIcon /> : <CheckIcon />}
           value={humanizeState(state.current_state)}
           label="Current state"
         />
@@ -312,10 +328,12 @@ export default function SensorsPage() {
                 label={state.emergency ? 'Emergency' : 'No emergency'}
                 color={state.emergency ? 'error' : 'success'}
               />
+              {docked && <Chip size="small" icon={<DockedIcon />} label="Docked" color="secondary" />}
               <Chip
                 size="small"
-                label={state.is_charging ? 'Charging' : 'Not charging'}
-                color={state.is_charging ? 'info' : 'default'}
+                icon={charging ? <BatteryChargingIcon /> : chargeDone ? <BatteryIcon /> : undefined}
+                label={charging ? 'Charging' : chargeDone ? 'Charged' : 'Not charging'}
+                color={charging ? 'info' : chargeDone ? 'success' : 'default'}
               />
             </Box>
             <Readout label="State" value={humanizeState(state.current_state)} />
@@ -326,7 +344,7 @@ export default function SensorsPage() {
           </SensorCard>
 
           {/* Battery & power */}
-          <SensorCard title="Battery & Power" icon={state.is_charging ? <BatteryChargingIcon /> : <BatteryIcon />}>
+          <SensorCard title="Battery & Power" icon={charging ? <BatteryChargingIcon /> : <BatteryIcon />}>
             <MeteredValue
               label="Charge"
               displayValue={`${state.battery_percentage}%`}
@@ -338,8 +356,8 @@ export default function SensorsPage() {
               value={
                 <Chip
                   size="small"
-                  label={state.is_charging ? 'Yes' : 'No'}
-                  color={state.is_charging ? 'info' : 'default'}
+                  label={charging ? 'Charging' : chargeDone ? 'Charged' : 'No'}
+                  color={charging ? 'info' : chargeDone ? 'success' : 'default'}
                 />
               }
             />
