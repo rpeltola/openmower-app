@@ -14,6 +14,17 @@ export const generateId = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZab
 
 export const formatAreaSize = (squareMeters: number): string => `${Math.round(squareMeters)}m²`;
 
+/** Formats a duration in seconds as e.g. "1h 24m" / "24m" / "45s" -- for job durations. */
+export const formatDuration = (seconds: number): string => {
+  const total = Math.round(Math.max(0, seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
+};
+
 export const getBiggestArea = <P extends GeoJsonProperties = AreaProps>(areas: Feature<Polygon, P>[]) => {
   if (areas.length === 0) throw new Error('Cannot get biggest area from empty array');
   return areas.reduce(

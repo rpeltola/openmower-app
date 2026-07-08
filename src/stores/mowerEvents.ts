@@ -76,7 +76,19 @@ const EVENT_ATTRIBUTE_LABELS: Record<string, string> = {
 const KNOWN_ATTRIBUTE_ORDER = Object.keys(EVENT_ATTRIBUTE_LABELS);
 
 /** Known event types in lifecycle order; extend as new types are modeled. */
-export const KNOWN_EVENT_TYPE_ORDER = ['BOOTED', 'GPS', 'STATE', 'AREA', 'BLADES', 'DOCKING', 'EMERGENCY'] as const;
+export const KNOWN_EVENT_TYPE_ORDER = [
+  'BOOTED',
+  'GPS',
+  'STATE',
+  'AREA',
+  'BLADES',
+  'DOCKING',
+  'DOCKED',
+  'JOB_COMPLETE',
+  'NAVIGATION_ERROR',
+  'UNDOCKING_FAILED',
+  'EMERGENCY',
+] as const;
 
 export function getEventExtraAttributes(event: MowerEvent): Record<string, unknown> {
   return Object.fromEntries(Object.entries(event).filter(([key]) => !BASE_EVENT_KEYS.has(key)));
@@ -207,8 +219,16 @@ export function getEventTypeLabel(type: string): string {
       return 'Blades';
     case 'DOCKING':
       return 'Docking';
+    case 'DOCKED':
+      return 'Docked';
     case 'AREA':
       return 'Area';
+    case 'JOB_COMPLETE':
+      return 'Job complete';
+    case 'NAVIGATION_ERROR':
+      return 'Navigation error';
+    case 'UNDOCKING_FAILED':
+      return 'Undocking failed';
     default:
       return type;
   }

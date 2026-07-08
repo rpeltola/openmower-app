@@ -223,7 +223,7 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'map_layers/planned_path/json');
             client.subscribe(clientMower.prefix + 'stats/json');
             client.subscribe(clientMower.prefix + 'histograms/json');
-            // On-demand query replies (stats/histogram/heatmap/events/mapversions/track/mowjobs),
+            // On-demand query replies (stats/histogram/heatmap/events/mapversions/mapversion/track/mowjobs),
             // correlated by request_id -- see lib/queryClient.ts.
             client.subscribe(clientMower.prefix + 'query/+/res');
             mowers[clientMower.idx].rpc.events.history

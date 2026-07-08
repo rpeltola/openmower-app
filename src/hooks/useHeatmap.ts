@@ -12,14 +12,17 @@ export type HeatmapResult = {
 
 /**
  * Fetches the coverage heatmap for one metric over `query/heatmap/req` -> `query/heatmap/res`
- * (GetHeatmap service, see persistence/DESIGN.md), for the current map version -- looked up
- * first via `query/mapversions`.
+ * (GetHeatmap service, see persistence/DESIGN.md).
+ *
+ * By default this is for the CURRENT map version -- looked up first via `query/mapversions`.
+ * Pass an explicit `mapVersionId` (e.g. a past job's `map_version_id`, see the History page) to
+ * fetch a specific historical version's heatmap instead, skipping the current-version lookup.
  *
  * If either query errors/times out, or there is no current map version / no cells, `cells`
  * resolves to an empty array and the map shows nothing -- never a fabricated heatmap. The
  * dev-only NEXT_PUBLIC_USE_MOCK_PERSISTENCE flag (off by default) is the sole exception.
  */
-export function useHeatmap(metric: HeatmapMetric | null): HeatmapResult {
+export function useHeatmap(metric: HeatmapMetric | null, mapVersionId?: number): HeatmapResult {
   const mower = useSelectedMower((m) => m);
   const [result, setResult] = useState<HeatmapResult>({cellSize: 0.25, cells: [], loading: false});
   const requestKeyRef = useRef<string>('');
@@ -28,16 +31,20 @@ export function useHeatmap(metric: HeatmapMetric | null): HeatmapResult {
     if (!mower || !metric) return;
     setResult((prev) => ({...prev, loading: true}));
     try {
-      const versionsRes = await mower.queryClient.request('mapversions', {});
-      const versions = parseJsonArrayField(versionsRes.json ?? versionsRes.versions).flatMap((entry) => {
-        const parsed = mapVersionEntrySchema.safeParse(entry);
-        return parsed.success ? [parsed.data] : [];
-      });
-      const current = versions.find((v) => v.is_current) ?? versions[0];
-      if (!current) throw new Error('no map version available');
+      let versionId = mapVersionId;
+      if (versionId === undefined) {
+        const versionsRes = await mower.queryClient.request('mapversions', {});
+        const versions = parseJsonArrayField(versionsRes.json ?? versionsRes.versions).flatMap((entry) => {
+          const parsed = mapVersionEntrySchema.safeParse(entry);
+          return parsed.success ? [parsed.data] : [];
+        });
+        const current = versions.find((v) => v.is_current) ?? versions[0];
+        if (!current) throw new Error('no map version available');
+        versionId = current.id;
+      }
 
       const heatmapRes = await mower.queryClient.request('heatmap', {
-        map_version_id: current.id,
+        map_version_id: versionId,
         metric,
       });
       const cells = parseJsonArrayField(heatmapRes.json ?? heatmapRes.cells).flatMap((entry) => {
@@ -55,7 +62,7 @@ export function useHeatmap(metric: HeatmapMetric | null): HeatmapResult {
         setResult({cellSize: 0.25, cells: [], loading: false});
       }
     }
-  }, [mower, metric]);
+  }, [mower, metric, mapVersionId]);
 
   useEffect(() => {
     if (!metric) {
@@ -63,11 +70,11 @@ export function useHeatmap(metric: HeatmapMetric | null): HeatmapResult {
       requestKeyRef.current = '';
       return;
     }
-    const key = `${mower?.id ?? ''}:${metric}`;
+    const key = `${mower?.id ?? ''}:${metric}:${mapVersionId ?? ''}`;
     if (requestKeyRef.current === key) return;
     requestKeyRef.current = key;
     void fetchHeatmap();
-  }, [mower?.id, metric, fetchHeatmap]);
+  }, [mower?.id, metric, mapVersionId, fetchHeatmap]);
 
   return result;
 }

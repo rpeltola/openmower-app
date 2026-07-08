@@ -8,6 +8,7 @@ export type QueryName =
   | 'heatmap_metrics'
   | 'events'
   | 'mapversions'
+  | 'mapversion'
   | 'track'
   | 'mowjobs';
 
