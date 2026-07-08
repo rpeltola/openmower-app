@@ -468,6 +468,25 @@ export const jobTrackPointSchema = z.object({
 export type JobTrackPoint = z.infer<typeof jobTrackPointSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Mow sessions (query/sessions, History page session filter)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// query/sessions/res -- one entry per mowing session (a run of the mower from wake to dock/idle,
+// grouping the mow jobs it drove); mow jobs already carry this same id as `session_id` (see
+// mowJobSchema). Unix seconds for started_at/ended_at, matching mowJobSchema's convention.
+// `ended_at` is absent/null while the session is still in progress.
+export const sessionSchema = z.object({
+  id: z.string(),
+  started_at: z.number(),
+  ended_at: z.number().nullable().optional(),
+  hostname: z.string().nullable().optional(),
+  job_count: z.number().default(0),
+  area_m2: z.number().default(0),
+  duration_s: z.number().default(0),
+});
+export type MowSession = z.infer<typeof sessionSchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Charge sessions (query/charge_sessions, battery time-to-full estimate)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 

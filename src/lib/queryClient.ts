@@ -12,6 +12,7 @@ export type QueryName =
   | 'track'
   | 'job_track'
   | 'mowjobs'
+  | 'sessions'
   | 'charge_sessions';
 
 interface PendingQuery {
