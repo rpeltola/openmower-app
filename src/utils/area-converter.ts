@@ -1,5 +1,6 @@
-import {fallbackDatum, type Area, type AreaProps, type DockingStation, type MapData} from '@/stores/schemas';
-import type {AreaFeature, DockingStationFeature} from '@/types/geojson';
+import {fallbackDatum, type Area, type AreaProps, type AreaType, type DockingStation, type MapData} from '@/stores/schemas';
+import type {AreaFeature, DockingStationFeature, DockingStationFeatureProps} from '@/types/geojson';
+import {generateId} from '@/utils/area-utils';
 import {
   datumToRelative,
   movePointTowardsHeading,
@@ -136,6 +137,73 @@ export function mapToFeatures(map?: MapData): FeatureCollection {
   // geometry/properties pair, but this collection intentionally mixes area Polygons
   // and docking-station LineStrings.
   return featureCollection([...areaFeatures, ...dockFeatures] as Feature[]);
+}
+
+// query/mapversion stores areas under this vocabulary rather than the app's own
+// mow/nav/obstacle -- see mapVersionToFeatures.
+const AREA_TYPE_REMAP: Record<string, AreaType> = {
+  operation: 'mow',
+  navigation: 'nav',
+  exclusion: 'obstacle',
+};
+const AREA_TYPES = new Set<AreaType>(['mow', 'nav', 'obstacle', 'draft']);
+
+function remapAreaType(rawType: unknown): AreaType {
+  if (typeof rawType !== 'string') return 'draft';
+  const remapped = AREA_TYPE_REMAP[rawType];
+  if (remapped) return remapped;
+  return AREA_TYPES.has(rawType as AreaType) ? (rawType as AreaType) : 'draft';
+}
+
+/**
+ * Converts a stored map version's raw GeoJSON (query/mapversion's `geojson` string, see
+ * useMapVersion) into the same Feature<Polygon, AreaProps> / DockingStationFeature shapes the
+ * live map uses (mapToFeatures), so MowerMap/HistoryMap's layers render a historical version
+ * exactly like a live one. Unlike mapToFeatures, coordinates are already absolute WGS84 lon/lat
+ * -- no datum conversion needed. Area `properties.type` is remapped from the backend's stored
+ * vocabulary (operation/navigation/exclusion) to the app's (mow/nav/obstacle); dock LineStrings
+ * get their `type`/active/approach_distance normalized to the app's docking_station convention.
+ * A feature that doesn't sanity-check (missing geometry, unknown geometry type) is dropped
+ * rather than crashing the whole map -- same defensiveness as areaToFeature.
+ */
+export function mapVersionToFeatures(raw: unknown): FeatureCollection {
+  const rawFeatures =
+    raw && typeof raw === 'object' && Array.isArray((raw as {features?: unknown}).features)
+      ? ((raw as {features: unknown[]}).features)
+      : [];
+
+  const features = rawFeatures.flatMap((entry): Feature[] => {
+    if (!entry || typeof entry !== 'object' || !('geometry' in entry)) return [];
+    const feature = entry as Feature;
+    const geometry = feature.geometry;
+    if (!geometry) return [];
+    const props = (feature.properties ?? {}) as Record<string, unknown>;
+    const id = typeof feature.id === 'string' || typeof feature.id === 'number' ? feature.id : generateId();
+
+    if (geometry.type === 'Polygon') {
+      const properties: AreaProps = {
+        ...props,
+        name: typeof props.name === 'string' ? props.name : undefined,
+        type: remapAreaType(props.type),
+        active: props.active !== false,
+      };
+      return [{type: 'Feature', id, geometry, properties} as AreaFeature];
+    }
+
+    if (geometry.type === 'LineString') {
+      const properties: DockingStationFeatureProps = {
+        type: 'docking_station',
+        name: typeof props.name === 'string' ? props.name : undefined,
+        active: props.active !== false,
+        approach_distance: typeof props.approach_distance === 'number' ? props.approach_distance : 0,
+      };
+      return [{type: 'Feature', id, geometry, properties} as DockingStationFeature];
+    }
+
+    return [];
+  });
+
+  return featureCollection(features);
 }
 
 // Thrown when a save is attempted before the mower has reported its GPS datum.

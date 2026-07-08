@@ -430,6 +430,33 @@ export const mapVersionEntrySchema = z.object({
 export type MapVersionEntry = z.infer<typeof mapVersionEntrySchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Mow jobs (query/mowjobs, History page)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const mowJobStatusSchema = z.enum(['completed', 'superseded', 'failed', 'running']);
+export type MowJobStatus = z.infer<typeof mowJobStatusSchema>;
+
+// query/mowjobs/res -- one entry per past (or in-progress) mow job. Unix seconds for
+// started_at/ended_at, matching the events/track `t` convention. `ended_at` is absent while
+// `status === 'running'`. `status` falls back to the raw string for a value this build doesn't
+// know about yet, so an unrecognized status still renders (as itself) instead of failing to parse.
+export const mowJobSchema = z.object({
+  id: z.string(),
+  session_id: z.string(),
+  map_version_id: z.number(),
+  started_at: z.number(),
+  ended_at: z.number().nullable().optional(),
+  status: z.union([mowJobStatusSchema, z.string()]),
+  area_ids: z.array(z.string()).default([]),
+  area_m2: z.number().default(0),
+  path_length_m: z.number().default(0),
+  duration_s: z.number().default(0),
+  blade_on_s: z.number().default(0),
+  avg_battery_pct: z.number().nullable().default(null),
+});
+export type MowJob = z.infer<typeof mowJobSchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Legacy map
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -486,10 +513,18 @@ const baseEventSchema = z.looseObject({
   id: z.string(),
   t: z.number(),
   type: z.string(),
-  x: z.number().optional(),
-  y: z.number().optional(),
+  // Local map-frame metres; null when the mower hadn't reported a position at event time.
+  x: z.number().nullable().optional(),
+  y: z.number().nullable().optional(),
   job_id: z.string().optional(),
   session_id: z.string().optional(),
+  // Which map version was active when the event was recorded -- see query/mapversion /
+  // useMapVersion. Lets the History page only place an event on the map when it matches
+  // the currently-displayed historical map version.
+  map_version_id: z.number().optional(),
+  // Free-form payload for event types not (yet) modeled in the discriminated union below
+  // (e.g. JOB_COMPLETE, NAVIGATION_ERROR, UNDOCKING_FAILED, DOCKED).
+  data: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const eventSchema = z.union([
