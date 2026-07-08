@@ -82,7 +82,10 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
   const draw = useMapboxDraw();
   const [hoveredId, setHoveredId] = useMapHover();
   const currentState = useSelectedMower((s) => s?.state.current_state);
-  const isDocked = useSelectedMower((s) => s?.state.is_charging ?? false);
+  const isCharging = useSelectedMower((s) => s?.state.is_charging ?? false);
+  // mower_logic reports DOCKED while idle on the charger; is_charging alone would miss the
+  // "docked but done charging" case (charger_status === "Done"), so treat either signal as docked.
+  const isDocked = currentState === 'DOCKED' || isCharging;
   const mowerPosition = useSelectedMower((s) => s?.position ?? s?.state.pose);
   // The joystick is always visible while not editing the map, but only ENABLED in
   // AREA_RECORDING mode (greyed + hinted otherwise) so manual driving can't fight

@@ -156,6 +156,7 @@ export function formatEventAttributeChip(key: string, value: unknown): string {
 const STATE_LABELS: Record<string, string> = {
   IDLE: 'Idle',
   DOCKING: 'Docking',
+  DOCKED: 'Docked',
   MOWING: 'Mowing',
   UNDOCKING: 'Undocking',
 };
