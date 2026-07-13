@@ -207,9 +207,9 @@ export function mapVersionToFeatures(raw: unknown): FeatureCollection {
 }
 
 // Thrown when a save is attempted before the mower has reported its GPS datum.
-// Saving against `fallbackDatum` would force the drawn points into the wrong UTM
-// zone and produce out-of-range coordinates that geodesy rejects with a cryptic
-// "invalid UTM easting" RangeError. Fail early with an actionable message instead.
+// Saving against `fallbackDatum` would project the drawn points about the wrong
+// origin (a different continent), silently writing a garbage map. Fail early with
+// an actionable message instead.
 export class MapDatumUnavailableError extends Error {
   constructor() {
     super('Cannot save the map yet: the mower has not reported its GPS datum. Wait for a GPS fix and try again.');
