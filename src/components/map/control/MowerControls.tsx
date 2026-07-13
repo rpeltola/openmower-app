@@ -49,6 +49,11 @@ export default function MowerControls() {
   // gateway) carries WHY the mower stopped; state.emergency stays a plain flag.
   const emergencyReason = useSelectedMower((s) => s?.state.sensors?.emergency?.reason ?? '');
   const recordDockingStatus = useSelectedMower((s) => s?.recordDockingStatus ?? null);
+  // A paused mission is preserved and resumable in place: the toolbar START resumes it
+  // (backend high_level_control COMMAND_START), so relabel it "Continue" to signal there's
+  // a mission to pick up rather than a fresh one to start. STOP/Go Dock preserve, never cancel.
+  const missionState = useSelectedMower((s) => s?.missionState ?? null);
+  const resumable = missionState?.state === 'paused';
   const recordDockingNameDialog = useDialog(RecordDockingNameDialog);
   // Terminal outcomes (success/failed) are retained on the broker, so without a local
   // dismiss they'd show forever after a page reload. Re-arm whenever a NEW status object
@@ -97,7 +102,7 @@ export default function MowerControls() {
           disabled={emergency || mowing || recording}
           onClick={() => send('start')}
         >
-          Start
+          {resumable ? 'Continue' : 'Start'}
         </Button>
         <Button
           size="small"
