@@ -144,9 +144,9 @@ export default function AreasList({areas, onClose}: {areas: Feature<Polygon, Are
             modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
           >
             <SortableContext items={areas.map((area) => area.id as string)} strategy={verticalListSortingStrategy}>
-              {areas.map((area) => (
+              {areas.map((area, index) => (
                 <SortableAreaItem
-                  key={area.id}
+                  key={(area.id as string | undefined) ?? `area-${index}`}
                   area={area}
                   selected={editMode && selectedIds.includes(area.id as string)}
                   hovered={hoveredId === (area.id as string)}

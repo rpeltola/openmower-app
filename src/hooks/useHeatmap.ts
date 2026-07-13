@@ -23,17 +23,24 @@ export type HeatmapResult = {
  * dev-only NEXT_PUBLIC_USE_MOCK_PERSISTENCE flag (off by default) is the sole exception.
  */
 export function useHeatmap(metric: HeatmapMetric | null, mapVersionId?: number): HeatmapResult {
-  const mower = useSelectedMower((m) => m);
+  // Subscribe ONLY to the stable bits (id + queryClient), NOT the whole mower object:
+  // immer replaces `mower` on every telemetry message (~10 Hz), which would make
+  // `fetchHeatmap` (and the effect below) a new reference each message and, in the
+  // metric===null default, re-fire setResult on every one -> "Maximum update depth".
+  // id and queryClient are class-instance/scalar references that stay stable across
+  // telemetry updates.
+  const mowerId = useSelectedMower((m) => m?.id);
+  const queryClient = useSelectedMower((m) => m?.queryClient);
   const [result, setResult] = useState<HeatmapResult>({cellSize: 0.25, cells: [], loading: false});
   const requestKeyRef = useRef<string>('');
 
   const fetchHeatmap = useCallback(async () => {
-    if (!mower || !metric) return;
+    if (!queryClient || !metric) return;
     setResult((prev) => ({...prev, loading: true}));
     try {
       let versionId = mapVersionId;
       if (versionId === undefined) {
-        const versionsRes = await mower.queryClient.request('mapversions', {});
+        const versionsRes = await queryClient.request('mapversions', {});
         const versions = parseJsonArrayField(versionsRes.json ?? versionsRes.versions).flatMap((entry) => {
           const parsed = mapVersionEntrySchema.safeParse(entry);
           return parsed.success ? [parsed.data] : [];
@@ -43,7 +50,7 @@ export function useHeatmap(metric: HeatmapMetric | null, mapVersionId?: number):
         versionId = current.id;
       }
 
-      const heatmapRes = await mower.queryClient.request('heatmap', {
+      const heatmapRes = await queryClient.request('heatmap', {
         map_version_id: versionId,
         metric,
       });
@@ -62,19 +69,23 @@ export function useHeatmap(metric: HeatmapMetric | null, mapVersionId?: number):
         setResult({cellSize: 0.25, cells: [], loading: false});
       }
     }
-  }, [mower, metric, mapVersionId]);
+  }, [queryClient, metric, mapVersionId]);
 
   useEffect(() => {
     if (!metric) {
-      setResult({cellSize: 0.25, cells: [], loading: false});
+      // Keep the SAME state object when already empty so this never triggers a
+      // re-render (belt-and-suspenders against the update loop above).
+      setResult((prev) =>
+        prev.cells.length === 0 && !prev.loading ? prev : {cellSize: 0.25, cells: [], loading: false},
+      );
       requestKeyRef.current = '';
       return;
     }
-    const key = `${mower?.id ?? ''}:${metric}:${mapVersionId ?? ''}`;
+    const key = `${mowerId ?? ''}:${metric}:${mapVersionId ?? ''}`;
     if (requestKeyRef.current === key) return;
     requestKeyRef.current = key;
     void fetchHeatmap();
-  }, [mower?.id, metric, mapVersionId, fetchHeatmap]);
+  }, [mowerId, metric, mapVersionId, fetchHeatmap]);
 
   return result;
 }

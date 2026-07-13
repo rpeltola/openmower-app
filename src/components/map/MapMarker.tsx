@@ -59,8 +59,13 @@ export default function MapMarker({position, heading, sizeM, datum, className, c
   // rather than crashing (guards against stale/foreign-datum track/robot points).
   if (!absPosition) return null;
 
+  // Rotate via maplibre's native marker `rotation` (a reactive option) instead of a CSS
+  // transform on the child: RMarker only re-renders its DOM children when the marker's
+  // lng/lat changes, so a CSS transform went stale during an in-place pivot (position
+  // frozen, heading changing). `rotation` updates whenever the value changes, independent
+  // of position -- so the arrow now turns while the robot pivots in place.
   return (
-    <RMarker longitude={absPosition[0]} latitude={absPosition[1]} className={className}>
+    <RMarker longitude={absPosition[0]} latitude={absPosition[1]} className={className} rotation={headingDeg}>
       <Box
         sx={{
           width: sizePx,
@@ -69,7 +74,6 @@ export default function MapMarker({position, heading, sizeM, datum, className, c
           alignItems: 'center',
           justifyContent: 'center',
         }}
-        style={{transform: `rotate(${headingDeg}deg)`}}
       >
         {children(sizePx)}
       </Box>
