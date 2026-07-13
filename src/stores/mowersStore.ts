@@ -117,6 +117,22 @@ export class Mower {
     this.mqttClient.publish(this.mqttPrefix + 'mow_mission/cancel', '');
   }
 
+  // Resume a mission left PAUSED (by a toolbar STOP, a safety dock, or a manual
+  // "go dock" mid-mow) from its saved queue position. The toolbar START button
+  // resumes the same way via the high_level_control command; this is the mission
+  // panel's own explicit "Continue" affordance (see MISSION_CONTRACT.md).
+  publishMissionContinue() {
+    this.mqttClient.publish(this.mqttPrefix + 'mow_mission/continue', '');
+  }
+
+  // Append job(s) to the END of the current (active OR paused) mission's queue
+  // without cancelling or replanning what's already in progress. Same JSON shape
+  // as start; pass the running mission's id so a stale add racing a mission change
+  // is rejected (empty id skips that check). See MISSION_CONTRACT.md.
+  publishMissionAdd(mission: Mission) {
+    this.mqttClient.publish(this.mqttPrefix + 'mow_mission/add', JSON.stringify(mission));
+  }
+
   // Docking-station recording -> app_gateway's record_docking_station ActionClient bridge
   // (see sim_mow/app_gateway.py's "Wire contract" header). Progress streams back on
   // record_docking/status (see the message handler below -> Mower.recordDockingStatus).

@@ -38,11 +38,13 @@ function toWireJob(job: MissionComposerJob): MissionJob {
       };
 }
 
-// Builds the exact `mow_mission/start` payload from the composer's job list (see
-// OpenMowerNext sim_mow/MISSION_CONTRACT.md).
-export function buildMissionPayload(jobs: MissionComposerJob[]): Mission {
+// Builds the exact `mow_mission/start` (or `mow_mission/add`) payload from the composer's
+// job list (see OpenMowerNext sim_mow/MISSION_CONTRACT.md). For a fresh start, omit
+// `missionId` to mint a new one; for an add, pass the running mission's id so the backend
+// can reject a stale add racing a mission change.
+export function buildMissionPayload(jobs: MissionComposerJob[], missionId?: string): Mission {
   return {
-    mission_id: generateId(),
+    mission_id: missionId ?? generateId(),
     jobs: jobs.map(toWireJob),
   };
 }

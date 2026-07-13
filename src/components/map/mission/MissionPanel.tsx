@@ -21,7 +21,7 @@ import {
   useTheme,
 } from '@mui/material';
 import type {Feature, Polygon} from 'geojson';
-import {LassoIcon, PlayIcon, SquareXIcon, XIcon} from 'lucide-react';
+import {LassoIcon, PlayIcon, PlusIcon, SquareXIcon, XIcon} from 'lucide-react';
 import {useState} from 'react';
 import MissionProgress from './MissionProgress';
 import SortableMissionJobRow from './SortableMissionJobRow';
@@ -42,7 +42,12 @@ export default function MissionPanel({composer, areas, onClose}: MissionPanelPro
   const missionState = useSelectedMower((s) => s?.missionState ?? null);
   const mower = useSelectedMower<Mower | undefined>();
 
-  const missionActive = missionState !== null && ACTIVE_STATES.has(missionState.state);
+  // A mission is "in progress" while it's running OR paused-but-preserved. In that state the
+  // composer no longer starts a fresh mission; it APPENDS to the running one (the "Add" flow).
+  const missionInProgress = missionState !== null && ACTIVE_STATES.has(missionState.state);
+  // Paused = preserved and resumable in place; surface an explicit "Continue" affordance
+  // (mow_mission/continue) — the toolbar START resumes the same mission the same way.
+  const resumable = missionState?.state === 'paused';
 
   const sensors = useSensors(
     useSensor(MouseSensor, {activationConstraint: {distance: 5}}),
@@ -63,11 +68,28 @@ export default function MissionPanel({composer, areas, onClose}: MissionPanelPro
     setSelectedAreaId('');
   };
 
+  // Start a brand-new mission (fresh id) — only when nothing is in progress. Per the contract
+  // this supersedes any non-active preserved mission; an active one is appended to via Add.
   const handleStart = () => {
-    if (!mower || jobs.length === 0 || missionActive) return;
+    if (!mower || jobs.length === 0 || missionInProgress) return;
     mower.publishMissionStart(buildMissionPayload(jobs));
+    clearJobs();
   };
 
+  // Append the composed jobs to the running/paused mission without cancel+replan. Reuse the
+  // current mission's id so the backend can guard against a stale add racing a mission change.
+  const handleAdd = () => {
+    if (!mower || jobs.length === 0 || !missionInProgress) return;
+    mower.publishMissionAdd(buildMissionPayload(jobs, missionState?.mission_id));
+    clearJobs();
+  };
+
+  // Resume a paused mission from its saved queue position (does not touch the composer).
+  const handleContinue = () => {
+    mower?.publishMissionContinue();
+  };
+
+  // The ONLY control that discards a mission (STATE_CANCELLED, queue cleared).
   const handleCancel = () => {
     mower?.publishMissionCancel();
   };
@@ -99,7 +121,7 @@ export default function MissionPanel({composer, areas, onClose}: MissionPanelPro
             fullWidth
             value={selectedAreaId}
             onChange={(e) => setSelectedAreaId(e.target.value)}
-            disabled={missionActive || areas.length === 0}
+            disabled={areas.length === 0}
             MenuProps={{disablePortal: true}}
           >
             <MenuItem value="" disabled>
@@ -111,7 +133,7 @@ export default function MissionPanel({composer, areas, onClose}: MissionPanelPro
               </MenuItem>
             ))}
           </Select>
-          <Button variant="outlined" onClick={handleAddArea} disabled={selectedAreaId === '' || missionActive}>
+          <Button variant="outlined" onClick={handleAddArea} disabled={selectedAreaId === ''}>
             Add
           </Button>
         </Stack>
@@ -121,7 +143,6 @@ export default function MissionPanel({composer, areas, onClose}: MissionPanelPro
             variant={isDrawingSpot ? 'contained' : 'outlined'}
             startIcon={isDrawingSpot ? <SquareXIcon size={16} /> : <LassoIcon size={16} />}
             onClick={toggleSpotDraw}
-            disabled={missionActive}
             fullWidth
           >
             {isDrawingSpot ? 'Cancel drawing' : 'Draw spot mow area'}
@@ -130,7 +151,9 @@ export default function MissionPanel({composer, areas, onClose}: MissionPanelPro
 
         {jobs.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{p: 2}}>
-            Add a saved area or draw a spot-mow region on the map to build a mission.
+            {missionInProgress
+              ? 'Add a saved area or draw a spot-mow region to append it to the running mission.'
+              : 'Add a saved area or draw a spot-mow region on the map to build a mission.'}
           </Typography>
         ) : (
           <List sx={{p: 0}}>
@@ -146,7 +169,6 @@ export default function MissionPanel({composer, areas, onClose}: MissionPanelPro
                     key={job.id}
                     index={index}
                     job={job}
-                    disabled={missionActive}
                     onChange={(patch) => updateJob(job.id, patch)}
                     onRemove={() => removeJob(job.id)}
                   />
@@ -157,21 +179,39 @@ export default function MissionPanel({composer, areas, onClose}: MissionPanelPro
         )}
 
         <Stack direction="row" spacing={1} sx={{p: 1.5, mt: 'auto'}}>
-          <Button
-            variant="contained"
-            color="success"
-            startIcon={<PlayIcon size={16} />}
-            fullWidth
-            disabled={jobs.length === 0 || missionActive || !mower}
-            onClick={handleStart}
-          >
-            Start mission
-          </Button>
-          <Button variant="outlined" color="error" disabled={!missionActive} onClick={handleCancel}>
+          {missionInProgress ? (
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<PlusIcon size={16} />}
+              sx={{flex: 1}}
+              disabled={jobs.length === 0 || !mower}
+              onClick={handleAdd}
+            >
+              Add to mission
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<PlayIcon size={16} />}
+              sx={{flex: 1}}
+              disabled={jobs.length === 0 || !mower}
+              onClick={handleStart}
+            >
+              Start mission
+            </Button>
+          )}
+          {resumable && (
+            <Button variant="outlined" color="success" startIcon={<PlayIcon size={16} />} onClick={handleContinue}>
+              Continue
+            </Button>
+          )}
+          <Button variant="outlined" color="error" disabled={!missionInProgress} onClick={handleCancel}>
             Cancel
           </Button>
         </Stack>
-        {jobs.length > 0 && !missionActive && (
+        {jobs.length > 0 && (
           <Stack direction="row" sx={{px: 1.5, pb: 1.5}}>
             <Button size="small" color="inherit" onClick={clearJobs}>
               Clear all
