@@ -352,7 +352,7 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
               width: '320px',
             }}
           >
-            <AreasList areas={areas} onClose={() => setShowAreaList(false)} />
+            <AreasList areas={areas} dockingStations={dockingStations} onClose={() => setShowAreaList(false)} />
           </Box>
         )}
         {isMobile && (
@@ -371,7 +371,7 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
               },
             }}
           >
-            <AreasList areas={areas} onClose={() => setShowAreaList(false)} />
+            <AreasList areas={areas} dockingStations={dockingStations} onClose={() => setShowAreaList(false)} />
           </MapDialog>
         )}
         {!isMobile && showMissionPanel && (

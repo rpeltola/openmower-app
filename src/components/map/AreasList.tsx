@@ -7,15 +7,16 @@ import {
   useMapSelection,
   withDisplaySortKeys,
 } from '@/contexts/MapContext';
-import {AreaProps} from '@/stores/schemas';
+import {AreaProps, type DockingStation} from '@/stores/schemas';
 import {closestCenter, DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, type DragStartEvent} from '@dnd-kit/core';
 import {restrictToFirstScrollableAncestor, restrictToVerticalAxis} from '@dnd-kit/modifiers';
 import {arrayMove, SortableContext, verticalListSortingStrategy} from '@dnd-kit/sortable';
-import {Card, CardContent, CardHeader, IconButton, List, useTheme} from '@mui/material';
+import {Card, CardContent, CardHeader, IconButton, List, ListSubheader, useTheme} from '@mui/material';
 import {featureCollection} from '@turf/helpers';
 import {Feature, Polygon} from 'geojson';
 import {XIcon} from 'lucide-react';
 import {useRef, useState} from 'react';
+import DockingStationItem from './DockingStationItem';
 import SortableAreaItem from './edit/SortableAreaItem';
 
 function rangeIndices(ids: string[], a: string, b: string): [number, number] {
@@ -24,7 +25,15 @@ function rangeIndices(ids: string[], a: string, b: string): [number, number] {
   return [Math.min(ai, bi), Math.max(ai, bi)];
 }
 
-export default function AreasList({areas, onClose}: {areas: Feature<Polygon, AreaProps>[]; onClose?: () => void}) {
+export default function AreasList({
+  areas,
+  dockingStations = [],
+  onClose,
+}: {
+  areas: Feature<Polygon, AreaProps>[];
+  dockingStations?: DockingStation[];
+  onClose?: () => void;
+}) {
   const theme = useTheme();
   const selectedIds = useMapSelection();
   const [hoveredId, setHoveredId] = useMapHover();
@@ -74,6 +83,20 @@ export default function AreasList({areas, onClose}: {areas: Feature<Polygon, Are
       selectFeatures([id]);
       anchorId.current = id;
     }
+  };
+
+  // Docking stations aren't reorderable and range-selecting across areas + docks is
+  // meaningless, so they get a simpler click-to-select (ctrl/cmd toggles), reusing the same
+  // simple_select path areas use so the Settings/Delete controls light up identically.
+  const handleSelectDock = (id: string, event: React.MouseEvent) => {
+    if (!draw || !editMode) return;
+    const current = draw.getSelectedIds();
+    if (event.ctrlKey || event.metaKey) {
+      selectFeatures(current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
+    } else {
+      selectFeatures([id]);
+    }
+    anchorId.current = id;
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -160,6 +183,34 @@ export default function AreasList({areas, onClose}: {areas: Feature<Polygon, Are
             </SortableContext>
             <DragOverlay style={{cursor: 'grabbing'}} />
           </DndContext>
+          {dockingStations.length > 0 && (
+            <>
+              <ListSubheader
+                sx={{
+                  lineHeight: '2.2em',
+                  fontWeight: 700,
+                  color: theme.palette.text.secondary,
+                  backgroundColor: theme.palette.background.paper,
+                  borderBottom: '1px solid',
+                  borderTop: '1px solid',
+                  borderColor: theme.palette.divider,
+                }}
+              >
+                Docking stations
+              </ListSubheader>
+              {dockingStations.map((station) => (
+                <DockingStationItem
+                  key={station.id}
+                  station={station}
+                  selected={editMode && selectedIds.includes(station.id)}
+                  hovered={hoveredId === station.id}
+                  onSelect={editMode ? handleSelectDock : undefined}
+                  onMouseEnter={() => setHoveredId(station.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                />
+              ))}
+            </>
+          )}
         </List>
       </CardContent>
     </Card>
