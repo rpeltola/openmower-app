@@ -86,7 +86,18 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
   // mower_logic reports DOCKED while idle on the charger; is_charging alone would miss the
   // "docked but done charging" case (charger_status === "Done"), so treat either signal as docked.
   const isDocked = currentState === 'DOCKED' || isCharging;
-  const mowerPosition = useSelectedMower((s) => s?.position ?? s?.state.pose);
+  // Live marker pose. x/y come from the driven-track position/json topic when available
+  // (falling back to the 5 Hz robot_state pose), but the HEADING must come from the live
+  // robot_state pose: the gateway only emits position/json after >=5cm of translation
+  // (kTrackMinStepM), so its heading is frozen during an in-place spin. The robot_state
+  // pose carries the live EKF orientation on every 5 Hz tick (including pure rotation), so
+  // sourcing heading from it lets the marker turn while the robot spins in place.
+  const mowerPositionBase = useSelectedMower((s) => s?.position ?? s?.state.pose);
+  const liveHeading = useSelectedMower((s) => (s?.state.pose?.heading_valid ? s.state.pose.heading : undefined));
+  const mowerPosition = useMemo(
+    () => (mowerPositionBase ? {...mowerPositionBase, heading: liveHeading ?? mowerPositionBase.heading} : undefined),
+    [mowerPositionBase, liveHeading],
+  );
   // The joystick is always visible while not editing the map, but only ENABLED in
   // AREA_RECORDING mode (greyed + hinted otherwise) so manual driving can't fight
   // the autonomous nav.
