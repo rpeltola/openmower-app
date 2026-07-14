@@ -31,7 +31,11 @@ a {
 }
 
 .docking-station-marker { z-index: 1; }
-.mower-marker { z-index: 2; }
+/* The live mower-position marker is purely informational and sits above the docking-station
+   marker (higher z-index). It has no interactions, so make it click-through -- otherwise, when
+   the mower is parked on/near its dock, it covers the dock icon and swallows the click that
+   would select the dock for editing/deleting in the map editor. */
+.mower-marker { z-index: 2; pointer-events: none; }
 
 .maplibregl-ctrl-top-left .maplibregl-ctrl + .maplibregl-ctrl,
 .maplibregl-ctrl-top-right .maplibregl-ctrl + .maplibregl-ctrl {
