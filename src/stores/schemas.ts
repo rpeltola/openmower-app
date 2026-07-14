@@ -125,6 +125,17 @@ export const sensorsSchema = z.looseObject({
 });
 export type Sensors = z.infer<typeof sensorsSchema>;
 
+// Robot footprint in the base_link frame, published by app_gateway (parsed from the URDF
+// robot_description) inside robot_state/json. base_link is the origin; the footprint extends
+// front_m ahead (+x, toward the front/charging port), rear_m behind, half_width_m to each side.
+// Optional: absent until the gateway sends it -> the marker shows a neutral placeholder.
+export const robotFootprintSchema = z.object({
+  front_m: z.number(),
+  rear_m: z.number(),
+  half_width_m: z.number(),
+});
+export type RobotFootprint = z.infer<typeof robotFootprintSchema>;
+
 export const stateSchema = z.object({
   battery_percentage: percentage,
   current_state: z.string(),
@@ -149,6 +160,9 @@ export const stateSchema = z.object({
     x: z.number(),
     y: z.number(),
   }),
+  // Real robot footprint from the URDF, published by the gateway. Optional so older gateways
+  // (and the moment before the first message with it arrives) still parse.
+  footprint: robotFootprintSchema.optional(),
 });
 
 export type State = z.infer<typeof stateSchema>;

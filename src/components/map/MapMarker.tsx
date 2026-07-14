@@ -24,10 +24,15 @@ interface MapMarkerProps {
   sizeM: number;
   datum: Datum;
   className?: string;
+  /** Floor for the rendered pixel size, so a to-scale marker never vanishes when zoomed far
+   *  out (it stays a small but correctly-oriented glyph). */
+  minSizePx?: number;
+  /** Ceiling for the rendered pixel size, so it can't become absurdly huge when zoomed in. */
+  maxSizePx?: number;
   children: (sizePx: number) => ReactNode;
 }
 
-export default function MapMarker({position, heading, sizeM, datum, className, children}: MapMarkerProps) {
+export default function MapMarker({position, heading, sizeM, datum, className, minSizePx, maxSizePx, children}: MapMarkerProps) {
   const map = useMap();
   const [zoom, setZoom] = useState<number>(() => map?.getZoom() ?? 18);
 
@@ -49,8 +54,9 @@ export default function MapMarker({position, heading, sizeM, datum, className, c
   const sizePx = useMemo(() => {
     const lat = absPosition ? absPosition[1] : 0;
     const raw = metersToPixels(sizeM, zoom, lat);
-    return Math.round(raw);
-  }, [sizeM, zoom, absPosition]);
+    const clamped = Math.min(maxSizePx ?? Infinity, Math.max(minSizePx ?? 0, raw));
+    return Math.round(clamped);
+  }, [sizeM, zoom, absPosition, minSizePx, maxSizePx]);
 
   // Convert from mower heading (radians, 0 = east, CCW positive) to CSS rotation (degrees, 0 = north, CW positive)
   const headingDeg = 90 - (heading * 180) / Math.PI;
