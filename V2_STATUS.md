@@ -156,6 +156,20 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
   already mirrors the gamepad's raw stick position via `activeOverride` when in Joystick
   mode (same `driveVector` plumbing from the analog-mode work above) — no extra wiring
   needed for that "nice to have".
+- **Orientation-aware landscape cockpit** — new `lib/useMediaQuery.ts` (generalizes
+  `useBreakpoint`'s matchMedia pattern to any query). A phone held sideways can be WIDER
+  than the `md` breakpoint (844px is common), so "desktop vs. phone" can't be gated on
+  width alone anymore — `isLandscapeCockpit = useMediaQuery('(orientation: landscape) and
+  (max-height: 500px)')` catches "a short, wide, landscape viewport" (phones) without
+  tripping on an actually-wide desktop/laptop screen (those are also "landscape" but
+  taller). `isDesktop = isDesktopWidth && !isLandscapeCockpit` — the landscape case wins
+  even at ≥768px width. The top-level `<main>`/`<aside>`/console branch is now a JS
+  three-way (`isLandscapeCockpit` / `isDesktop` / else-portrait) instead of raw `md:`
+  classes, so the phone-landscape branch can't be shadowed by the width-only breakpoint.
+  The landscape cockpit reuses the exact same controls as portrait (same components, same
+  state) laid out in a row, with the action row wrapped 2×2 (not a 4-tall column — a
+  landscape phone is short). The header chrome (chips, Close button) is intentionally left
+  on the plain `md:` breakpoint — out of scope, cosmetic-only difference in landscape.
 
 ## Build order (checklist)
 - [x] Scaffold Tailwind + tokens + kit

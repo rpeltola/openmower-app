@@ -12,6 +12,7 @@ import {MiniMap} from '@/components/v2/ui/MiniMap';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Stepper} from '@/components/v2/ui/Stepper';
 import {Toast} from '@/components/v2/ui/Toast';
+import {useMediaQuery} from '@/components/v2/lib/useMediaQuery';
 import {gamepadButtonLabels, type GamepadButtonLabels, useGamepad} from '@/lib/v2/useGamepad';
 import {Bluetooth, Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
@@ -58,6 +59,13 @@ export function ManualControl() {
   const [bladeOn, setBladeOn] = useState(false);
   const [hasError] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  // A phone turned sideways can be WIDER than the `md` breakpoint (e.g. 844px), so the
+  // desktop layout can't be gated on width alone — pair orientation with a height cap
+  // (phones in landscape are short; laptops/desktops aren't) to catch just that case.
+  const isLandscapeCockpit = useMediaQuery('(orientation: landscape) and (max-height: 500px)');
+  const isDesktopWidth = useMediaQuery('(min-width: 768px)');
+  const isDesktop = isDesktopWidth && !isLandscapeCockpit;
 
   const gamepad = useGamepad();
   // Brand-correct glyphs for the badges on the buttons a gamepad actually maps to — null
@@ -172,45 +180,63 @@ export function ManualControl() {
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col gap-4 overflow-y-auto p-4 md:flex-row md:gap-4 md:overflow-hidden md:p-6">
-        {/* ---- Desktop-only: camera grid (reserved for the vision add-on) ---- */}
-        <section className="hidden min-w-0 flex-1 flex-col gap-3 md:flex">
-          <CameraSlot
-            label="Front camera"
-            size="lg"
-            badge="Vision add-on"
-            caption="Reserved — installs with the vision add-on"
-            className="flex-1"
-          />
-          <div className="grid h-32 flex-none grid-cols-3 gap-3">
-            <CameraSlot label="Left" size="sm" />
-            <CameraSlot label="Rear" size="sm" />
-            <CameraSlot label="Right" size="sm" />
-          </div>
-        </section>
-
-        {/* ---- Cockpit: full-width stack on mobile, fixed-width aside on desktop ---- */}
-        <aside className="flex flex-col gap-3 md:w-[408px] md:flex-none">
-          <GamepadTip connected={gamepad.connected} />
-
-          <MiniMap className="hidden h-[214px] flex-none md:block" headingDeg={-18} />
-
-          {/* Mobile console: chips already in header; slide-to-unlock + speed/joystick/blade
-              trio + explain caption + action row, matching the phone concept 1:1. */}
-          <div className="flex flex-col gap-3 md:hidden">
-            <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
-
-            <SegmentedToggle
-              label="Input"
-              options={INPUT_MODE_OPTIONS}
-              value={inputMode}
-              onChange={(v) => setInputMode(v as InputMode)}
+      {/* Top-level layout is a JS decision (`isDesktop`/`isLandscapeCockpit`), not a raw
+          `md:` breakpoint — a phone held sideways is often WIDER than `md` (844px is
+          common), so width alone can't tell "desktop" from "phone in landscape". */}
+      <main
+        className={
+          isDesktop
+            ? 'flex flex-1 flex-row gap-4 overflow-hidden p-4 md:gap-4 md:p-6'
+            : 'flex flex-1 flex-col gap-4 overflow-y-auto p-4'
+        }
+      >
+        {isDesktop ? (
+          <section className="flex min-w-0 flex-1 flex-col gap-3">
+            <CameraSlot
+              label="Front camera"
+              size="lg"
+              badge="Vision add-on"
+              caption="Reserved — installs with the vision add-on"
+              className="flex-1"
             />
+            <div className="grid h-32 flex-none grid-cols-3 gap-3">
+              <CameraSlot label="Left" size="sm" />
+              <CameraSlot label="Rear" size="sm" />
+              <CameraSlot label="Right" size="sm" />
+            </div>
+          </section>
+        ) : null}
 
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+        <aside className={isDesktop ? 'flex w-[408px] flex-none flex-col gap-3' : 'flex flex-1 flex-col gap-3'}>
+          {!isLandscapeCockpit ? <GamepadTip connected={gamepad.connected} /> : null}
+
+          {isDesktop ? <MiniMap className="h-[214px] flex-none" headingDeg={-18} /> : null}
+
+          {isLandscapeCockpit ? (
+            /* Landscape cockpit: a phone turned sideways to drive — the same controls as
+               the portrait console, just laid out in a row so the width gets used instead
+               of forcing a tall stack into a short viewport. */
+            <div className="flex flex-1 items-center gap-4 overflow-x-auto px-1">
+              <div className="flex flex-none flex-col items-center gap-2">
+                <HoldToUnlock
+                  unlocked={unlocked}
+                  onUnlock={() => setUnlocked(true)}
+                  onLock={() => setUnlocked(false)}
+                  className="w-[172px]"
+                />
+                <SegmentedToggle
+                  label="Input"
+                  options={INPUT_MODE_OPTIONS}
+                  value={inputMode}
+                  onChange={(v) => setInputMode(v as InputMode)}
+                  className="w-[172px]"
+                />
+              </div>
+
               <SegmentedSpeedColumn speed={speed} onStep={stepSpeed} gamepadLabels={gamepadLabels} />
+
               <DriveInput
-                size={140}
+                size={124}
                 mode={inputMode}
                 disabled={!unlocked}
                 onDirectionChange={setTouchDirection}
@@ -218,85 +244,127 @@ export function ManualControl() {
                 onVectorChange={setTouchVector}
                 vectorOverride={driveVector}
               />
+
               <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
-            </div>
 
-            {!unlocked ? (
-              <p className="text-center text-xs text-ink-faint">
-                Blade stays locked until you slide to unlock.
-              </p>
-            ) : null}
-
-            <ActionRow
-              hasError={hasError}
-              bladeOn={bladeOn}
-              bladeDisabled={!unlocked}
-              onToggleBlade={handleToggleBlade}
-              onDock={handleDock}
-              onStop={handleStop}
-              gamepadLabels={gamepadLabels}
-              className="mt-1 justify-around"
-            />
-          </div>
-
-          {/* Desktop console: one card holding press-and-hold unlock, joystick + blade
-              stepper, the Speed segmented control, and the action row — matches the
-              cockpit concept 1:1. */}
-          <Card className="hidden flex-1 flex-col justify-center gap-4 p-4 md:flex">
-            <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
-
-            <SegmentedToggle
-              label="Input"
-              options={INPUT_MODE_OPTIONS}
-              value={inputMode}
-              onChange={(v) => setInputMode(v as InputMode)}
-              className="mx-auto max-w-[220px]"
-            />
-
-            <div className="flex items-center justify-center gap-6">
-              <DriveInput
-                size={144}
-                mode={inputMode}
-                disabled={!unlocked}
-                onDirectionChange={setTouchDirection}
-                directionOverride={driveDirection}
-                onVectorChange={setTouchVector}
-                vectorOverride={driveVector}
-              />
-              <Stepper
-                label="Blade"
-                value={bladeHeight}
-                unit=" mm"
-                min={20}
-                max={60}
-                step={5}
-                disabled={!unlocked}
-                onChange={setBladeHeight}
-                orientation="column"
+              {/* 2x2 wrap, not a 4-tall column — a landscape phone is short, so a single
+                  column of 4 action buttons would run off the bottom of the viewport. */}
+              <ActionRow
+                hasError={hasError}
+                bladeOn={bladeOn}
+                bladeDisabled={!unlocked}
+                onToggleBlade={handleToggleBlade}
+                onDock={handleDock}
+                onStop={handleStop}
+                gamepadLabels={gamepadLabels}
+                className="w-[112px] flex-wrap content-start gap-3"
               />
             </div>
+          ) : isDesktop ? (
+            /* Desktop console: one card holding press-and-hold unlock, joystick + blade
+               stepper, the Speed segmented control, and the action row — matches the
+               cockpit concept 1:1. */
+            <Card className="flex flex-1 flex-col justify-center gap-4 p-4">
+              <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
 
-            <div>
-              <SegmentedToggle label="Speed" options={SPEED_OPTIONS} value={speed} onChange={setSpeed} />
-              {gamepadLabels ? (
-                <div className="mt-1 flex justify-between px-1 text-[.6rem] font-semibold text-ink-faint">
-                  <span>{gamepadLabels.lb} slower</span>
-                  <span>{gamepadLabels.rb} faster</span>
-                </div>
+              <SegmentedToggle
+                label="Input"
+                options={INPUT_MODE_OPTIONS}
+                value={inputMode}
+                onChange={(v) => setInputMode(v as InputMode)}
+                className="mx-auto max-w-[220px]"
+              />
+
+              <div className="flex items-center justify-center gap-6">
+                <DriveInput
+                  size={144}
+                  mode={inputMode}
+                  disabled={!unlocked}
+                  onDirectionChange={setTouchDirection}
+                  directionOverride={driveDirection}
+                  onVectorChange={setTouchVector}
+                  vectorOverride={driveVector}
+                />
+                <Stepper
+                  label="Blade"
+                  value={bladeHeight}
+                  unit=" mm"
+                  min={20}
+                  max={60}
+                  step={5}
+                  disabled={!unlocked}
+                  onChange={setBladeHeight}
+                  orientation="column"
+                />
+              </div>
+
+              <div>
+                <SegmentedToggle label="Speed" options={SPEED_OPTIONS} value={speed} onChange={setSpeed} />
+                {gamepadLabels ? (
+                  <div className="mt-1 flex justify-between px-1 text-[.6rem] font-semibold text-ink-faint">
+                    <span>{gamepadLabels.lb} slower</span>
+                    <span>{gamepadLabels.rb} faster</span>
+                  </div>
+                ) : null}
+              </div>
+
+              <ActionRow
+                hasError={hasError}
+                bladeOn={bladeOn}
+                bladeDisabled={!unlocked}
+                onToggleBlade={handleToggleBlade}
+                onDock={handleDock}
+                onStop={handleStop}
+                gamepadLabels={gamepadLabels}
+                className="justify-center gap-4"
+              />
+            </Card>
+          ) : (
+            /* Mobile portrait console: chips already in header; slide-to-unlock +
+               speed/joystick/blade trio + explain caption + action row, matching the phone
+               concept 1:1. */
+            <div className="flex flex-col gap-3">
+              <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
+
+              <SegmentedToggle
+                label="Input"
+                options={INPUT_MODE_OPTIONS}
+                value={inputMode}
+                onChange={(v) => setInputMode(v as InputMode)}
+              />
+
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                <SegmentedSpeedColumn speed={speed} onStep={stepSpeed} gamepadLabels={gamepadLabels} />
+                <DriveInput
+                  size={140}
+                  mode={inputMode}
+                  disabled={!unlocked}
+                  onDirectionChange={setTouchDirection}
+                  directionOverride={driveDirection}
+                  onVectorChange={setTouchVector}
+                  vectorOverride={driveVector}
+                />
+                <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
+              </div>
+
+              {!unlocked ? (
+                <p className="text-center text-xs text-ink-faint">
+                  Blade stays locked until you slide to unlock.
+                </p>
               ) : null}
-            </div>
 
-            <ActionRow
-              hasError={hasError}
-              bladeOn={bladeOn}
-              bladeDisabled={!unlocked}
-              onToggleBlade={handleToggleBlade}
-              onDock={handleDock}
-              onStop={handleStop}
-              gamepadLabels={gamepadLabels}
-              className="justify-center gap-4"
-            />
-          </Card>
+              <ActionRow
+                hasError={hasError}
+                bladeOn={bladeOn}
+                bladeDisabled={!unlocked}
+                onToggleBlade={handleToggleBlade}
+                onDock={handleDock}
+                onStop={handleStop}
+                gamepadLabels={gamepadLabels}
+                className="mt-1 justify-around"
+              />
+            </div>
+          )}
         </aside>
       </main>
     </div>
