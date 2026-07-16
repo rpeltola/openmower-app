@@ -31,6 +31,20 @@ export interface SelectedVertex {
 const NUDGE_STEP_M = 0.05;
 const NUDGE_STEP_SHIFT_M = NUDGE_STEP_M * 10;
 
+// Single-letter tool shortcuts (no modifier held) — matches the RevLaw legend. The 'delete'
+// vertex tool has no dedicated letter (Del/Backspace already removes the current selection from
+// any tool), so it's toolbar/command-palette only.
+export const TOOL_SHORTCUT_KEYS: Record<string, EditTool> = {
+  v: 'select',
+  a: 'add',
+  b: 'brush',
+  s: 'snap',
+  m: 'multi',
+  r: 'rect',
+  o: 'circle',
+  g: 'move',
+};
+
 const ROTATE_STEP_DEG = 15;
 const SCALE_STEP = 0.05; // ±5%
 
@@ -366,14 +380,37 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     setSelectedVertex(null);
   }, [history.length]);
 
-  // Keyboard: arrow-key vertex nudge (select tool, a vertex selected) + Delete/Backspace to
-  // remove the current selection (single vertex, or the whole multi-select set). Ignored while
-  // focus is in a form control so typing a zone name etc. doesn't fight with map shortcuts.
+  // Keyboard: tool shortcuts (V/A/B/S/M/R/O/G), Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+D duplicate
+  // zone, arrow-key vertex nudge (select tool, a vertex selected), and Delete/Backspace to remove
+  // the current selection (single vertex, or the whole multi-select set). Ignored while focus is
+  // in a form control so typing a zone name etc. doesn't fight with map shortcuts. Map.tsx binds
+  // its own listener for the UI-only shortcuts (command palette, cheat sheet).
   useEffect(() => {
     if (!editing) return;
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && /^(input|textarea|select)$/i.test(target.tagName)) return;
+
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.altKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && !e.altKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        if (selectedZoneId) duplicateZone(selectedZoneId);
+        return;
+      }
+      if (!mod && !e.altKey) {
+        const shortcutTool = TOOL_SHORTCUT_KEYS[e.key.toLowerCase()];
+        if (shortcutTool) {
+          e.preventDefault();
+          setTool(shortcutTool);
+          return;
+        }
+      }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const hasSelection = tool === 'multi' ? multiSelected.size > 0 : !!selectedVertex;
@@ -402,7 +439,20 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [editing, tool, selectedVertex, multiSelected, zones, commitZones, deleteSelection]);
+  }, [
+    editing,
+    tool,
+    selectedVertex,
+    multiSelected,
+    selectedZoneId,
+    zones,
+    commitZones,
+    deleteSelection,
+    setTool,
+    undo,
+    redo,
+    duplicateZone,
+  ]);
 
   return {
     zones,

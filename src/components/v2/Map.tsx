@@ -11,9 +11,10 @@ import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {measureZone} from '@/components/v2/map/measurements';
 import {MOCK_DOCK, MOCK_ORIGIN, MOCK_ZONES, type ZoneType} from '@/components/v2/map/mockMap';
-import {useMapEditor, type EditTool} from '@/components/v2/map/useMapEditor';
+import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool} from '@/components/v2/map/useMapEditor';
 import {validateMap, type MapIssue} from '@/components/v2/map/validation';
 import {Button} from '@/components/v2/ui/Button';
+import {CommandPalette, type CommandPaletteAction} from '@/components/v2/ui/CommandPalette';
 import {Fab} from '@/components/v2/ui/Fab';
 import {FormField} from '@/components/v2/ui/FormField';
 import {ListRow} from '@/components/v2/ui/ListRow';
@@ -32,9 +33,11 @@ import {
   Check,
   Circle as CircleIcon,
   CirclePlus,
+  Command,
   Copy,
   Eraser,
   Expand,
+  HelpCircle,
   Layers,
   Locate,
   MapPin,
@@ -84,6 +87,30 @@ const TOOLS: {value: EditTool; label: string; icon: ReactNode}[] = [
   {value: 'circle', label: 'Draw circle', icon: <CircleIcon size={16} />},
 ];
 
+// Reverse of TOOL_SHORTCUT_KEYS ({letter: tool} -> {tool: LETTER}) for hints in the tool row/
+// command palette.
+const TOOL_KEY_LABEL: Partial<Record<EditTool, string>> = Object.fromEntries(
+  Object.entries(TOOL_SHORTCUT_KEYS).map(([key, tool]) => [tool, key.toUpperCase()]),
+);
+
+const SHORTCUTS: {keys: string; desc: string}[] = [
+  {keys: 'V', desc: 'Select / drag tool'},
+  {keys: 'A', desc: 'Add point tool'},
+  {keys: 'B', desc: 'Push brush tool'},
+  {keys: 'S', desc: 'Snap line tool'},
+  {keys: 'M', desc: 'Multi-select tool'},
+  {keys: 'R', desc: 'Draw rectangle tool'},
+  {keys: 'O', desc: 'Draw circle tool'},
+  {keys: 'G', desc: 'Move zone tool'},
+  {keys: '← → ↑ ↓', desc: 'Nudge selected vertex (Shift = 10×)'},
+  {keys: 'Del / ⌫', desc: 'Delete the current selection'},
+  {keys: 'Ctrl/⌘+Z', desc: 'Undo'},
+  {keys: 'Ctrl/⌘+Shift+Z', desc: 'Redo'},
+  {keys: 'Ctrl/⌘+D', desc: 'Duplicate the selected zone'},
+  {keys: 'Ctrl/⌘+K', desc: 'Command palette'},
+  {keys: '?', desc: 'This cheat sheet'},
+];
+
 export function Map() {
   const mapRef = useRef<LeafletMap | null>(null);
   const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
@@ -97,11 +124,31 @@ export function Map() {
   const [bufferDistance, setBufferDistance] = useState(0.3);
   const [simplifyTolerance, setSimplifyTolerance] = useState(0.1);
   const [issuesSheetOpen, setIssuesSheetOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
   useEffect(() => {
     const stored = localStorage.getItem(BASEMAP_STORAGE_KEY);
     if (stored && BASEMAPS.some((b) => b.id === stored)) setBasemapId(stored);
+  }, []);
+
+  // UI-only shortcuts (the tool/undo/nudge/delete shortcuts live in useMapEditor, next to the
+  // state they drive). Available regardless of edit mode — Ctrl/Cmd+K is useful any time.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && /^(input|textarea|select)$/i.test(target.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(true);
+      } else if (e.key === '?') {
+        e.preventDefault();
+        setCheatSheetOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   const selectBasemap = (id: string) => {
@@ -143,6 +190,63 @@ export function Map() {
     setIssuesSheetOpen(false);
     mapRef.current?.setView(metersToLatLng(issue.point, MOCK_ORIGIN), 20);
   };
+
+  // Command palette (Ctrl/Cmd+K) — every action on this screen, filterable by name. Kept close to
+  // the JSX it mirrors rather than factored out, since it's mostly thin wrappers around the same
+  // handlers the buttons below call.
+  const commandActions: CommandPaletteAction[] = [
+    {
+      id: 'toggle-edit',
+      label: editor.editing ? 'Exit edit mode' : 'Edit map',
+      onRun: () => editor.setEditing(!editor.editing),
+    },
+    ...TOOLS.map((t) => ({
+      id: `tool-${t.value}`,
+      label: `Tool: ${t.label}`,
+      hint: TOOL_KEY_LABEL[t.value],
+      icon: t.icon,
+      disabled: !editor.editing,
+      onRun: () => editor.setTool(t.value),
+    })),
+    {id: 'undo', label: 'Undo', hint: 'Ctrl+Z', disabled: !editor.canUndo, onRun: editor.undo},
+    {id: 'redo', label: 'Redo', hint: 'Ctrl+Shift+Z', disabled: !editor.canRedo, onRun: editor.redo},
+    {
+      id: 'delete-selection',
+      label: 'Delete selection',
+      hint: 'Del',
+      disabled: editor.tool === 'multi' ? editor.multiSelected.size === 0 : !editor.selectedVertex,
+      onRun: editor.deleteSelection,
+    },
+    {id: 'add-zone', label: 'Add zone', disabled: !editor.editing, onRun: addZoneAtCenter},
+    {id: 'place-dock', label: 'Place dock', disabled: !editor.editing, onRun: () => setPlacingDock(true)},
+    {
+      id: 'duplicate-zone',
+      label: 'Duplicate zone',
+      hint: 'Ctrl+D',
+      disabled: !selectedZone,
+      onRun: () => selectedZone && editor.duplicateZone(selectedZone.id),
+    },
+    {
+      id: 'delete-zone',
+      label: 'Delete zone',
+      disabled: !selectedZone,
+      onRun: () => selectedZone && editor.deleteZone(selectedZone.id),
+    },
+    {id: 'zone-settings', label: 'Zone settings…', disabled: !selectedZone, onRun: () => setAreaSettingsOpen(true)},
+    {id: 'transform', label: 'Transform zone…', disabled: !selectedZone, onRun: () => setTransformSheetOpen(true)},
+    {id: 'choose-zone', label: 'Choose zone…', onRun: () => setZoneSheetOpen(true)},
+    {id: 'validation', label: `Validation issues (${issues.length})`, onRun: () => setIssuesSheetOpen(true)},
+    {id: 'basemap', label: 'Base map…', onRun: () => setBasemapSheetOpen(true)},
+    {id: 'zoom-in', label: 'Zoom in', onRun: () => mapRef.current?.zoomIn()},
+    {id: 'zoom-out', label: 'Zoom out', onRun: () => mapRef.current?.zoomOut()},
+    {
+      id: 'recenter',
+      label: 'Recenter on robot',
+      disabled: editor.editing,
+      onRun: () => mapRef.current?.setZoom(19),
+    },
+    {id: 'cheat-sheet', label: 'Keyboard shortcuts', hint: '?', icon: <HelpCircle size={15} />, onRun: () => setCheatSheetOpen(true)},
+  ];
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -219,6 +323,11 @@ export function Map() {
         )}
         <Fab aria-label="Zoom in" icon={<Plus size={18} />} onClick={() => mapRef.current?.zoomIn()} />
         <Fab aria-label="Zoom out" icon={<Minus size={18} />} onClick={() => mapRef.current?.zoomOut()} />
+        <Fab
+          aria-label="Command palette (Ctrl/Cmd+K)"
+          icon={<Command size={17} />}
+          onClick={() => setCommandPaletteOpen(true)}
+        />
       </div>
 
       {editor.editing ? (
@@ -256,7 +365,7 @@ export function Map() {
                   size="icon"
                   className="h-9 w-9 flex-none"
                   aria-label={t.label}
-                  title={t.label}
+                  title={TOOL_KEY_LABEL[t.value] ? `${t.label} (${TOOL_KEY_LABEL[t.value]})` : t.label}
                   aria-pressed={editor.tool === t.value}
                   onClick={() => editor.setTool(t.value)}
                 >
@@ -538,6 +647,23 @@ export function Map() {
           ))
         )}
       </Sheet>
+
+      <Sheet open={cheatSheetOpen} onClose={() => setCheatSheetOpen(false)} title="Keyboard shortcuts">
+        {SHORTCUTS.map((s) => (
+          <ListRow
+            key={s.keys}
+            title={s.desc}
+            trailing={<span className="font-mono text-[.72rem] text-ink-faint">{s.keys}</span>}
+          />
+        ))}
+      </Sheet>
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        actions={commandActions}
+        placeholder="Run a command…"
+      />
     </div>
   );
 }
