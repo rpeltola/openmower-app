@@ -78,7 +78,15 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
       concept as spec → I verify vs concept). All 6 sensor cards, sparklines, L/R ESC grid;
       mobile stack + desktop 3-col grid; light+dark verified vs concept; tsc+build clean. New kit
       primitives: `DiagCard`, `StatRow`, `Sparkline`. Central button reset proven (bare button clean).
-- [ ] Map (live + area-settings + edit + create + recording + preview) ← NEXT, owner-built (heavy)
+- [~] **Map (`/v2/map`)** — **on Leaflet, not MapLibre** (client GPU/battery: v1's MapLibre pins
+      ~30% iGPU; map renders client-side, NOT on the CM4). **Phase 1 foundation DONE + verified**:
+      real Esri-satellite Leaflet canvas, projected zones (mow/obstacle/nav) + dock + **to-scale
+      footprint robot marker** (real metres, heading-rotated), concept chrome (pills/FABs/stat card),
+      tsc+build clean. Data mocked to the real gateway/store schemas. Remaining phases = porting ALL
+      RevLaw editor features — see KB `openmower-map-editor-feature-port.md` (basemap switcher [Esri/
+      MML-Finland/OSM] is next; then vertex tools, transforms, measurements/validation, command
+      palette, coverage preview, versioned save/backups). NOTE: Esri has no deep imagery at the rural
+      Finland datum ("Map data not yet available") — the MML basemap fixes it (feature A).
 - [x] **Schedule (`/v2/schedule`)** — weekly plan + rain-skip + mow-all-now (mobile), week calendar
       + policy card (desktop), editor as a Sheet. Verified mobile/desktop/dark + sheet. Committed.
 - [x] **Activity (`/v2/activity`)** — Events/History/Stats sub-tabs; desktop History list+detail.
