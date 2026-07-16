@@ -5,13 +5,15 @@ import {EventTimeline, type TimelineGroup} from '@/components/v2/activity/EventT
 import {RunCard, type RunMetric} from '@/components/v2/activity/RunCard';
 import {RunDetail} from '@/components/v2/activity/RunDetail';
 import {WeekBarChart, type WeekBarChartBar} from '@/components/v2/activity/WeekBarChart';
+import {cn} from '@/components/v2/lib/cn';
 import {type ActivityEvent} from '@/components/v2/ui/ActivityFeedCard';
+import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {type ChipProps} from '@/components/v2/ui/Chip';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
-import {AlertTriangle, Check, CheckCircle2, Home as HomeIcon, Sprout} from 'lucide-react';
+import {AlertTriangle, Check, CheckCircle2, ChevronLeft, Home as HomeIcon, Sprout} from 'lucide-react';
 import {useState} from 'react';
 
 // Canonical mock world (design-language.md "Cross-platform contract"): Kotipiha. Mock
@@ -102,7 +104,12 @@ const RUNS: Run[] = [
     completed: true,
     events: [
       {icon: <Sprout size={13} strokeWidth={2.2} />, tone: 'accent', text: 'Mowing started', time: '09:30'},
-      {icon: <CheckCircle2 size={13} strokeWidth={2.4} />, tone: 'accent', text: 'RTK fixed — position trusted', time: '09:31'},
+      {
+        icon: <CheckCircle2 size={13} strokeWidth={2.4} />,
+        tone: 'accent',
+        text: 'RTK fixed — position trusted',
+        time: '09:31',
+      },
       {icon: <HomeIcon size={13} strokeWidth={2.2} />, tone: 'info', text: 'Docked · charging complete', time: '11:22'},
     ],
   },
@@ -121,7 +128,12 @@ const RUNS: Run[] = [
     completed: false,
     events: [
       {icon: <Sprout size={13} strokeWidth={2.2} />, tone: 'accent', text: 'Mowing started', time: '14:05'},
-      {icon: <CheckCircle2 size={13} strokeWidth={2.4} />, tone: 'accent', text: 'RTK fixed — position trusted', time: '14:06'},
+      {
+        icon: <CheckCircle2 size={13} strokeWidth={2.4} />,
+        tone: 'accent',
+        text: 'RTK fixed — position trusted',
+        time: '14:06',
+      },
       {icon: <AlertTriangle size={13} strokeWidth={2.2} />, tone: 'warn', text: 'Stopped manually', time: '14:43'},
     ],
   },
@@ -140,7 +152,12 @@ const RUNS: Run[] = [
     completed: true,
     events: [
       {icon: <Sprout size={13} strokeWidth={2.2} />, tone: 'accent', text: 'Mowing started', time: '08:40'},
-      {icon: <CheckCircle2 size={13} strokeWidth={2.4} />, tone: 'accent', text: 'RTK fixed — position trusted', time: '08:41'},
+      {
+        icon: <CheckCircle2 size={13} strokeWidth={2.4} />,
+        tone: 'accent',
+        text: 'RTK fixed — position trusted',
+        time: '08:41',
+      },
       {icon: <HomeIcon size={13} strokeWidth={2.2} />, tone: 'info', text: 'Docked · charging complete', time: '10:43'},
     ],
   },
@@ -185,30 +202,75 @@ export function Activity() {
   const [tab, setTab] = useState('events');
   const [range, setRange] = useState('all');
   const [selectedRunId, setSelectedRunId] = useState(RUNS[0].id);
+  const [mobileHistoryView, setMobileHistoryView] = useState<'list' | 'detail'>('list');
   const selectedRun = RUNS.find((r) => r.id === selectedRunId) ?? RUNS[0];
+
+  function openRunDetail(id: string) {
+    setSelectedRunId(id);
+    setMobileHistoryView('detail');
+  }
+
+  const showMobileRunDetail = tab === 'history' && mobileHistoryView === 'detail';
 
   return (
     <div className="flex min-h-full flex-col gap-4 p-4 md:h-full md:min-h-0 md:gap-4 md:p-6">
-      <ScreenHeader kicker="Kotipiha" title="Activity" />
+      <ScreenHeader
+        kicker="Kotipiha"
+        title="Activity"
+        actions={
+          showMobileRunDetail ? (
+            <Button
+              variant="soft"
+              size="icon"
+              aria-label="Back to history"
+              className="md:hidden"
+              onClick={() => setMobileHistoryView('list')}
+            >
+              <ChevronLeft size={18} strokeWidth={2.4} />
+            </Button>
+          ) : undefined
+        }
+      />
 
-      <SegmentedToggle options={TABS} value={tab} onChange={setTab} className="md:w-fit" />
+      {/* Mobile: hidden while the run-detail drill-in is open, so it reads as a full-screen view. */}
+      <SegmentedToggle
+        options={TABS}
+        value={tab}
+        onChange={setTab}
+        className={cn('md:w-fit', showMobileRunDetail && 'hidden md:block')}
+      />
 
       {tab === 'events' ? <EventTimeline groups={EVENT_GROUPS} className="flex-1" /> : null}
 
       {tab === 'history' ? (
         <>
-          {/* ===== Mobile: stacked run cards ===== */}
+          {/* ===== Mobile: run cards, or a run's full-screen detail drill-in ===== */}
           <div className="flex flex-1 flex-col gap-2.5 md:hidden">
-            {RUNS.map((run) => (
-              <RunCard
-                key={run.id}
-                plan={run.plan}
-                statusLabel={run.statusLabel}
-                statusVariant={run.statusVariant}
-                timestamp={`${run.dayLabel} · ${run.startTime}–${run.endTime}`}
-                metrics={runMetrics(run)}
+            {mobileHistoryView === 'list' ? (
+              RUNS.map((run) => (
+                <RunCard
+                  key={run.id}
+                  onSelect={() => openRunDetail(run.id)}
+                  plan={run.plan}
+                  statusLabel={run.statusLabel}
+                  statusVariant={run.statusVariant}
+                  timestamp={`${run.dayLabel} · ${run.startTime}–${run.endTime}`}
+                  metrics={runMetrics(run)}
+                />
+              ))
+            ) : (
+              <RunDetail
+                plan={selectedRun.plan}
+                statusLabel={selectedRun.statusLabel}
+                statusVariant={selectedRun.statusVariant}
+                timeRange={`${selectedRun.dayLabel} ${selectedRun.startTime} – ${selectedRun.endTime} · ${selectedRun.scope}`}
+                coveragePct={selectedRun.coveragePct}
+                areaM2={selectedRun.area}
+                duration={selectedRun.duration}
+                events={selectedRun.events}
+                className="flex-1"
               />
-            ))}
+            )}
           </div>
 
           {/* ===== Desktop: run list + detail pane, side by side ===== */}

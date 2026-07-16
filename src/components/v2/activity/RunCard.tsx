@@ -22,6 +22,7 @@ export interface RunCardProps {
   /** Desktop sidebar rendering: a smaller selectable list item instead of the full mobile card. */
   compact?: boolean;
   selected?: boolean;
+  /** Mobile: makes the card tappable, opening the run's full-screen detail drill-in. */
   onSelect?: () => void;
   className?: string;
 }
@@ -80,24 +81,40 @@ export function RunCard({
     }
 
     return (
-      <div className={cn('flex flex-col gap-[.5rem] rounded-[16px] bg-surface-2 p-[.8rem]', className)}>
-        {content}
-      </div>
+      <div className={cn('flex flex-col gap-[.5rem] rounded-[16px] bg-surface-2 p-[.8rem]', className)}>{content}</div>
     );
   }
 
-  return (
-    <Card className={cn('flex flex-col gap-2 p-[.8rem]', className)}>
-      <div className="flex items-center justify-between gap-2">
+  const content = (
+    <>
+      <div className="flex w-full items-center justify-between gap-2">
         <span className="text-[.9rem] font-[660] tracking-tight text-ink">{plan}</span>
         <Chip variant={statusVariant}>{statusLabel}</Chip>
       </div>
       <span className="font-mono text-[.7rem] tabular-nums text-ink-faint">{timestamp}</span>
-      <div className="flex gap-2">
+      <div className="flex w-full gap-2">
         {metrics.map((m) => (
           <KpiTile key={m.label} value={m.value} unit={m.unit} label={m.label} accent={m.accent} className="flex-1" />
         ))}
       </div>
-    </Card>
+    </>
   );
+
+  if (onSelect) {
+    return (
+      <Button
+        type="button"
+        variant="soft"
+        onClick={onSelect}
+        className={cn(
+          'h-auto w-full flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border bg-surface p-[.8rem] text-left shadow-sm hover:bg-surface',
+          className,
+        )}
+      >
+        {content}
+      </Button>
+    );
+  }
+
+  return <Card className={cn('flex flex-col gap-2 p-[.8rem]', className)}>{content}</Card>;
 }

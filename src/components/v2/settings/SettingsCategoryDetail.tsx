@@ -1,0 +1,229 @@
+import {cn} from '@/components/v2/lib/cn';
+import {SettingsGroup} from '@/components/v2/settings/SettingsGroup';
+import {
+  APP_VERSION,
+  BASEMAP_OPTIONS,
+  CONNECTION,
+  DOCKING,
+  NOTIFICATION_CATEGORIES,
+  UNITS_OPTIONS,
+  type SafetyToggles,
+} from '@/components/v2/settings/settingsData';
+import {Card} from '@/components/v2/ui/Card';
+import {Chip} from '@/components/v2/ui/Chip';
+import {FormField} from '@/components/v2/ui/FormField';
+import {ListRow} from '@/components/v2/ui/ListRow';
+import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
+import {Switch} from '@/components/v2/ui/Switch';
+import {Bell, Check, ChevronRight, Info, Navigation, Shield, Wifi, Zap} from 'lucide-react';
+
+export interface SettingsCategoryDetailProps {
+  category: string;
+  units: 'metric' | 'imperial';
+  onUnitsChange: (units: 'metric' | 'imperial') => void;
+  basemapChoice: string;
+  onBasemapChange: (choice: string) => void;
+  safetyToggles: SafetyToggles;
+  onSafetyToggleChange: (key: keyof SafetyToggles, checked: boolean) => void;
+  notifications: Record<string, boolean>;
+  onNotificationChange: (key: string, checked: boolean) => void;
+  className?: string;
+}
+
+/** The body of a settings category's detail — desktop renders it in the rail's detail pane,
+ *  mobile renders the identical component full-bleed after drilling into a category row, so
+ *  the two breakpoints never carry duplicate copies of the same content. */
+export function SettingsCategoryDetail({
+  category,
+  units,
+  onUnitsChange,
+  basemapChoice,
+  onBasemapChange,
+  safetyToggles,
+  onSafetyToggleChange,
+  notifications,
+  onNotificationChange,
+  className,
+}: SettingsCategoryDetailProps) {
+  return (
+    <div className={cn('flex flex-col gap-3.5', className)}>
+      {category === 'connection' ? (
+        <>
+          <Card className="flex items-center gap-[.7rem] p-[.85rem]">
+            <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] bg-accent-wash text-accent">
+              <Wifi size={17} strokeWidth={2} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[.9rem] font-[640] text-ink">Broker</div>
+              <div className="font-mono text-[.78rem] text-ink-soft">{CONNECTION.url}</div>
+            </div>
+            <Chip variant={CONNECTION.connected ? 'ok' : 'danger'}>
+              {CONNECTION.connected ? 'Connected' : 'Disconnected'}
+            </Chip>
+          </Card>
+
+          <SettingsGroup>
+            <ListRow
+              title="Client ID"
+              trailing={<span className="font-mono text-[.72rem] text-ink-soft">yardforce-kotipiha</span>}
+            />
+            <ListRow title="TLS" trailing={<Chip variant="ok">Enabled</Chip>} />
+          </SettingsGroup>
+        </>
+      ) : null}
+
+      {category === 'positioning' ? (
+        <SettingsGroup>
+          <ListRow
+            icon={<Navigation size={15} strokeWidth={2} className="text-ink-soft" />}
+            title="Fix status"
+            trailing={<Chip variant="ok">RTK fixed</Chip>}
+          />
+          <ListRow
+            title="Datum"
+            trailing={<span className="font-mono text-[.72rem] text-ink-soft">ETRS89 / TM35FIN</span>}
+          />
+          <ListRow
+            title="Horizontal accuracy"
+            trailing={<span className="font-mono text-[.72rem] text-ink-soft">1.8 cm</span>}
+          />
+          <ListRow title="Satellites" trailing={<span className="font-mono text-[.72rem] text-ink-soft">21</span>} />
+        </SettingsGroup>
+      ) : null}
+
+      {category === 'docking' ? (
+        <SettingsGroup>
+          <ListRow
+            icon={<Zap size={15} strokeWidth={2} className="text-ink-soft" />}
+            title="Status"
+            trailing={<Chip variant="ok">{DOCKING}</Chip>}
+          />
+          <ListRow
+            title="Position"
+            trailing={<span className="text-[.72rem] text-ink-soft">Kotipiha · NW corner</span>}
+          />
+          <ListRow
+            title="Last calibrated"
+            trailing={<span className="font-mono text-[.72rem] text-ink-soft">2026-06-02</span>}
+          />
+        </SettingsGroup>
+      ) : null}
+
+      {category === 'units' ? (
+        <Card className="p-[.85rem]">
+          <FormField label="Measurement units" hint="Applies to area, distance, and speed readouts throughout the app.">
+            <SegmentedToggle
+              options={UNITS_OPTIONS}
+              value={units}
+              onChange={(v) => onUnitsChange(v as 'metric' | 'imperial')}
+            />
+          </FormField>
+        </Card>
+      ) : null}
+
+      {category === 'basemap' ? (
+        <SettingsGroup>
+          {BASEMAP_OPTIONS.map((opt) => (
+            <ListRow
+              key={opt}
+              title={opt}
+              onClick={() => onBasemapChange(opt)}
+              trailing={
+                opt === basemapChoice ? <Check size={15} strokeWidth={2.6} className="text-accent" /> : undefined
+              }
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
+
+      {category === 'safety' ? (
+        <SettingsGroup>
+          <ListRow
+            icon={<Shield size={15} strokeWidth={2} className="text-ink-soft" />}
+            title="Geofence enforcement"
+            sub="Stop if the mower crosses the mapped boundary"
+            trailing={
+              <Switch
+                checked={safetyToggles.geofence}
+                onCheckedChange={(checked) => onSafetyToggleChange('geofence', checked)}
+                aria-label="Geofence enforcement"
+              />
+            }
+          />
+          <ListRow
+            title="Tilt / lift stop"
+            sub="Stop the blade immediately if the mower is tilted or lifted"
+            trailing={
+              <Switch
+                checked={safetyToggles.tiltLift}
+                onCheckedChange={(checked) => onSafetyToggleChange('tiltLift', checked)}
+                aria-label="Tilt / lift stop"
+              />
+            }
+          />
+        </SettingsGroup>
+      ) : null}
+
+      {category === 'notifications' ? (
+        <>
+          <Card className="flex items-center gap-[.7rem] p-[.85rem]">
+            <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] bg-accent-wash text-accent">
+              <Bell size={17} strokeWidth={2} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[.9rem] font-[640] text-ink">Enabled in this browser</div>
+              <div className="text-[.78rem] text-ink-soft">2 registered devices · manage in browser settings</div>
+            </div>
+            <Chip variant="ok">Enabled</Chip>
+          </Card>
+
+          <SettingsGroup>
+            {NOTIFICATION_CATEGORIES.map((cat) => (
+              <ListRow
+                key={cat.key}
+                title={cat.label}
+                sub={cat.sub}
+                trailing={
+                  <Switch
+                    checked={notifications[cat.key] ?? cat.defaultOn}
+                    onCheckedChange={(checked) => onNotificationChange(cat.key, checked)}
+                    aria-label={cat.label}
+                  />
+                }
+              />
+            ))}
+          </SettingsGroup>
+
+          <p className="text-[.76rem] leading-[1.5] text-ink-faint">
+            On iOS, delivery isn&apos;t guaranteed while Low Power Mode is on — allow OpenMower under Settings →
+            Notifications if alerts feel delayed.
+          </p>
+        </>
+      ) : null}
+
+      {category === 'about' ? (
+        <>
+          <Card className="flex items-center gap-[.7rem] p-[.85rem]">
+            <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] bg-accent-wash text-accent">
+              <Info size={17} strokeWidth={2} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[.9rem] font-[640] text-ink">OpenMower app</div>
+              <div className="font-mono text-[.78rem] text-ink-soft">v{APP_VERSION}</div>
+            </div>
+          </Card>
+
+          <SettingsGroup>
+            <ListRow title="Release notes" trailing={<DrillChevron />} />
+            <ListRow title="Privacy policy" trailing={<DrillChevron />} />
+            <ListRow title="Support" trailing={<DrillChevron />} />
+          </SettingsGroup>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function DrillChevron() {
+  return <ChevronRight size={15} strokeWidth={2.4} className="flex-none text-ink-faint" />;
+}
