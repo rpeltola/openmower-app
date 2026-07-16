@@ -6,12 +6,15 @@
 // (batches 1-3 of MAP_EDITOR_SPEC.md), plus the real per-area settings editor (AREA_SETTINGS_SPEC.md,
 // AreaSettingsSheet.tsx). The "Choose zone" Sheet below is just the quick zone switcher now —
 // selecting a zone (there, or by tapping it on the map) opens the settings editor.
-import {latLngToMeters, metersToLatLng} from '@/lib/v2/geo/projection';
+import {latLngToMeters, metersToLatLng, type Meters, type Pose} from '@/lib/v2/geo/projection';
 import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {coverageLines, outlineLaps} from '@/components/v2/map/coverage';
-import {principalAngleDeg} from '@/components/v2/map/geometry';
+import {polygonArea, polygonPerimeter, principalAngleDeg} from '@/components/v2/map/geometry';
 import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements';
+import {RecordBriefingSheet} from '@/components/v2/map/record/RecordBriefingSheet';
+import {RecordCloseSheet} from '@/components/v2/map/record/RecordCloseSheet';
+import {RecordDriveOverlay, type RecordSpeed} from '@/components/v2/map/record/RecordDriveOverlay';
 import {
   GLOBAL_DEFAULTS,
   isMowableType,
@@ -54,6 +57,7 @@ import {
   Copy,
   Eraser,
   Expand,
+  Footprints,
   HelpCircle,
   Home,
   Layers,
@@ -142,12 +146,15 @@ const TOOL_KEY_LABEL: Partial<Record<EditTool, string>> = Object.fromEntries(
 
 // "Add to map" create-object menu (MAP_SCREEN_SPEC S3) — every object type the concept lists.
 // 'dock' isn't a Zone type (there's exactly one physical dock); picking it arms click-to-place.
-const ADD_TO_MAP_ITEMS: {type: ZoneType | 'dock'; label: string; sub: string; icon: ReactNode; sizeM?: number}[] = [
+// 'record' (S8) isn't a Zone type either — it opens the record-a-boundary flow (R1) instead of an
+// instant square-at-center.
+const ADD_TO_MAP_ITEMS: {type: ZoneType | 'dock' | 'record'; label: string; sub: string; icon: ReactNode; sizeM?: number}[] = [
   {type: 'mow', label: ZONE_TYPE_LABELS.mow, sub: 'An area the mower covers', icon: <SquarePlus size={18} />, sizeM: 6},
   {type: 'obstacle', label: ZONE_TYPE_LABELS.obstacle, sub: 'Excluded from mowing', icon: <Ban size={18} />, sizeM: 3},
   {type: 'dock', label: 'Docking station', sub: 'Move the charging dock', icon: <Home size={18} />},
   {type: 'spot', label: ZONE_TYPE_LABELS.spot, sub: 'A one-off mow patch', icon: <Target size={18} />, sizeM: 2},
   {type: 'nav', label: ZONE_TYPE_LABELS.nav, sub: 'A route between areas, not mowed', icon: <Signpost size={18} />, sizeM: 6},
+  {type: 'record', label: 'Record a boundary', sub: 'Walk the edge with the mower', icon: <Footprints size={18} />},
 ];
 
 const SHORTCUTS: {keys: string; desc: string}[] = [
@@ -197,6 +204,18 @@ export function Map() {
   // Pause). No real trigger exists yet, so it's toggled from the command palette for now — reuses
   // states/PausedBlockerScreen.tsx's visual language, rendered as the Map's own live-view state.
   const [mockBlocked, setMockBlocked] = useState(false);
+  // S8 — boundary-recording journey (R1 briefing -> R2 drive-the-edge -> R3 close & name). The
+  // drive simulation (recordPose/recordDirection) is the one place in the app where the shared
+  // Joystick primitive actually moves anything — everywhere else it's decorative (ManualControl.tsx)
+  // since there's no real drive backend yet, but a live trace with nothing moving would defeat the
+  // point of this specific screen, so it gets a small mock physics loop (see the effect below).
+  const [recordStep, setRecordStep] = useState<'r1' | 'r2' | 'r3' | null>(null);
+  const [recordPoints, setRecordPoints] = useState<Meters[]>([]);
+  const [recordMarks, setRecordMarks] = useState<Meters[]>([]);
+  const [recordPose, setRecordPose] = useState<Pose>({x: 0, y: 0, heading: 0});
+  const [recordDirection, setRecordDirection] = useState<'up' | 'down' | 'left' | 'right' | null>(null);
+  const [recordSpeed, setRecordSpeed] = useState<RecordSpeed>('normal');
+  const [recordType, setRecordType] = useState<ZoneType>('mow');
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
   useEffect(() => {
@@ -263,6 +282,110 @@ export function Map() {
     editor.setEditing(next);
     if (!next) closeAllEditSheets();
   };
+
+  // --- S8 boundary recording -----------------------------------------------------------------
+  const startRecordBoundary = () => {
+    setAddObjectSheetOpen(false);
+    setRecordStep('r1');
+  };
+
+  const drawOnMapInstead = () => {
+    setRecordStep(null);
+    editor.setEditing(true);
+    setAddObjectSheetOpen(true);
+  };
+
+  const beginDriving = () => {
+    // "Mower on the lawn, near the edge" — seed the trace from the dock, a plausible edge-adjacent
+    // starting point, facing east.
+    const start = {x: MOCK_DOCK.position.x, y: MOCK_DOCK.position.y};
+    setRecordPoints([start]);
+    setRecordMarks([]);
+    setRecordType('mow');
+    setRecordPose({x: start.x, y: start.y, heading: 0});
+    setRecordDirection(null);
+    editor.setEditing(false);
+    closeAllEditSheets();
+    setRecordStep('r2');
+  };
+
+  const cancelRecording = () => {
+    setRecordStep(null);
+    setRecordPoints([]);
+    setRecordMarks([]);
+    setRecordDirection(null);
+  };
+
+  const markNoGo = () => setRecordMarks((m) => [...m, {x: recordPose.x, y: recordPose.y}]);
+  const undoRecordPoint = () => setRecordPoints((pts) => (pts.length > 1 ? pts.slice(0, -1) : pts));
+  const closeRecordLoop = () => setRecordStep('r3');
+
+  const saveRecording = (name: string, fineTune: boolean) => {
+    const id = editor.createZone(recordPoints, recordType);
+    editor.renameZone(id, name);
+    setRecordStep(null);
+    setRecordPoints([]);
+    setRecordMarks([]);
+    if (fineTune) {
+      editor.setEditing(true);
+      editor.setTool('select');
+    } else {
+      openZoneSettings(id);
+    }
+  };
+
+  // Mock drive-the-edge physics: while a Joystick direction is held, up/down translate at the
+  // chosen speed and left/right rotate in place (a d-pad, not an analog stick — matches what the
+  // shared Joystick primitive actually reports). A new trace point is appended every ~0.35m
+  // traveled; the map recenters on the mower each time. Speeds are well above real mow speed
+  // (0.15-0.35 m/s) — driving this by hand at real mow speed would feel unresponsive.
+  const recordPoseRef = useRef(recordPose);
+  recordPoseRef.current = recordPose;
+  const recordDirectionRef = useRef(recordDirection);
+  recordDirectionRef.current = recordDirection;
+  const recordSpeedRef = useRef(recordSpeed);
+  recordSpeedRef.current = recordSpeed;
+  const recordDistSinceLastPointRef = useRef(0);
+
+  useEffect(() => {
+    if (recordStep !== 'r2') return;
+    const TURN_RATE_RAD_S = Math.PI / 2;
+    const RECORD_STEP_M = 0.35;
+    const SPEED_MPS: Record<RecordSpeed, number> = {slow: 0.5, normal: 0.9, fast: 1.5};
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const dir = recordDirectionRef.current;
+      if (dir) {
+        const pose = recordPoseRef.current;
+        if (dir === 'left' || dir === 'right') {
+          const turn = (dir === 'left' ? 1 : -1) * TURN_RATE_RAD_S * dt;
+          setRecordPose({...pose, heading: pose.heading + turn});
+        } else {
+          const sign = dir === 'up' ? 1 : -1;
+          const speedMps = SPEED_MPS[recordSpeedRef.current];
+          const dx = Math.cos(pose.heading) * speedMps * dt * sign;
+          const dy = Math.sin(pose.heading) * speedMps * dt * sign;
+          const next = {x: pose.x + dx, y: pose.y + dy, heading: pose.heading};
+          setRecordPose(next);
+          recordDistSinceLastPointRef.current += Math.hypot(dx, dy);
+          if (recordDistSinceLastPointRef.current >= RECORD_STEP_M) {
+            recordDistSinceLastPointRef.current = 0;
+            setRecordPoints((pts) => [...pts, {x: next.x, y: next.y}]);
+            mapRef.current?.panTo(metersToLatLng(next, MOCK_ORIGIN), {animate: false});
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [recordStep]);
+
+  const recordAreaM2 = polygonArea(recordPoints);
+  const recordPerimeterM = polygonPerimeter(recordPoints);
 
   const selectedZone = editor.zones.find((z) => z.id === editor.selectedZoneId);
   const selectedZoneIndex = editor.zones.findIndex((z) => z.id === editor.selectedZoneId);
@@ -428,6 +551,7 @@ export function Map() {
       onRun: editor.deleteSelection,
     },
     {id: 'add-to-map', label: 'Add to map…', disabled: !editor.editing, onRun: () => setAddObjectSheetOpen(true)},
+    {id: 'record-boundary', label: 'Record a boundary…', icon: <Footprints size={15} />, onRun: () => setRecordStep('r1')},
     {id: 'place-dock', label: 'Place dock', disabled: !editor.editing, onRun: () => setPlacingDock(true)},
     {
       id: 'duplicate-zone',
@@ -501,6 +625,7 @@ export function Map() {
         mowedLanes={mowedLanesData}
         robotAccuracyM={mockBlocked ? 1.4 : 0.35}
         robotBlocked={mockBlocked}
+        recording={recordStep === 'r2' ? {points: recordPoints, pose: recordPose, marks: recordMarks} : null}
       />
 
       {/* top status pills (live view) / editing indicator (edit mode) */}
@@ -850,7 +975,11 @@ export function Map() {
             icon={item.icon}
             title={item.label}
             sub={item.sub}
-            onClick={() => (item.type === 'dock' ? addDockStation() : addObjectAtCenter(item.type, item.sizeM))}
+            onClick={() => {
+              if (item.type === 'dock') addDockStation();
+              else if (item.type === 'record') startRecordBoundary();
+              else addObjectAtCenter(item.type, item.sizeM);
+            }}
           />
         ))}
       </Sheet>
@@ -1101,6 +1230,45 @@ export function Map() {
           </FormField>
         </div>
       </Sheet>
+
+      {/* S8 — boundary recording (R1 briefing, R2 drive-the-edge, R3 close & name). R2 renders
+          above the normal chrome (z-900, like the plan preview) since it takes over the map;
+          beginDriving() already exited edit mode + closed every sheet before it opens. */}
+      <RecordBriefingSheet
+        open={recordStep === 'r1'}
+        onClose={() => setRecordStep(null)}
+        onStart={beginDriving}
+        onDrawOnMapInstead={drawOnMapInstead}
+      />
+
+      {recordStep === 'r2' && (
+        <RecordDriveOverlay
+          pointCount={recordPoints.length}
+          areaM2={recordAreaM2}
+          perimeterM={recordPerimeterM}
+          speed={recordSpeed}
+          onSpeedChange={setRecordSpeed}
+          onDirectionChange={setRecordDirection}
+          onMarkNoGo={markNoGo}
+          onUndo={undoRecordPoint}
+          canUndo={recordPoints.length > 1}
+          onCloseLoop={closeRecordLoop}
+          canCloseLoop={recordPoints.length >= 3}
+          onCancel={cancelRecording}
+        />
+      )}
+
+      <RecordCloseSheet
+        open={recordStep === 'r3'}
+        onClose={() => setRecordStep(null)}
+        areaM2={recordAreaM2}
+        perimeterM={recordPerimeterM}
+        pointCount={recordPoints.length}
+        type={recordType}
+        onTypeChange={setRecordType}
+        defaultName={`New ${ZONE_TYPE_LABELS[recordType].toLowerCase()}`}
+        onSave={saveRecording}
+      />
 
       <CommandPalette
         open={commandPaletteOpen}

@@ -83,6 +83,13 @@ export interface MapCanvasProps {
   robotAccuracyM?: number;
   /** True = the ring reads as a blocked/lost-fix state (larger, warn-colored) instead of normal. */
   robotBlocked?: boolean;
+
+  /** Boundary-recording trace (MAP_SCREEN_SPEC S8) — the "drive the edge" hero: an accent
+   *  polyline through `points` with an enclosed-area wash and a dashed close-hint back to the
+   *  start (once there are >= 2 points), small vertex dots, a live position marker at `pose`, and
+   *  red dots at `marks` ("Mark no-go" — visual only, doesn't create a real zone). Absent/null
+   *  hides the whole layer. */
+  recording?: {points: Meters[]; pose: Pose; marks: Meters[]} | null;
 }
 
 // Vertex-handle colors are fixed (not theme-dependent), same rule as the zone colors — they must
@@ -102,6 +109,10 @@ const MOWED_LANE_COLOR = '#a7e8c9';
 // Position-uncertainty ring colors (S2) — normal vs. blocked/lost-fix.
 const UNCERTAINTY_NORMAL_COLOR = '#38bdf8';
 const UNCERTAINTY_BLOCKED_COLOR = '#f2b134';
+
+// Boundary-recording trace colors (S8) — accent line/wash, a distinct red for "Mark no-go" dots.
+const RECORDING_TRACE_COLOR = '#3b82f6';
+const RECORDING_MARK_COLOR = '#ef4444';
 
 // Vertex-handle icon. Kept out of the marker-creation effect's deps so changing which vertex is
 // selected/picked only restyles handles (setIcon) instead of recreating them — recreating mid-drag
@@ -172,6 +183,7 @@ export function MapCanvas({
   mowedLanes = null,
   robotAccuracyM = 0.3,
   robotBlocked = false,
+  recording = null,
 }: MapCanvasProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -179,6 +191,7 @@ export function MapCanvas({
   const zoneLayerRef = useRef<L.FeatureGroup | null>(null);
   const mowedLayerRef = useRef<L.LayerGroup | null>(null);
   const coverageLayerRef = useRef<L.LayerGroup | null>(null);
+  const recordingLayerRef = useRef<L.LayerGroup | null>(null);
   const handleLayerRef = useRef<L.LayerGroup | null>(null);
   const dockLayerRef = useRef<L.LayerGroup | null>(null);
   const robotLayerRef = useRef<L.LayerGroup | null>(null);
@@ -237,6 +250,7 @@ export function MapCanvas({
     zoneLayerRef.current = L.featureGroup().addTo(map);
     mowedLayerRef.current = L.layerGroup().addTo(map);
     coverageLayerRef.current = L.layerGroup().addTo(map);
+    recordingLayerRef.current = L.layerGroup().addTo(map);
     handleLayerRef.current = L.layerGroup().addTo(map);
     dockLayerRef.current = L.layerGroup().addTo(map);
     robotLayerRef.current = L.layerGroup().addTo(map);
@@ -727,6 +741,70 @@ export function MapCanvas({
       }).addTo(layer);
     });
   }, [mowedLanes, origin]);
+
+  // ---- boundary-recording trace (MAP_SCREEN_SPEC S8 — R2 "drive the edge" hero) -----------------
+  useEffect(() => {
+    const layer = recordingLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    if (!recording) return;
+    const {points, pose, marks} = recording;
+
+    if (points.length >= 3) {
+      // Enclosed-area wash — same implicit-closed-ring treatment as a real zone outline.
+      L.polygon(points.map((p) => metersToLatLng(p, origin)), {
+        color: RECORDING_TRACE_COLOR,
+        weight: 0,
+        fillColor: RECORDING_TRACE_COLOR,
+        fillOpacity: 0.12,
+        interactive: false,
+      }).addTo(layer);
+    }
+    if (points.length >= 2) {
+      L.polyline(points.map((p) => metersToLatLng(p, origin)), {
+        color: RECORDING_TRACE_COLOR,
+        weight: 3,
+        interactive: false,
+      }).addTo(layer);
+      // Dashed close-hint back to the start.
+      L.polyline([metersToLatLng(points[points.length - 1], origin), metersToLatLng(points[0], origin)], {
+        color: RECORDING_TRACE_COLOR,
+        weight: 1.5,
+        dashArray: '4,6',
+        opacity: 0.7,
+        interactive: false,
+      }).addTo(layer);
+    }
+    points.forEach((p) => {
+      L.circleMarker(metersToLatLng(p, origin), {
+        radius: 3.5,
+        color: '#ffffff',
+        weight: 1.5,
+        fillColor: RECORDING_TRACE_COLOR,
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(layer);
+    });
+    marks.forEach((p) => {
+      L.circleMarker(metersToLatLng(p, origin), {
+        radius: 5,
+        color: '#ffffff',
+        weight: 1.5,
+        fillColor: RECORDING_MARK_COLOR,
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(layer);
+    });
+    // Live position marker — a small heading-aware dot so "where the mower is now" reads clearly
+    // against the already-recorded trace dots.
+    L.polygon(footprintPolygon(pose, {front_m: 0.2, rear_m: 0.15, half_width_m: 0.16}, origin), {
+      color: '#0b1f16',
+      weight: 1.5,
+      fillColor: RECORDING_TRACE_COLOR,
+      fillOpacity: 0.95,
+      interactive: false,
+    }).addTo(layer);
+  }, [recording, origin]);
 
   // ---- dock marker: draggable while editing (place-by-click also lands here via onDockChange) ---
   useEffect(() => {
