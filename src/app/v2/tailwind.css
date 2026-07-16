@@ -32,6 +32,7 @@
   --map: #e6ede4;
   --map-line: #d3ddcf;
   --mowed: #b9e3ce;
+  --bed: #d2c6ae;
   --dock: #3e72ae;
   --radius-card: 16px;
   --radius-control: 14px;
@@ -60,6 +61,7 @@
     --map: #0f1b15;
     --map-line: #1b2a22;
     --mowed: #1e5b41;
+    --bed: #3a3324;
     --dock: #82b2e0;
   }
 }
@@ -88,6 +90,7 @@
   --map: #0f1b15;
   --map-line: #1b2a22;
   --mowed: #1e5b41;
+  --bed: #3a3324;
   --dock: #82b2e0;
 }
 
@@ -113,6 +116,7 @@
   --map: #e6ede4;
   --map-line: #d3ddcf;
   --mowed: #b9e3ce;
+  --bed: #d2c6ae;
   --dock: #3e72ae;
 }
 
@@ -139,6 +143,7 @@
   --color-map: var(--map);
   --color-map-line: var(--map-line);
   --color-mowed: var(--mowed);
+  --color-bed: var(--bed);
   --color-dock: var(--dock);
 
   --radius-card: var(--radius-card);
@@ -157,4 +162,74 @@
   font: inherit;
   color: inherit;
   cursor: pointer;
+}
+
+/* ---- MowingHero animation (Home) — ported 1:1 from the concept's .mowhero/.mowscene
+   scene (design-language.md §3 motion). Scoped under .v2-root so it never leaks into v1. ---- */
+.v2-root .mh-mower {
+  animation: mh-bob 2.6s ease-in-out infinite;
+}
+.v2-root .mh-wheel {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mh-spin 0.9s linear infinite;
+}
+.v2-root .mh-blade {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mh-spin 0.5s linear infinite;
+}
+.v2-root .mh-tuft {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: mh-sway 2.1s ease-in-out infinite;
+}
+.v2-root .mh-clip {
+  animation: mh-fly 1.5s ease-out infinite;
+}
+@keyframes mh-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes mh-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes mh-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-6deg);
+  }
+}
+@keyframes mh-fly {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.5);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(18px, -20px) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-root .mh-mower,
+  .v2-root .mh-wheel,
+  .v2-root .mh-blade,
+  .v2-root .mh-tuft,
+  .v2-root .mh-clip {
+    animation: none;
+  }
 }
