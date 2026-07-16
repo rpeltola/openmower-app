@@ -148,6 +148,14 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
   control gets a compact "LB slower · RB faster" (or `L1`/`R1`) line under it (desktop
   `SegmentedToggle`) / corner badges on the +/− stepper buttons (mobile). No controller →
   no badges, no line — layout is identical to before gamepad support landed.
+- **Auto-switch to Joystick input mode on connect** — a physical stick is analog, so the
+  connect-edge effect (the same one that fires the "Controller connected" toast) also calls
+  `setInputMode('joystick')` once. It's edge-triggered, not enforced: switch back to D-pad
+  manually and it sticks for the rest of that connected session (no fight-the-UI loop);
+  a fresh disconnect→reconnect re-triggers the one-time switch. The on-screen `AnalogStick`
+  already mirrors the gamepad's raw stick position via `activeOverride` when in Joystick
+  mode (same `driveVector` plumbing from the analog-mode work above) — no extra wiring
+  needed for that "nice to have".
 
 ## Build order (checklist)
 - [x] Scaffold Tailwind + tokens + kit

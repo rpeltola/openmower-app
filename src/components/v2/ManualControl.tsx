@@ -124,8 +124,13 @@ export function ManualControl() {
   useEffect(() => {
     if (gamepad.connected && !prevConnectedRef.current) {
       setToast(`Controller connected: ${controllerName(gamepad.id)}`);
+      // A physical stick is analog — default to the Joystick input mode once per connect.
+      // If the user then manually switches back to D-pad, this won't fire again (it's
+      // edge-triggered, not enforced) until the pad disconnects and reconnects.
+      setInputMode('joystick');
     }
     prevConnectedRef.current = gamepad.connected;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gamepad.connected, gamepad.id]);
 
   return (
