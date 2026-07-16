@@ -43,3 +43,85 @@ export function nearestEdgeInsertIndex(points: Meters[], p: Meters): number {
   }
   return bestIndex + 1; // splice position after vertex bestIndex
 }
+
+/**
+ * Push/smear brush: points within `radiusMeters` of `center` move along `delta` (the drag
+ * movement since the last step), with a linear falloff to the edge. `strength` (0..1) scales how
+ * strongly points follow at the brush center. Ported verbatim from RevLaw's geo/tools/brush.js.
+ */
+export function dragBrush(
+  points: Meters[],
+  center: Meters,
+  delta: Meters,
+  radiusMeters: number,
+  strength: number,
+): {points: Meters[]; moved: number} {
+  const result = points.map((p) => ({x: p.x, y: p.y}));
+  if (delta.x === 0 && delta.y === 0) return {points: result, moved: 0};
+  let moved = 0;
+  for (let i = 0; i < result.length; i += 1) {
+    const p = result[i];
+    const dist = Math.hypot(p.x - center.x, p.y - center.y);
+    if (dist > radiusMeters) continue;
+    const influence = 1 - dist / radiusMeters; // linear falloff
+    const f = strength * influence;
+    if (f <= 0) continue;
+    p.x += delta.x * f;
+    p.y += delta.y * f;
+    moved += 1;
+  }
+  return {points: result, moved};
+}
+
+/** Forward (wrapping) index path from startIdx to endIdx inclusive, along a closed ring of
+ *  `count` points. Ported verbatim from RevLaw's geo/tools/snap.js. */
+export function buildCircularIndexPath(startIdx: number, endIdx: number, count: number): number[] {
+  const path = [startIdx];
+  let current = startIdx;
+  for (let safety = 0; safety < count; safety += 1) {
+    if (current === endIdx) break;
+    current = (current + 1) % count;
+    path.push(current);
+  }
+  return path;
+}
+
+/**
+ * Snap-line tool: redistribute the points between `startIdx` and `endIdx` (inclusive, walking the
+ * ring forward from start) onto a straight, equally spaced line between the two endpoints. Ported
+ * verbatim from RevLaw's geo/tools/snap.js.
+ */
+export function snapEvenly(
+  points: Meters[],
+  startIdx: number | null,
+  endIdx: number | null,
+): {points: Meters[]; changed: number} {
+  const count = points.length;
+  const result = points.map((p) => ({x: p.x, y: p.y}));
+  if (
+    startIdx == null ||
+    endIdx == null ||
+    startIdx < 0 ||
+    endIdx < 0 ||
+    startIdx >= count ||
+    endIdx >= count ||
+    startIdx === endIdx
+  ) {
+    return {points: result, changed: 0};
+  }
+
+  const indexPath = buildCircularIndexPath(startIdx, endIdx, count);
+  if (indexPath.length < 2) return {points: result, changed: 0};
+
+  const start = {x: result[startIdx].x, y: result[startIdx].y};
+  const end = {x: result[endIdx].x, y: result[endIdx].y};
+  const segments = indexPath.length - 1;
+
+  for (let step = 0; step < indexPath.length; step += 1) {
+    const t = step / segments;
+    const idx = indexPath[step];
+    result[idx] = {x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t};
+  }
+
+  return {points: result, changed: indexPath.length};
+}

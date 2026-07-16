@@ -2,23 +2,43 @@
 
 // Map screen — the map is the hero (full-bleed), UI floats over it in pills / FABs / a stat card
 // (design-language.md "The map is the hero"). Real Leaflet canvas underneath; concept chrome on top.
-// Batch 1 of the map-editor port (RevLaw baseline): edit mode, zone selection, vertex
-// select/drag/add/delete, undo/redo. Later batches add brush/snap/multi-select/transforms.
+// Map-editor port: edit mode, zone selection, vertex select/add/delete/snap/brush/multi-select,
+// undo/redo (batches 1-2 of MAP_EDITOR_SPEC.md). Later batches add create/transform tools.
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {MOCK_ZONES} from '@/components/v2/map/mockMap';
 import {useMapEditor, type EditTool} from '@/components/v2/map/useMapEditor';
 import {Button} from '@/components/v2/ui/Button';
 import {Fab} from '@/components/v2/ui/Fab';
+import {FormField} from '@/components/v2/ui/FormField';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
-import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Sheet} from '@/components/v2/ui/Sheet';
+import {Slider} from '@/components/v2/ui/Slider';
 import {StatCard} from '@/components/v2/ui/StatCard';
 import type {Map as LeafletMap} from 'leaflet';
-import {Check, Layers, Locate, MapPinned, Minus, Pencil, Plus, Redo2, Square, Trash2, Undo2, X} from 'lucide-react';
+import {
+  Check,
+  CirclePlus,
+  Eraser,
+  Layers,
+  Locate,
+  MapPinned,
+  MousePointer2,
+  Minus,
+  Paintbrush2,
+  Pencil,
+  Plus,
+  Redo2,
+  Square,
+  SquareDashedMousePointer,
+  Trash2,
+  Undo2,
+  Waypoints,
+  X,
+} from 'lucide-react';
 import dynamic from 'next/dynamic';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState, type ReactNode} from 'react';
 
 const MapCanvas = dynamic(() => import('@/components/v2/map/MapCanvas').then((m) => m.MapCanvas), {
   ssr: false,
@@ -29,10 +49,13 @@ const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24};
 
 const BASEMAP_STORAGE_KEY = 'v2.basemap';
 
-const TOOL_OPTIONS: {value: EditTool; label: string}[] = [
-  {value: 'select', label: 'Select'},
-  {value: 'add', label: 'Add'},
-  {value: 'delete', label: 'Delete'},
+const TOOLS: {value: EditTool; label: string; icon: ReactNode}[] = [
+  {value: 'select', label: 'Select / drag', icon: <MousePointer2 size={16} />},
+  {value: 'add', label: 'Add point', icon: <CirclePlus size={16} />},
+  {value: 'delete', label: 'Delete point', icon: <Eraser size={16} />},
+  {value: 'snap', label: 'Snap line', icon: <Waypoints size={16} />},
+  {value: 'brush', label: 'Push brush', icon: <Paintbrush2 size={16} />},
+  {value: 'multi', label: 'Multi-select', icon: <SquareDashedMousePointer size={16} />},
 ];
 
 export function Map() {
@@ -40,6 +63,8 @@ export function Map() {
   const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
   const [basemapSheetOpen, setBasemapSheetOpen] = useState(false);
   const [zoneSheetOpen, setZoneSheetOpen] = useState(false);
+  const [brushRadius, setBrushRadius] = useState(1.2);
+  const [brushStrength, setBrushStrength] = useState(0.6);
   const editor = useMapEditor(MOCK_ZONES);
 
   useEffect(() => {
@@ -66,9 +91,16 @@ export function Map() {
         selectedZoneId={editor.selectedZoneId}
         selectedVertex={editor.selectedVertex}
         tool={editor.tool}
+        snapPick={editor.snapPick}
+        multiSelected={editor.multiSelected}
+        brushRadius={brushRadius}
+        brushStrength={brushStrength}
         onZonesChange={editor.commitZones}
         onSelectVertex={editor.selectVertex}
         onSelectZone={editor.selectZone}
+        onPickSnapVertex={editor.pickSnapVertex}
+        onToggleMultiVertex={editor.toggleMultiVertex}
+        onSetMultiSelected={editor.setMultiSelected}
       />
 
       {/* top status pills (live view) / editing indicator (edit mode) */}
@@ -116,13 +148,61 @@ export function Map() {
               sub={selectedZone?.type}
               onClick={() => setZoneSheetOpen(true)}
             />
-            <SegmentedToggle
-              className="mt-2"
-              label="Tool"
-              options={TOOL_OPTIONS}
-              value={editor.tool}
-              onChange={(v) => editor.setTool(v as EditTool)}
-            />
+            <div className="mt-2 flex items-center gap-1.5 overflow-x-auto">
+              {TOOLS.map((t) => (
+                <Button
+                  key={t.value}
+                  type="button"
+                  variant={editor.tool === t.value ? 'primary' : 'soft'}
+                  size="icon"
+                  className="h-9 w-9 flex-none"
+                  aria-label={t.label}
+                  title={t.label}
+                  aria-pressed={editor.tool === t.value}
+                  onClick={() => editor.setTool(t.value)}
+                >
+                  {t.icon}
+                </Button>
+              ))}
+            </div>
+
+            {editor.tool === 'snap' && (
+              <div className="mt-2 text-[.72rem] text-ink-faint">
+                {editor.snapPick
+                  ? 'Tap the end vertex to snap the range straight.'
+                  : 'Tap a start vertex, then an end vertex.'}
+              </div>
+            )}
+            {editor.tool === 'multi' && (
+              <div className="mt-2 text-[.72rem] text-ink-faint">
+                Tap vertices to select, or Shift-drag a box on the map — {editor.multiSelected.size} selected.
+              </div>
+            )}
+            {editor.tool === 'brush' && (
+              <div className="mt-2.5 space-y-2">
+                <FormField label="Brush radius" value={brushRadius.toFixed(1)} unit=" m">
+                  <Slider
+                    value={brushRadius}
+                    min={0.3}
+                    max={4}
+                    step={0.1}
+                    onChange={setBrushRadius}
+                    aria-label="Brush radius"
+                  />
+                </FormField>
+                <FormField label="Brush strength" value={Math.round(brushStrength * 100)} unit="%">
+                  <Slider
+                    value={brushStrength}
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    onChange={setBrushStrength}
+                    aria-label="Brush strength"
+                  />
+                </FormField>
+              </div>
+            )}
+
             <div className="mt-2.5 flex items-center gap-2">
               <Button variant="ghost" size="sm" className="flex-1" onClick={editor.undo} disabled={!editor.canUndo}>
                 <Undo2 size={14} /> Undo
@@ -134,8 +214,8 @@ export function Map() {
                 variant="danger"
                 size="sm"
                 className="flex-1"
-                onClick={editor.deleteSelectedVertex}
-                disabled={!editor.selectedVertex}
+                onClick={editor.deleteSelection}
+                disabled={editor.tool === 'multi' ? editor.multiSelected.size === 0 : !editor.selectedVertex}
               >
                 <Trash2 size={14} /> Delete
               </Button>

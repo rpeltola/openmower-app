@@ -13,10 +13,11 @@ import {
   latLngToMeters,
   metersToLatLng,
   type Footprint,
+  type Meters,
   type Origin,
   type Pose,
 } from '@/lib/v2/geo/projection';
-import {nearestEdgeInsertIndex} from '@/components/v2/map/geometry';
+import {dragBrush, nearestEdgeInsertIndex} from '@/components/v2/map/geometry';
 import {MOCK_DOCK, MOCK_FOOTPRINT, MOCK_ORIGIN, MOCK_POSE, MOCK_ZONES, ZONE_STYLE, type Zone} from '@/components/v2/map/mockMap';
 import {DEFAULT_BASEMAP_ID, resolveBasemap} from '@/components/v2/map/basemaps';
 import type {EditTool, SelectedVertex} from '@/components/v2/map/useMapEditor';
@@ -36,15 +37,25 @@ export interface MapCanvasProps {
   /** Called once with the Leaflet map so the screen can wire its own controls (zoom/locate FABs). */
   onReady?: (map: L.Map) => void;
 
-  /** Vertex-editing (batch 1 of the map-editor port) — all optional, off by default. */
+  /** Vertex-editing (map-editor port) — all optional, off by default. */
   editing?: boolean;
   selectedZoneId?: string | null;
   selectedVertex?: SelectedVertex | null;
   tool?: EditTool;
+  /** Vertex picked as the snap-line start (tool 'snap'), highlighted while the second pick is pending. */
+  snapPick?: SelectedVertex | null;
+  /** Vertex indices (within the selected zone) picked by the multi-select tool. */
+  multiSelected?: Set<number>;
+  /** Push/smear brush radius (m) and follow-strength (0..1) — contextual sliders in the tool dock. */
+  brushRadius?: number;
+  brushStrength?: number;
   /** Fires with the whole updated zones array on every committed edit (drag-end, insert, delete). */
   onZonesChange?: (zones: Zone[]) => void;
   onSelectVertex?: (vertex: SelectedVertex | null) => void;
   onSelectZone?: (id: string) => void;
+  onPickSnapVertex?: (vertex: SelectedVertex) => void;
+  onToggleMultiVertex?: (index: number) => void;
+  onSetMultiSelected?: (indices: number[]) => void;
 }
 
 // Vertex-handle colors are fixed (not theme-dependent), same rule as the zone colors — they must
@@ -54,11 +65,13 @@ const HANDLE_STROKE = '#111827';
 const HANDLE_SELECTED = '#22d3ee';
 
 // Vertex-handle icon. Kept out of the marker-creation effect's deps so changing which vertex is
-// selected only restyles handles (setIcon) instead of recreating them — recreating mid-drag would
-// destroy the marker being dragged and kill the gesture.
-function makeHandleIcon(selected: boolean) {
-  const size = selected ? 16 : 12;
-  const fill = selected ? HANDLE_SELECTED : HANDLE_FILL;
+// selected/picked only restyles handles (setIcon) instead of recreating them — recreating mid-drag
+// would destroy the marker being dragged and kill the gesture.
+const EMPTY_SET: Set<number> = new Set();
+
+function makeHandleIcon(highlighted: boolean) {
+  const size = highlighted ? 16 : 12;
+  const fill = highlighted ? HANDLE_SELECTED : HANDLE_FILL;
   return L.divIcon({
     className: '',
     html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:50%;background:${fill};border:2px solid ${HANDLE_STROKE};box-shadow:0 1px 3px rgba(0,0,0,.45);"></span>`,
@@ -80,9 +93,16 @@ export function MapCanvas({
   selectedZoneId = null,
   selectedVertex = null,
   tool = 'select',
+  snapPick = null,
+  multiSelected = EMPTY_SET,
+  brushRadius = 1.2,
+  brushStrength = 0.6,
   onZonesChange,
   onSelectVertex,
   onSelectZone,
+  onPickSnapVertex,
+  onToggleMultiVertex,
+  onSetMultiSelected,
 }: MapCanvasProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -91,6 +111,7 @@ export function MapCanvas({
   const handleLayerRef = useRef<L.LayerGroup | null>(null);
   const dockLayerRef = useRef<L.LayerGroup | null>(null);
   const robotLayerRef = useRef<L.LayerGroup | null>(null);
+  const brushCursorRef = useRef<L.Circle | null>(null);
   const zonePolygonsRef = useRef<Map<string, L.Polygon>>(new Map());
   const handleMarkersRef = useRef<L.Marker[]>([]);
   const fittedRef = useRef(false);
@@ -107,10 +128,22 @@ export function MapCanvas({
   toolRef.current = tool;
   const selectedZoneIdRef = useRef(selectedZoneId);
   selectedZoneIdRef.current = selectedZoneId;
+  const multiSelectedRef = useRef(multiSelected);
+  multiSelectedRef.current = multiSelected;
+  const brushRadiusRef = useRef(brushRadius);
+  brushRadiusRef.current = brushRadius;
+  const brushStrengthRef = useRef(brushStrength);
+  brushStrengthRef.current = brushStrength;
   const onZonesChangeRef = useRef(onZonesChange);
   onZonesChangeRef.current = onZonesChange;
   const onSelectVertexRef = useRef(onSelectVertex);
   onSelectVertexRef.current = onSelectVertex;
+  const onPickSnapVertexRef = useRef(onPickSnapVertex);
+  onPickSnapVertexRef.current = onPickSnapVertex;
+  const onToggleMultiVertexRef = useRef(onToggleMultiVertex);
+  onToggleMultiVertexRef.current = onToggleMultiVertex;
+  const onSetMultiSelectedRef = useRef(onSetMultiSelected);
+  onSetMultiSelectedRef.current = onSetMultiSelected;
 
   // ---- one-time map + layer-group creation -----------------------------------------------------
   useEffect(() => {
@@ -126,13 +159,34 @@ export function MapCanvas({
     handleLayerRef.current = L.layerGroup().addTo(map);
     dockLayerRef.current = L.layerGroup().addTo(map);
     robotLayerRef.current = L.layerGroup().addTo(map);
+    brushCursorRef.current = L.circle(map.getCenter(), {
+      radius: brushRadiusRef.current,
+      color: HANDLE_SELECTED,
+      weight: 1.5,
+      fillColor: HANDLE_SELECTED,
+      fillOpacity: 0.08,
+      interactive: false,
+    });
 
-    // "Add" tool: a map click inserts a vertex on the selected zone's nearest edge. "Select" tool:
-    // clicking empty map (not a vertex handle — those stop propagation) clears the selection.
+    // Push/smear brush drag-paint state (tool 'brush') — lives here (not React state) so every
+    // pointer move can restyle the polygon live without spamming the undo history; committed once
+    // on pointer-up. Box-select state (tool 'multi', Shift+drag) similarly lives here.
+    let brushDragging = false;
+    let brushLast: Meters | null = null;
+    let brushWorkingOutline: Meters[] | null = null;
+    let brushZoneId: string | null = null;
+
+    let boxStart: L.Point | null = null;
+    let boxSelectDiv: HTMLDivElement | null = null;
+
+    // "Add" tool: a map click inserts a vertex on the selected zone's nearest edge. "Select"/
+    // "multi" tools: clicking empty map (not a vertex handle — those stop propagation) clears the
+    // current selection.
     map.on('click', (e: L.LeafletMouseEvent) => {
       if (!editingRef.current) return;
       const point = latLngToMeters(e.latlng, originRef.current);
-      if (toolRef.current === 'add') {
+      const currentTool = toolRef.current;
+      if (currentTool === 'add') {
         const zoneId = selectedZoneIdRef.current;
         if (!zoneId) return;
         const zone = zonesRef.current.find((z) => z.id === zoneId);
@@ -141,9 +195,112 @@ export function MapCanvas({
         const outline = [...zone.outline.slice(0, idx), point, ...zone.outline.slice(idx)];
         onZonesChangeRef.current?.(zonesRef.current.map((z) => (z.id === zoneId ? {...z, outline} : z)));
         onSelectVertexRef.current?.({zoneId, index: idx});
-      } else if (toolRef.current === 'select') {
+      } else if (currentTool === 'select') {
         onSelectVertexRef.current?.(null);
+      } else if (currentTool === 'multi') {
+        onSetMultiSelectedRef.current?.([]);
       }
+    });
+
+    map.on('mousedown', (e: L.LeafletMouseEvent) => {
+      if (!editingRef.current) return;
+      const currentTool = toolRef.current;
+
+      if (currentTool === 'multi' && e.originalEvent.shiftKey) {
+        map.dragging.disable();
+        boxStart = e.containerPoint;
+        boxSelectDiv = document.createElement('div');
+        Object.assign(boxSelectDiv.style, {
+          position: 'absolute',
+          left: '0',
+          top: '0',
+          width: '0',
+          height: '0',
+          border: `1.5px dashed ${HANDLE_SELECTED}`,
+          background: 'rgba(34,211,238,.15)',
+          pointerEvents: 'none',
+          zIndex: '650',
+        });
+        map.getContainer().appendChild(boxSelectDiv);
+        return;
+      }
+
+      if (currentTool === 'brush') {
+        const zoneId = selectedZoneIdRef.current;
+        const zone = zoneId ? zonesRef.current.find((z) => z.id === zoneId) : null;
+        if (!zone) return;
+        brushDragging = true;
+        brushZoneId = zoneId;
+        brushWorkingOutline = zone.outline.map((p) => ({x: p.x, y: p.y}));
+        brushLast = latLngToMeters(e.latlng, originRef.current);
+      }
+    });
+
+    map.on('mousemove', (e: L.LeafletMouseEvent) => {
+      if (editingRef.current && toolRef.current === 'brush') {
+        brushCursorRef.current?.setLatLng(e.latlng);
+        brushCursorRef.current?.setRadius(brushRadiusRef.current);
+      }
+
+      if (boxStart && boxSelectDiv) {
+        const cur = e.containerPoint;
+        const x = Math.min(boxStart.x, cur.x);
+        const y = Math.min(boxStart.y, cur.y);
+        Object.assign(boxSelectDiv.style, {
+          left: `${x}px`,
+          top: `${y}px`,
+          width: `${Math.abs(cur.x - boxStart.x)}px`,
+          height: `${Math.abs(cur.y - boxStart.y)}px`,
+        });
+        return;
+      }
+
+      if (brushDragging && brushWorkingOutline && brushZoneId) {
+        const point = latLngToMeters(e.latlng, originRef.current);
+        const last = brushLast ?? point;
+        const delta = {x: point.x - last.x, y: point.y - last.y};
+        const {points} = dragBrush(brushWorkingOutline, point, delta, brushRadiusRef.current, brushStrengthRef.current);
+        brushWorkingOutline = points;
+        brushLast = point;
+        const polygon = zonePolygonsRef.current.get(brushZoneId);
+        polygon?.setLatLngs(brushWorkingOutline.map((p) => metersToLatLng(p, originRef.current)));
+      }
+    });
+
+    map.on('mouseup', (e: L.LeafletMouseEvent) => {
+      if (boxStart && boxSelectDiv) {
+        const cur = e.containerPoint;
+        const m1 = latLngToMeters(map.containerPointToLatLng(boxStart), originRef.current);
+        const m2 = latLngToMeters(map.containerPointToLatLng(cur), originRef.current);
+        const minX = Math.min(m1.x, m2.x);
+        const maxX = Math.max(m1.x, m2.x);
+        const minY = Math.min(m1.y, m2.y);
+        const maxY = Math.max(m1.y, m2.y);
+        const zoneId = selectedZoneIdRef.current;
+        const zone = zoneId ? zonesRef.current.find((z) => z.id === zoneId) : null;
+        if (zone) {
+          const picked: number[] = [];
+          zone.outline.forEach((p, i) => {
+            if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) picked.push(i);
+          });
+          onSetMultiSelectedRef.current?.(picked);
+        }
+        boxSelectDiv.remove();
+        boxSelectDiv = null;
+        boxStart = null;
+        map.dragging.enable();
+        return;
+      }
+
+      if (brushDragging && brushWorkingOutline && brushZoneId) {
+        const zoneId = brushZoneId;
+        const outline = brushWorkingOutline;
+        onZonesChangeRef.current?.(zonesRef.current.map((z) => (z.id === zoneId ? {...z, outline} : z)));
+      }
+      brushDragging = false;
+      brushWorkingOutline = null;
+      brushZoneId = null;
+      brushLast = null;
     });
 
     onReady?.(map);
@@ -169,6 +326,20 @@ export function MapCanvas({
       maxNativeZoom: basemap.maxNativeZoom ?? 19,
     }).addTo(map);
   }, [basemapId]);
+
+  // ---- brush tool: disable map panning (drag = paint) while active + show/hide cursor circle ----
+  useEffect(() => {
+    const map = mapRef.current;
+    const cursor = brushCursorRef.current;
+    if (!map || !cursor) return;
+    if (editing && tool === 'brush') {
+      map.dragging.disable();
+      cursor.addTo(map);
+    } else {
+      map.dragging.enable();
+      cursor.remove();
+    }
+  }, [editing, tool]);
 
   // ---- zones + (in edit mode) draggable vertex handles for the selected zone -------------------
   useEffect(() => {
@@ -212,14 +383,18 @@ export function MapCanvas({
     }
 
     handleMarkersRef.current = [];
-    if (!editing || !selectedZoneId) return;
+    // The brush tool works on the whole outline via drag-paint, not individual vertex handles —
+    // hide them so they don't intercept the brush's map-level pointer events.
+    if (!editing || !selectedZoneId || tool === 'brush') return;
     const zone = zones.find((z) => z.id === selectedZoneId);
     if (!zone) return;
 
     zone.outline.forEach((point, index) => {
+      // 'select' and 'multi' drag vertices directly (multi may drag the whole selected group —
+      // see dragstart below); 'add'/'delete'/'snap' use plain clicks only.
+      const draggable = tool === 'select' || tool === 'multi';
       const marker = L.marker(metersToLatLng(point, origin), {
-        // Only draggable in the select tool — add/delete use plain clicks on the map/handle.
-        draggable: tool === 'select',
+        draggable,
         // In the add tool, handles must not intercept the click meant for the map's nearest-edge insert.
         interactive: tool !== 'add',
         icon: makeHandleIcon(false),
@@ -230,7 +405,8 @@ export function MapCanvas({
 
       marker.on('click', (e) => {
         L.DomEvent.stopPropagation(e);
-        if (toolRef.current === 'delete') {
+        const currentTool = toolRef.current;
+        if (currentTool === 'delete') {
           const currentZones = zonesRef.current;
           const current = currentZones.find((z) => z.id === zone.id);
           if (!current || current.outline.length <= 3) return; // keep a valid polygon (>= 3 points)
@@ -239,48 +415,84 @@ export function MapCanvas({
           onSelectVertexRef.current?.(null);
           return;
         }
+        if (currentTool === 'snap') {
+          onPickSnapVertexRef.current?.({zoneId: zone.id, index});
+          return;
+        }
+        if (currentTool === 'multi') {
+          onToggleMultiVertexRef.current?.(index);
+          return;
+        }
         onSelectVertexRef.current?.({zoneId: zone.id, index});
       });
 
-      // NOTE: do NOT select the vertex on 'dragstart'. Selecting mutates React `selectedVertex`,
-      // which fires the restyle effect below → `marker.setIcon(...)` → Leaflet's `_initIcon` →
+      // NOTE: do NOT select/pick the vertex on 'dragstart'. Doing so mutates React state, which
+      // fires the restyle effect below → `marker.setIcon(...)` → Leaflet's `_initIcon` →
       // `_initInteraction`, which does `this.dragging.disable(); this.dragging = new MarkerDrag(...)`
-      // — tearing down the drag handler mid-gesture and killing the drag on the first move. A vertex
-      // is selected by a plain click (handler above); dragging only moves it.
+      // — tearing down the drag handler mid-gesture and killing the drag on the first move. A
+      // vertex is selected/picked/toggled by a plain click (handler above); dragging only moves it.
 
-      // Live-redraw the polygon as the handle moves, without touching React state (that would
-      // spam the undo history) — the moved point is committed once, on dragend.
+      // Group drag (multi tool): if this handle is part of the current multi-selection, the whole
+      // set translates together by the same delta; otherwise (or in the select tool) only this
+      // vertex moves. Captured at dragstart so `drag` only needs to apply a running delta.
+      let groupIndices: number[] = [index];
+      let groupStartOutline: Meters[] | null = null;
+      let groupStartPoint: Meters | null = null;
+
+      marker.on('dragstart', () => {
+        const current = zonesRef.current.find((z) => z.id === zone.id);
+        if (!current) return;
+        groupIndices =
+          toolRef.current === 'multi' && multiSelectedRef.current.has(index)
+            ? Array.from(multiSelectedRef.current)
+            : [index];
+        groupStartOutline = current.outline.map((p) => ({x: p.x, y: p.y}));
+        groupStartPoint = latLngToMeters(marker.getLatLng(), originRef.current);
+      });
+
+      // Live-redraw the polygon as the handle(s) move, without touching React state (that would
+      // spam the undo history) — the moved point(s) are committed once, on dragend.
       marker.on('drag', () => {
         const polygon = zonePolygonsRef.current.get(zone.id);
-        const current = zonesRef.current.find((z) => z.id === zone.id);
-        if (!polygon || !current) return;
+        if (!polygon || !groupStartOutline || !groupStartPoint) return;
         const movedPoint = latLngToMeters(marker.getLatLng(), originRef.current);
-        const liveOutline = current.outline.map((p, i) => (i === index ? movedPoint : p));
+        const dx = movedPoint.x - groupStartPoint.x;
+        const dy = movedPoint.y - groupStartPoint.y;
+        const liveOutline = groupStartOutline.map((p, i) =>
+          groupIndices.includes(i) ? {x: p.x + dx, y: p.y + dy} : p,
+        );
         polygon.setLatLngs(liveOutline.map((p) => metersToLatLng(p, originRef.current)));
       });
 
       marker.on('dragend', () => {
         const currentZones = zonesRef.current;
         const current = currentZones.find((z) => z.id === zone.id);
-        if (!current) return;
+        if (!current || !groupStartOutline || !groupStartPoint) return;
         const movedPoint = latLngToMeters(marker.getLatLng(), originRef.current);
-        const outline = current.outline.map((p, i) => (i === index ? movedPoint : p));
+        const dx = movedPoint.x - groupStartPoint.x;
+        const dy = movedPoint.y - groupStartPoint.y;
+        const outline = groupStartOutline.map((p, i) => (groupIndices.includes(i) ? {x: p.x + dx, y: p.y + dy} : p));
         onZonesChangeRef.current?.(currentZones.map((z) => (z.id === zone.id ? {...z, outline} : z)));
+        groupStartOutline = null;
+        groupStartPoint = null;
       });
     });
-    // selectedVertex intentionally excluded — selection is a restyle-only concern (effect below),
-    // never a recreate, so dragging a handle isn't torn down mid-gesture.
+    // selectedVertex/snapPick/multiSelected intentionally excluded — selection is a restyle-only
+    // concern (effect below), never a recreate, so dragging a handle isn't torn down mid-gesture.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zones, origin, editing, selectedZoneId, tool, onSelectZone]);
 
-  // ---- selected-vertex highlight: restyle existing handles in place (no recreation) -------------
+  // ---- selected/picked-vertex highlight: restyle existing handles in place (no recreation) ------
   useEffect(() => {
     handleMarkersRef.current.forEach((marker, index) => {
-      const selected =
-        editing && selectedVertex?.zoneId === selectedZoneId && selectedVertex.index === index;
-      marker.setIcon(makeHandleIcon(selected));
+      const highlighted =
+        editing &&
+        ((tool === 'select' && selectedVertex?.zoneId === selectedZoneId && selectedVertex.index === index) ||
+          (tool === 'snap' && snapPick?.zoneId === selectedZoneId && snapPick.index === index) ||
+          (tool === 'multi' && multiSelected.has(index)));
+      marker.setIcon(makeHandleIcon(highlighted));
     });
-  }, [selectedVertex, selectedZoneId, editing]);
+  }, [selectedVertex, snapPick, multiSelected, selectedZoneId, editing, tool]);
 
   // ---- dock marker (imperative update, independent of zone/edit state) --------------------------
   useEffect(() => {

@@ -10,6 +10,10 @@ export interface Zone {
   id: string;
   name: string;
   type: ZoneType;
+  // Implicit-closed ring: the last point connects back to outline[0] (Leaflet's L.polygon does
+  // this automatically); we never duplicate outline[0] as a trailing last point. So there's no
+  // separate "first/last vertex" to keep synced — every edit (nudge/snap/brush/multi/insert/
+  // delete) already operates on this single shared first==last vertex, a no-op by construction.
   outline: {x: number; y: number}[];
 }
 
