@@ -196,6 +196,9 @@ export function Map() {
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
   const [coverageSheetOpen, setCoverageSheetOpen] = useState(false);
   const [addObjectSheetOpen, setAddObjectSheetOpen] = useState(false);
+  // S4 — mobile counterpart to the desktop Areas rail (md:flex only); opens a Sheet with the
+  // same per-area rows + Mow all now so live-view area switching isn't a desktop-only feature.
+  const [areasSheetOpen, setAreasSheetOpen] = useState(false);
   const [coverage, setCoverage] = useState(DEFAULT_COVERAGE_SETTINGS);
   // S5 — mock pause/resume for the live-view stat card (a real "hold position" toggle, distinct
   // from S6's involuntary RTK-lost block).
@@ -288,6 +291,7 @@ export function Map() {
     setZoneSheetOpen(false);
     setIssuesSheetOpen(false);
     setAddObjectSheetOpen(false);
+    setAreasSheetOpen(false);
     setMergePickerOpen(false);
     setSubtractPickerOpen(false);
     setCutLinePoints([]);
@@ -701,6 +705,32 @@ export function Map() {
     {id: 'cheat-sheet', label: 'Keyboard shortcuts', hint: '?', icon: <HelpCircle size={15} />, onRun: () => setCheatSheetOpen(true)},
   ];
 
+  // S4 — per-area row (name, size, status, Mow button): shared by the desktop Areas rail and the
+  // mobile Areas sheet below so the two can't diverge.
+  const renderAreaRow = (z: Zone) => {
+    const isActive = z.id === activeMowZoneId;
+    const areaM2 = measureZone(z, editor.zones).areaM2;
+    const status = isActive ? `Mowing · ${MOW.coverage}%` : z.active === false ? 'Inactive' : 'Queued';
+    return (
+      <div key={z.id} className="flex items-center gap-2.5 rounded-[10px] px-1.5 py-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[.85rem] font-semibold text-ink">{z.name}</div>
+          <div className="text-[.72rem] text-ink-soft">
+            {areaM2.toFixed(0)} m² · {status}
+          </div>
+        </div>
+        <Button
+          variant={isActive ? 'primary' : 'soft'}
+          size="sm"
+          disabled={isActive || z.active === false}
+          onClick={() => setActiveMowZoneId(z.id)}
+        >
+          Mow
+        </Button>
+      </div>
+    );
+  };
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       <MapCanvas
@@ -776,6 +806,16 @@ export function Map() {
           icon={editor.editing ? <X size={18} /> : <Pencil size={18} />}
           onClick={toggleEditing}
         />
+        {/* mobile-only counterpart to the desktop S4 Areas rail (hidden on md+, where the rail
+            is already visible) — same live-view condition as the rail itself. */}
+        {!editor.editing && !mockBlocked && (
+          <Fab
+            aria-label="Areas"
+            icon={<MapPinned size={18} />}
+            onClick={() => setAreasSheetOpen(true)}
+            className="md:hidden"
+          />
+        )}
         {!editor.editing && (
           <Fab aria-label="Recenter on robot" icon={<Locate size={18} />} onClick={() => mapRef.current?.setZoom(19)} />
         )}
@@ -1015,31 +1055,7 @@ export function Map() {
           <Card className="absolute right-3 top-16 bottom-3 z-[500] hidden w-[300px] flex-col overflow-hidden p-0 md:flex">
             <div className="border-b border-border px-3.5 py-3 text-[.85rem] font-semibold text-ink">Areas</div>
             <div className="flex-1 space-y-1 overflow-y-auto p-2">
-              {editor.zones
-                .filter((z) => isMowableType(z.type))
-                .map((z) => {
-                  const isActive = z.id === activeMowZoneId;
-                  const areaM2 = measureZone(z, editor.zones).areaM2;
-                  const status = isActive ? `Mowing · ${MOW.coverage}%` : z.active === false ? 'Inactive' : 'Queued';
-                  return (
-                    <div key={z.id} className="flex items-center gap-2.5 rounded-[10px] px-1.5 py-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[.85rem] font-semibold text-ink">{z.name}</div>
-                        <div className="text-[.72rem] text-ink-soft">
-                          {areaM2.toFixed(0)} m² · {status}
-                        </div>
-                      </div>
-                      <Button
-                        variant={isActive ? 'primary' : 'soft'}
-                        size="sm"
-                        disabled={isActive || z.active === false}
-                        onClick={() => setActiveMowZoneId(z.id)}
-                      >
-                        Mow
-                      </Button>
-                    </div>
-                  );
-                })}
+              {editor.zones.filter((z) => isMowableType(z.type)).map(renderAreaRow)}
             </div>
             <div className="border-t border-border p-2.5">
               <Button variant="primary" className="w-full justify-center">
@@ -1104,6 +1120,15 @@ export function Map() {
             trailing={z.id === editor.selectedZoneId ? <Check size={17} className="text-accent" /> : undefined}
           />
         ))}
+      </Sheet>
+
+      {/* S4 mobile — same rows + Mow all now as the desktop rail (md:hidden there, reachable via
+          the Areas FAB in live view on mobile). */}
+      <Sheet open={areasSheetOpen} onClose={() => setAreasSheetOpen(false)} title="Areas">
+        <div className="space-y-1">{editor.zones.filter((z) => isMowableType(z.type)).map(renderAreaRow)}</div>
+        <Button variant="primary" className="w-full justify-center">
+          <Play size={13} fill="currentColor" /> Mow all now
+        </Button>
       </Sheet>
 
       <Sheet open={addObjectSheetOpen} onClose={() => setAddObjectSheetOpen(false)} title="Add to map">
