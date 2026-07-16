@@ -78,11 +78,15 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
       concept as spec → I verify vs concept). All 6 sensor cards, sparklines, L/R ESC grid;
       mobile stack + desktop 3-col grid; light+dark verified vs concept; tsc+build clean. New kit
       primitives: `DiagCard`, `StatRow`, `Sparkline`. Central button reset proven (bare button clean).
-- [ ] Map (live + area-settings + edit + create + recording + preview)
-- [ ] Schedule (calendar + editor)
-- [ ] Activity (events + history + replay + stats)
-- [ ] Diagnostics
-- [ ] Settings + Notifications
+- [ ] Map (live + area-settings + edit + create + recording + preview) ← NEXT, owner-built (heavy)
+- [x] **Schedule (`/v2/schedule`)** — weekly plan + rain-skip + mow-all-now (mobile), week calendar
+      + policy card (desktop), editor as a Sheet. Verified mobile/desktop/dark + sheet. Committed.
+- [x] **Activity (`/v2/activity`)** — Events/History/Stats sub-tabs; desktop History list+detail.
+      Verified. Committed. DEFERRED: replay scrubber (disabled placeholder, needs map stack).
+      Minor polish TODO: desktop Events tab is sparse.
+- [x] **Diagnostics** — see above.
+- [x] **Settings (`/v2/settings`)** — grouped list (mobile) + rail/detail two-pane (desktop).
+      Verified. Committed. TODO: desktop detail pane only renders Notifications for any category.
 - [ ] State screens (booting, paused-GPS, height-confirm, onboarding)
 - [ ] Wire REAL data (MQTT store/hooks/schemas — currently ALL MOCK; the stores/lib/hooks are
       shared with v1 and library-agnostic)
