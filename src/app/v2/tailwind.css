@@ -259,3 +259,24 @@
     animation: none;
   }
 }
+
+/* ---- Device Home charge-beam animation — ported 1:1 from the concept's `.breath` lines
+   behind the mower hero (docs/concept/openmower-app-concept.html "B · DEVICE HOME"). ---- */
+.v2-root .dh-breath {
+  animation: dh-breath 2.6s ease-in-out infinite;
+}
+@keyframes dh-breath {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v2-root .dh-breath {
+    animation: none;
+    opacity: 0.3;
+  }
+}
