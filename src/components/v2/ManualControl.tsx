@@ -153,23 +153,25 @@ function SegmentedSpeedColumn({speed, onChange}: {speed: string; onChange: (v: s
   return (
     <div className="flex flex-col items-center gap-1.5">
       <span className="text-[.6rem] font-semibold uppercase tracking-wide text-ink-faint">Speed</span>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon"
         onClick={() => step(-1)}
         aria-label="Slower"
-        className="grid h-8 w-8 place-items-center rounded-full border border-border bg-surface-2 text-base leading-none text-ink-soft"
+        className="h-8 w-8 text-base leading-none"
       >
         −
-      </button>
+      </Button>
       <span className="text-sm font-semibold text-accent">{SPEED_OPTIONS[idx].label}</span>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon"
         onClick={() => step(1)}
         aria-label="Faster"
-        className="grid h-8 w-8 place-items-center rounded-full border border-border bg-surface-2 text-base leading-none text-ink-soft"
+        className="h-8 w-8 text-base leading-none"
       >
         +
-      </button>
+      </Button>
     </div>
   );
 }
@@ -186,28 +188,30 @@ function BladeColumn({
   return (
     <div className="flex flex-col items-center gap-1.5">
       <span className="text-[.6rem] font-semibold uppercase tracking-wide text-ink-faint">Blade</span>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon"
         disabled={disabled}
         onClick={() => onChange(Math.max(20, height - 5))}
         aria-label="Lower blade"
-        className="grid h-8 w-8 place-items-center rounded-full border border-border bg-surface-2 text-base leading-none text-ink-soft disabled:opacity-40"
+        className="h-8 w-8 text-base leading-none"
       >
         −
-      </button>
+      </Button>
       <span className="flex items-center gap-1 text-sm font-semibold tabular-nums text-ink">
         <Sprout size={11} strokeWidth={2.4} />
         {height} mm
       </span>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon"
         disabled={disabled}
         onClick={() => onChange(Math.min(60, height + 5))}
         aria-label="Raise blade"
-        className="grid h-8 w-8 place-items-center rounded-full border border-border bg-surface-2 text-base leading-none text-ink-soft disabled:opacity-40"
+        className="h-8 w-8 text-base leading-none"
       >
         +
-      </button>
+      </Button>
     </div>
   );
 }

@@ -8,7 +8,9 @@ import {Chip} from '@/components/v2/ui/Chip';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {Switch} from '@/components/v2/ui/Switch';
-import {Bell, ChevronRight, Info, LineChart, Map as MapIcon, Navigation, Shield, Sprout, Wifi, Zap} from 'lucide-react';
+import {FormField} from '@/components/v2/ui/FormField';
+import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
+import {Bell, Check, ChevronRight, Info, LineChart, Map as MapIcon, Navigation, Shield, Sprout, Wifi, Zap} from 'lucide-react';
 import {useState} from 'react';
 
 // Canonical mock world (design-language.md "Cross-platform contract"): Kotipiha, YardForce.
@@ -21,6 +23,13 @@ const DOCKING = 'Configured';
 const UNITS = 'Metric';
 const BASEMAP = 'Satellite · Esri';
 const APP_VERSION = '2026.7';
+
+const UNITS_OPTIONS = [
+  {value: 'metric', label: 'Metric'},
+  {value: 'imperial', label: 'Imperial'},
+];
+
+const BASEMAP_OPTIONS = ['Satellite · Esri', 'Satellite · MML (Finland)', 'Terrain', 'Street'];
 
 interface NotificationCategory {
   key: string;
@@ -68,6 +77,11 @@ export function Settings() {
     Object.fromEntries(NOTIFICATION_CATEGORIES.map((c) => [c.key, c.defaultOn])),
   );
   const [category, setCategory] = useState('notifications');
+  const [units, setUnits] = useState<'metric' | 'imperial'>('metric');
+  const [basemapChoice, setBasemapChoice] = useState(BASEMAP);
+  const [safetyToggles, setSafetyToggles] = useState({geofence: true, tiltLift: true});
+
+  const categoryLabel = DESKTOP_CATEGORIES.find((c) => c.id === category)?.label ?? '';
 
   return (
     <div className="flex min-h-full flex-col gap-4 p-4 md:h-full md:min-h-0 md:gap-5 md:p-6">
@@ -158,40 +172,179 @@ export function Settings() {
         />
 
         <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto">
-          <div className="text-[1.05rem] font-[660] text-ink">Notifications</div>
+          <div className="text-[1.05rem] font-[660] text-ink">{categoryLabel}</div>
 
-          <Card className="flex items-center gap-[.7rem] p-[.85rem]">
-            <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] bg-accent-wash text-accent">
-              <Bell size={17} strokeWidth={2} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[.9rem] font-[640] text-ink">Enabled in this browser</div>
-              <div className="text-[.78rem] text-ink-soft">2 registered devices · manage in browser settings</div>
-            </div>
-            <Chip variant="ok">Enabled</Chip>
-          </Card>
+          {category === 'connection' ? (
+            <>
+              <Card className="flex items-center gap-[.7rem] p-[.85rem]">
+                <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] bg-accent-wash text-accent">
+                  <Wifi size={17} strokeWidth={2} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[.9rem] font-[640] text-ink">Broker</div>
+                  <div className="font-mono text-[.78rem] text-ink-soft">{CONNECTION.url}</div>
+                </div>
+                <Chip variant={CONNECTION.connected ? 'ok' : 'danger'}>
+                  {CONNECTION.connected ? 'Connected' : 'Disconnected'}
+                </Chip>
+              </Card>
 
-          <SettingsGroup>
-            {NOTIFICATION_CATEGORIES.map((cat) => (
+              <SettingsGroup>
+                <ListRow
+                  title="Client ID"
+                  trailing={<span className="font-mono text-[.72rem] text-ink-soft">yardforce-kotipiha</span>}
+                />
+                <ListRow title="TLS" trailing={<Chip variant="ok">Enabled</Chip>} />
+              </SettingsGroup>
+            </>
+          ) : null}
+
+          {category === 'positioning' ? (
+            <SettingsGroup>
               <ListRow
-                key={cat.key}
-                title={cat.label}
-                sub={cat.sub}
+                icon={<Navigation size={15} strokeWidth={2} className="text-ink-soft" />}
+                title="Fix status"
+                trailing={<Chip variant="ok">RTK fixed</Chip>}
+              />
+              <ListRow
+                title="Datum"
+                trailing={<span className="font-mono text-[.72rem] text-ink-soft">ETRS89 / TM35FIN</span>}
+              />
+              <ListRow
+                title="Horizontal accuracy"
+                trailing={<span className="font-mono text-[.72rem] text-ink-soft">1.8 cm</span>}
+              />
+              <ListRow title="Satellites" trailing={<span className="font-mono text-[.72rem] text-ink-soft">21</span>} />
+            </SettingsGroup>
+          ) : null}
+
+          {category === 'docking' ? (
+            <SettingsGroup>
+              <ListRow
+                icon={<Zap size={15} strokeWidth={2} className="text-ink-soft" />}
+                title="Status"
+                trailing={<Chip variant="ok">{DOCKING}</Chip>}
+              />
+              <ListRow title="Position" trailing={<span className="text-[.72rem] text-ink-soft">Kotipiha · NW corner</span>} />
+              <ListRow
+                title="Last calibrated"
+                trailing={<span className="font-mono text-[.72rem] text-ink-soft">2026-06-02</span>}
+              />
+            </SettingsGroup>
+          ) : null}
+
+          {category === 'units' ? (
+            <Card className="p-[.85rem]">
+              <FormField
+                label="Measurement units"
+                hint="Applies to area, distance, and speed readouts throughout the app."
+              >
+                <SegmentedToggle
+                  options={UNITS_OPTIONS}
+                  value={units}
+                  onChange={(v) => setUnits(v as 'metric' | 'imperial')}
+                />
+              </FormField>
+            </Card>
+          ) : null}
+
+          {category === 'basemap' ? (
+            <SettingsGroup>
+              {BASEMAP_OPTIONS.map((opt) => (
+                <ListRow
+                  key={opt}
+                  title={opt}
+                  onClick={() => setBasemapChoice(opt)}
+                  trailing={opt === basemapChoice ? <Check size={15} strokeWidth={2.6} className="text-accent" /> : undefined}
+                />
+              ))}
+            </SettingsGroup>
+          ) : null}
+
+          {category === 'safety' ? (
+            <SettingsGroup>
+              <ListRow
+                icon={<Shield size={15} strokeWidth={2} className="text-ink-soft" />}
+                title="Geofence enforcement"
+                sub="Stop if the mower crosses the mapped boundary"
                 trailing={
                   <Switch
-                    checked={notifications[cat.key] ?? cat.defaultOn}
-                    onCheckedChange={(checked) => setNotifications((prev) => ({...prev, [cat.key]: checked}))}
-                    aria-label={cat.label}
+                    checked={safetyToggles.geofence}
+                    onCheckedChange={(checked) => setSafetyToggles((prev) => ({...prev, geofence: checked}))}
+                    aria-label="Geofence enforcement"
                   />
                 }
               />
-            ))}
-          </SettingsGroup>
+              <ListRow
+                title="Tilt / lift stop"
+                sub="Stop the blade immediately if the mower is tilted or lifted"
+                trailing={
+                  <Switch
+                    checked={safetyToggles.tiltLift}
+                    onCheckedChange={(checked) => setSafetyToggles((prev) => ({...prev, tiltLift: checked}))}
+                    aria-label="Tilt / lift stop"
+                  />
+                }
+              />
+            </SettingsGroup>
+          ) : null}
 
-          <p className="text-[.76rem] leading-[1.5] text-ink-faint">
-            On iOS, delivery isn&apos;t guaranteed while Low Power Mode is on — allow OpenMower under
-            Settings → Notifications if alerts feel delayed.
-          </p>
+          {category === 'notifications' ? (
+            <>
+              <Card className="flex items-center gap-[.7rem] p-[.85rem]">
+                <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] bg-accent-wash text-accent">
+                  <Bell size={17} strokeWidth={2} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[.9rem] font-[640] text-ink">Enabled in this browser</div>
+                  <div className="text-[.78rem] text-ink-soft">2 registered devices · manage in browser settings</div>
+                </div>
+                <Chip variant="ok">Enabled</Chip>
+              </Card>
+
+              <SettingsGroup>
+                {NOTIFICATION_CATEGORIES.map((cat) => (
+                  <ListRow
+                    key={cat.key}
+                    title={cat.label}
+                    sub={cat.sub}
+                    trailing={
+                      <Switch
+                        checked={notifications[cat.key] ?? cat.defaultOn}
+                        onCheckedChange={(checked) => setNotifications((prev) => ({...prev, [cat.key]: checked}))}
+                        aria-label={cat.label}
+                      />
+                    }
+                  />
+                ))}
+              </SettingsGroup>
+
+              <p className="text-[.76rem] leading-[1.5] text-ink-faint">
+                On iOS, delivery isn&apos;t guaranteed while Low Power Mode is on — allow OpenMower under
+                Settings → Notifications if alerts feel delayed.
+              </p>
+            </>
+          ) : null}
+
+          {category === 'about' ? (
+            <>
+              <Card className="flex items-center gap-[.7rem] p-[.85rem]">
+                <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] bg-accent-wash text-accent">
+                  <Info size={17} strokeWidth={2} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[.9rem] font-[640] text-ink">OpenMower app</div>
+                  <div className="font-mono text-[.78rem] text-ink-soft">v{APP_VERSION}</div>
+                </div>
+              </Card>
+
+              <SettingsGroup>
+                <ListRow title="Release notes" trailing={<DrillChevron />} />
+                <ListRow title="Privacy policy" trailing={<DrillChevron />} />
+                <ListRow title="Support" trailing={<DrillChevron />} />
+              </SettingsGroup>
+            </>
+          ) : null}
         </div>
       </div>
     </div>
