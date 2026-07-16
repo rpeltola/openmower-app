@@ -22,6 +22,7 @@ import {
   AreaType,
   capabilitiesSchema,
   datumSchema,
+  discoveredObstaclesSchema,
   eventSchema,
   histogramsSchema,
   LegacyArea,
@@ -38,6 +39,7 @@ import {
   statsSchema,
   type Capabilities,
   type Datum,
+  type DiscoveredObstacle,
   type Histograms,
   type MapData,
   type Mission,
@@ -78,6 +80,9 @@ export class Mower {
   // stats + blade wear (retained, on-change), and recent-window mini-histograms (~2-5s).
   stats: Stats | null = null;
   histograms: Histograms | null = null;
+  // Obstacles the mower discovered by contact/sensing (obstacles/json, retained; see
+  // discoveredObstacleSchema). Empty until a payload arrives, cleared by an empty retained one.
+  obstacles: DiscoveredObstacle[] = [];
 
   constructor(config: MowerConfig, mqttClient: MqttClient) {
     this.id = config.id;
@@ -237,6 +242,7 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'params/json');
             client.subscribe(clientMower.prefix + 'events/json');
             client.subscribe(clientMower.prefix + 'map_layers/planned_path/json');
+            client.subscribe(clientMower.prefix + 'obstacles/json');
             client.subscribe(clientMower.prefix + 'stats/json');
             client.subscribe(clientMower.prefix + 'histograms/json');
             // On-demand query replies (stats/histogram/heatmap/events/mapversions/mapversion/track/mowjobs),
@@ -372,6 +378,12 @@ export const useMowersStore = create<MowersStore>()(
                   const parsed = plannedPathSignalSchema.safeParse(JSON.parse(payload.toString()));
                   if (parsed.success) state.mowers[idx].plannedPathSignal = parsed.data;
                 }
+              });
+            } else if (partialTopic === 'obstacles/json') {
+              set((state) => {
+                // Empty retained payload ({"obstacles":[]}) means "none / cleared".
+                const parsed = discoveredObstaclesSchema.safeParse(JSON.parse(payload.toString()));
+                if (parsed.success) state.mowers[idx].obstacles = parsed.data.obstacles;
               });
             } else if (partialTopic === 'stats/json') {
               set((state) => {

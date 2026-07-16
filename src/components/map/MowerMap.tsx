@@ -41,6 +41,7 @@ import MapDialog from './MapDialog';
 import {mapStyles} from './mapStyles';
 import MissionPanel from './mission/MissionPanel';
 import MowerMarker from './MowerMarker';
+import ObstaclesLayer from './ObstaclesLayer';
 import PlannedPathLayer from './PlannedPathLayer';
 import TeleopControls from './teleop/TeleopControls';
 import MowerControls from './control/MowerControls';
@@ -92,6 +93,7 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
   // (kTrackMinStepM), so its heading is frozen during an in-place spin. The robot_state
   // pose carries the live EKF orientation on every 5 Hz tick (including pure rotation), so
   // sourcing heading from it lets the marker turn while the robot spins in place.
+  const obstacles = useSelectedMower((s) => s?.obstacles ?? []);
   const mowerPositionBase = useSelectedMower((s) => s?.position ?? s?.state.pose);
   const liveHeading = useSelectedMower((s) => (s?.state.pose?.heading_valid ? s.state.pose.heading : undefined));
   const mowerPosition = useMemo(
@@ -452,6 +454,7 @@ export function MowerMap({saveMapToMower, sx}: MowerMapProps) {
         ))}
         {mowerPosition && !isDocked && <MowerMarker position={mowerPosition} datum={datumOrFallback} />}
         <PlannedPathLayer visible={showPlannedPath && !editMode} datum={datumOrFallback} plannedPath={plannedPath} />
+        <ObstaclesLayer visible={!editMode} datum={datumOrFallback} obstacles={obstacles} />
         <TrackLayer visible={showTrackLayer && !editMode} pastTrack={pastTrack} loading={trackLoading} />
         {heatmapMetric && (
           <HeatmapLayer

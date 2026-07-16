@@ -343,6 +343,38 @@ export const plannedPathSignalSchema = z.object({
 export type PlannedPathSignal = z.infer<typeof plannedPathSignalSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Discovered obstacles (obstacles/json topic -- obstacles the mower found by contact/sensing,
+// as opposed to the user-drawn `obstacle` area type in mapSchema)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const obstacleSourceSchema = z.enum(['bump', 'ultrasonic', 'lidar', 'manual', 'unknown']);
+export type ObstacleSource = z.infer<typeof obstacleSourceSchema>;
+
+export const obstaclePolicySchema = z.enum(['avoid_tight', 'avoid_wide', 'no_touch', 'unknown']);
+export type ObstaclePolicy = z.infer<typeof obstaclePolicySchema>;
+
+// `source`/`policy` fall back to the raw string for a value this build doesn't know about yet,
+// matching mowJobSchema's `status` handling.
+export const discoveredObstacleSchema = z.object({
+  id: z.number(),
+  center: pointSchema,
+  footprint: polygonSchema,
+  source: z.union([obstacleSourceSchema, z.string()]).default('unknown'),
+  policy: z.union([obstaclePolicySchema, z.string()]).default('unknown'),
+  hit_count: z.number().default(1),
+  permanent: z.boolean().default(false),
+  first_seen: z.number(),
+  last_hit: z.number(),
+});
+export type DiscoveredObstacle = z.infer<typeof discoveredObstacleSchema>;
+
+// Retained; an empty `{obstacles: []}` payload means "none / cleared".
+export const discoveredObstaclesSchema = z.object({
+  obstacles: z.array(discoveredObstacleSchema),
+});
+export type DiscoveredObstacles = z.infer<typeof discoveredObstaclesSchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Stats & histograms (see OpenMowerNext persistence/DESIGN.md "MQTT contract"):
 // `stats/json` + `histograms/json` are always-on/retained topics; `query/stats/req|res`
 // and `query/heatmap/req|res` are the on-demand request/reply pair (see lib/queryClient.ts).
