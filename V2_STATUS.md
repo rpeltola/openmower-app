@@ -2,6 +2,34 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ DONE (2026-07-16) — feature-completeness push vs the mockups (parallelized, validated)
+Filled every gap the concept mockups promised, via parallel agents on disjoint file-sets (one
+dedicated agent owned all `map/**` + `Map.tsx`; four others took non-map screens). Head: **`ee0568e`**.
+Full production build clean (tsc + `next build`, `/` v1 + all `/v2/*`). **Two `opus-validator` rounds**
+run against an isolated verify worktree — both found real bugs, all fixed:
+- **Non-map** (`69aec3d` Schedule picker + Diagnostics fade · `a3a1d8c` Activity replay scrubber ·
+  `a221462` chrome/reachability: fixed the 404'd mobile More tab, mower selector, notification center,
+  Manual-Control launch, `/v2/onboarding` · `6413eb3` device-home `/v2/mower`).
+- **Map** (14 commits): MAP_EDITOR_SPEC batches 2–6 (vertex tools, transforms, measurements/validation,
+  ⌘K command palette, coverage preview) + AREA_SETTINGS_SPEC (per-area settings: v1 overrides ∪ concept
+  fields ∪ Yarbo net-new, inherit-by-absence) + MAP_SCREEN_SPEC S1–S8 (coverage paint, uncertainty ring,
+  create-object menu + `spot` type, desktop Areas panel, Pause, paused/blocked state, plan-preview,
+  boundary-recording journey). Specs: `MAP_EDITOR_SPEC.md` / `AREA_SETTINGS_SPEC.md` / `MAP_SCREEN_SPEC.md`.
+- **Validation fixes**: (round 1) inverted `offsetPolygon` grow/shrink — RevLaw y-down vs our ENU
+  y-up — corrected at source (`768e897`), fixed both buffer tool + coverage laps; + atomic undo/redo
+  history, highlight-after-commit, inherited-hint. (round 2) recording **Save silently dropped the new
+  zone** (stale-closure `createZone`+`renameZone` two-commit) → single-commit `createZone(name)`
+  (`ee0568e`); + record/preview/blocked state-cleanup + nits.
+
+Isolated **verify worktree** at `openmower-app/.claude/worktrees/verify` (detached at `ee0568e`,
+`node_modules` symlinked) serves a stable preview on **:3020** — used for build/typecheck without
+touching the live tree.
+
+**Still OWED (not mockup features, so out of this push):** (1) HUMAN real-browser drag pass — headless
+can't drive Leaflet/pointer drag (vertex/brush/box-select/rect-circle/move/dock drags, recording drive
+sim, plan-preview draw-on animation, replay scrubber). (2) Wire REAL MQTT data (all mock now). (3) Cutover
+v2 → `/` + delete v1/MUI. See build-order checklist below.
+
 ## TL;DR
 Rebuilding the app UI ("v2") on **Tailwind + shadcn-style kit**, served at **`/v2/*`**, **coexisting**
 with the working **MUI v1** app at `/`. Build screen-by-screen; at parity, cut over (v2 → `/`,
