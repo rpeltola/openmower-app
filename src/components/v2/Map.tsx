@@ -700,7 +700,7 @@ export function Map() {
 
       {editor.editing ? (
         /* edit-mode tool dock: zone picker, vertex tool, undo/redo/delete */
-        <div className="absolute inset-x-3 bottom-3 z-[500] md:left-3 md:right-auto md:w-[320px]">
+        <div className="absolute inset-x-3 bottom-3 z-[500] md:left-3 md:right-auto md:w-[380px]">
           <div className="rounded-[var(--radius-card)] border border-border bg-surface p-3 shadow-[var(--shadow-s)]">
             <ListRow
               className="py-1.5"
@@ -724,7 +724,7 @@ export function Map() {
               </div>
             )}
 
-            <div className="mt-2 flex items-center gap-1.5 overflow-x-auto">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {TOOLS.map((t) => (
                 <Button
                   key={t.value}
@@ -779,7 +779,7 @@ export function Map() {
               </div>
             )}
 
-            <div className="mt-2.5 flex items-center gap-2">
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <Button variant="soft" size="sm" className="flex-1" onClick={() => setAddObjectSheetOpen(true)}>
                 <SquarePlus size={14} /> Add to map
               </Button>
@@ -802,7 +802,7 @@ export function Map() {
               </Button>
             </div>
 
-            <div className="mt-2.5 flex items-center gap-2">
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <Button variant="ghost" size="sm" className="flex-1" onClick={editor.undo} disabled={!editor.canUndo}>
                 <Undo2 size={14} /> Undo
               </Button>
@@ -837,7 +837,7 @@ export function Map() {
             <p className="m-0 text-[.8rem] leading-[1.45] text-ink-soft">
               The mower stopped itself — it won&rsquo;t drive on a position it can&rsquo;t trust.
             </p>
-            <div className="mt-2.5 flex items-center gap-2">
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <Button variant="primary" disabled className="flex-1 justify-center">
                 <Play size={16} fill="currentColor" /> Mow
               </Button>
@@ -865,7 +865,7 @@ export function Map() {
               </div>
             </div>
             <ProgressBar value={MOW.coverage} className="mt-2.5" />
-            <div className="mt-2.5 flex items-center gap-2">
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
               {mockPaused ? (
                 <Button variant="primary" className="flex-1 justify-center" onClick={() => setMockPaused(false)}>
                   <Play size={13} fill="currentColor" /> Resume
