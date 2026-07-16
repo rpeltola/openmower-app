@@ -4,19 +4,37 @@ import {Button} from '@/components/v2/ui/Button';
 import {CameraSlot} from '@/components/v2/ui/CameraSlot';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
+import {GamepadTip} from '@/components/v2/ui/GamepadTip';
 import {HoldToUnlock} from '@/components/v2/ui/HoldToUnlock';
-import {Joystick} from '@/components/v2/ui/Joystick';
+import {Direction, Joystick} from '@/components/v2/ui/Joystick';
 import {MiniMap} from '@/components/v2/ui/MiniMap';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Stepper} from '@/components/v2/ui/Stepper';
-import {Bluetooth, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
-import {useState} from 'react';
+import {Toast} from '@/components/v2/ui/Toast';
+import {useGamepad} from '@/lib/v2/useGamepad';
+import {Bluetooth, Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
+import {useEffect, useRef, useState} from 'react';
 
 const SPEED_OPTIONS = [
   {value: 'slow', label: 'Slow'},
   {value: 'normal', label: 'Normal'},
   {value: 'fast', label: 'Fast'},
 ];
+
+// Left-stick analog → the same discrete up/down/left/right vocabulary the touch d-pad
+// speaks (Joystick is a clickpad, not analog) — dominant-axis reading, already deadzoned
+// by useGamepad.
+function axesToDirection(lx: number, ly: number): Direction | null {
+  if (lx === 0 && ly === 0) return null;
+  return Math.abs(ly) >= Math.abs(lx) ? (ly < 0 ? 'up' : 'down') : lx < 0 ? 'left' : 'right';
+}
+
+// Strip the "(STANDARD GAMEPAD Vendor: ... Product: ...)" suffix browsers append to
+// `Gamepad.id` — just the human-readable controller name.
+function controllerName(id: string | null): string {
+  if (!id) return 'Controller';
+  return id.split(' (')[0];
+}
 
 // Static mock state — this PoC proves the stack + responsive layering, not live MQTT
 // control (component-library.md §7 build order item 1). Canonical mock world values per
@@ -27,9 +45,62 @@ export function ManualControl() {
   const [bladeHeight, setBladeHeight] = useState(45);
   const [bladeOn, setBladeOn] = useState(false);
   const [hasError] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const gamepad = useGamepad();
+  // Touch and gamepad both feed this one piece of state — the shared "drive command" a
+  // real MQTT wire-up would consume. Touch takes priority if both happen to be active.
+  const [touchDirection, setTouchDirection] = useState<Direction | null>(null);
+  const gamepadDirection = unlocked ? axesToDirection(gamepad.axes.lx, gamepad.axes.ly) : null;
+  const driveDirection = touchDirection ?? gamepadDirection;
+
+  const stepSpeed = (dir: 1 | -1) => {
+    setSpeed((current) => {
+      const idx = SPEED_OPTIONS.findIndex((o) => o.value === current);
+      return SPEED_OPTIONS[Math.min(SPEED_OPTIONS.length - 1, Math.max(0, idx + dir))].value;
+    });
+  };
+
+  const handleStop = () => {
+    setUnlocked(false);
+    setToast('Stopped');
+  };
+
+  const handleDock = () => {
+    setToast('Docking…');
+  };
+
+  const handleToggleBlade = () => setBladeOn((v) => !v);
+
+  // Rising-edge detection so a held gamepad button fires an action once per press, not
+  // once per animation frame — mirrors what a click/tap already does for the touch UI.
+  const prevButtonsRef = useRef(gamepad.buttons);
+  useEffect(() => {
+    const prev = prevButtonsRef.current;
+    const btn = gamepad.buttons;
+    // Buttons → the page's existing actions (see ActionRow): A = Stop, B = Dock,
+    // X = toggle blade (only while unlocked, matching the on-screen blade button).
+    // Bumpers step the same 3-position Speed control the touch UI uses.
+    if (btn.a && !prev.a) handleStop();
+    if (btn.b && !prev.b) handleDock();
+    if (btn.x && !prev.x && unlocked) handleToggleBlade();
+    if (btn.lb && !prev.lb) stepSpeed(-1);
+    if (btn.rb && !prev.rb) stepSpeed(1);
+    prevButtonsRef.current = btn;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gamepad.buttons, unlocked]);
+
+  const prevConnectedRef = useRef(false);
+  useEffect(() => {
+    if (gamepad.connected && !prevConnectedRef.current) {
+      setToast(`Controller connected: ${controllerName(gamepad.id)}`);
+    }
+    prevConnectedRef.current = gamepad.connected;
+  }, [gamepad.connected, gamepad.id]);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1400px] flex-col md:h-dvh">
+    <div className="relative mx-auto flex w-full max-w-[1400px] flex-col md:h-dvh">
+      <Toast message={toast} onDismiss={() => setToast(null)} />
       <header className="flex flex-none flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:gap-4 md:px-6 md:py-4">
         <div className="flex items-center justify-between md:block">
           <div>
@@ -52,6 +123,12 @@ export function ManualControl() {
           <Chip variant="info" className="hidden md:inline-flex">
             Connected
           </Chip>
+          {gamepad.connected ? (
+            <Chip variant="ok">
+              <Gamepad2 size={11} strokeWidth={2.4} />
+              {controllerName(gamepad.id)}
+            </Chip>
+          ) : null}
           <Chip variant="ok">🔋 71%</Chip>
           <Button variant="ghost" size="sm" className="hidden md:inline-flex">
             <X size={14} strokeWidth={2.4} />
@@ -79,6 +156,8 @@ export function ManualControl() {
 
         {/* ---- Cockpit: full-width stack on mobile, fixed-width aside on desktop ---- */}
         <aside className="flex flex-col gap-3 md:w-[408px] md:flex-none">
+          <GamepadTip connected={gamepad.connected} />
+
           <MiniMap className="hidden h-[214px] flex-none md:block" headingDeg={-18} />
 
           {/* Mobile console: chips already in header; slide-to-unlock + speed/joystick/blade
@@ -87,8 +166,13 @@ export function ManualControl() {
             <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
 
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <SegmentedSpeedColumn speed={speed} onChange={setSpeed} />
-              <Joystick size={140} disabled={!unlocked} />
+              <SegmentedSpeedColumn speed={speed} onStep={stepSpeed} />
+              <Joystick
+                size={140}
+                disabled={!unlocked}
+                onDirectionChange={setTouchDirection}
+                activeOverride={driveDirection}
+              />
               <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
             </div>
 
@@ -102,7 +186,9 @@ export function ManualControl() {
               hasError={hasError}
               bladeOn={bladeOn}
               bladeDisabled={!unlocked}
-              onToggleBlade={() => setBladeOn((v) => !v)}
+              onToggleBlade={handleToggleBlade}
+              onDock={handleDock}
+              onStop={handleStop}
               className="mt-1 justify-around"
             />
           </div>
@@ -114,7 +200,12 @@ export function ManualControl() {
             <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
 
             <div className="flex items-center justify-center gap-6">
-              <Joystick size={144} disabled={!unlocked} />
+              <Joystick
+                size={144}
+                disabled={!unlocked}
+                onDirectionChange={setTouchDirection}
+                activeOverride={driveDirection}
+              />
               <Stepper
                 label="Blade"
                 value={bladeHeight}
@@ -134,7 +225,9 @@ export function ManualControl() {
               hasError={hasError}
               bladeOn={bladeOn}
               bladeDisabled={!unlocked}
-              onToggleBlade={() => setBladeOn((v) => !v)}
+              onToggleBlade={handleToggleBlade}
+              onDock={handleDock}
+              onStop={handleStop}
               className="justify-center gap-4"
             />
           </Card>
@@ -144,19 +237,15 @@ export function ManualControl() {
   );
 }
 
-function SegmentedSpeedColumn({speed, onChange}: {speed: string; onChange: (v: string) => void}) {
+function SegmentedSpeedColumn({speed, onStep}: {speed: string; onStep: (dir: 1 | -1) => void}) {
   const idx = SPEED_OPTIONS.findIndex((o) => o.value === speed);
-  const step = (dir: 1 | -1) => {
-    const next = SPEED_OPTIONS[Math.min(SPEED_OPTIONS.length - 1, Math.max(0, idx + dir))];
-    onChange(next.value);
-  };
   return (
     <div className="flex flex-col items-center gap-1.5">
       <span className="text-[.6rem] font-semibold uppercase tracking-wide text-ink-faint">Speed</span>
       <Button
         variant="ghost"
         size="icon"
-        onClick={() => step(-1)}
+        onClick={() => onStep(-1)}
         aria-label="Slower"
         className="h-8 w-8 text-base leading-none"
       >
@@ -166,7 +255,7 @@ function SegmentedSpeedColumn({speed, onChange}: {speed: string; onChange: (v: s
       <Button
         variant="ghost"
         size="icon"
-        onClick={() => step(1)}
+        onClick={() => onStep(1)}
         aria-label="Faster"
         className="h-8 w-8 text-base leading-none"
       >
@@ -221,18 +310,27 @@ function ActionRow({
   bladeOn,
   bladeDisabled,
   onToggleBlade,
+  onDock,
+  onStop,
   className,
 }: {
   hasError: boolean;
   bladeOn: boolean;
   bladeDisabled: boolean;
   onToggleBlade: () => void;
+  onDock: () => void;
+  onStop: () => void;
   className?: string;
 }) {
   return (
     <div className={`flex ${className ?? ''}`}>
-      <ActionItem icon={<Home size={17} strokeWidth={2.2} />} label="Dock" />
-      <ActionItem icon={<Square size={15} fill="currentColor" />} label="Stop" variant="danger" />
+      <ActionItem icon={<Home size={17} strokeWidth={2.2} />} label="Dock" onClick={onDock} />
+      <ActionItem
+        icon={<Square size={15} fill="currentColor" />}
+        label="Stop"
+        variant="danger"
+        onClick={onStop}
+      />
       <ActionItem
         icon={<RotateCcw size={17} strokeWidth={2.2} />}
         label={hasError ? 'Clear error' : 'No active error'}

@@ -3,12 +3,15 @@
 import {cn} from '@/components/v2/lib/cn';
 import {useState} from 'react';
 
-type Direction = 'up' | 'down' | 'left' | 'right';
+export type Direction = 'up' | 'down' | 'left' | 'right';
 
 export interface JoystickProps {
   size?: number;
   disabled?: boolean;
   onDirectionChange?: (direction: Direction | null) => void;
+  /** External direction to highlight alongside touch input — e.g. a gamepad stick driving
+   *  the same drive command. Purely visual; doesn't affect pointer handling. */
+  activeOverride?: Direction | null;
   className?: string;
 }
 
@@ -30,8 +33,9 @@ const HIT_AREAS: Record<Direction, string> = {
 
 /** The one d-pad glyph shared by Manual control + Record area (design-language.md "One
  *  control kit"). Static/mock: highlights the pressed direction, no drive command is sent. */
-export function Joystick({size = 140, disabled, onDirectionChange, className}: JoystickProps) {
+export function Joystick({size = 140, disabled, onDirectionChange, activeOverride, className}: JoystickProps) {
   const [active, setActive] = useState<Direction | null>(null);
+  const displayActive = active ?? activeOverride ?? null;
 
   const press = (dir: Direction | null) => {
     if (disabled) return;
@@ -61,7 +65,7 @@ export function Joystick({size = 140, disabled, onDirectionChange, className}: J
             onPointerUp={() => press(null)}
             onPointerLeave={() => active === dir && press(null)}
           />
-          <path d={ARROWS[dir]} fill={active === dir ? 'var(--accent)' : 'var(--ink-soft)'} className="pointer-events-none" />
+          <path d={ARROWS[dir]} fill={displayActive === dir ? 'var(--accent)' : 'var(--ink-soft)'} className="pointer-events-none" />
         </g>
       ))}
     </svg>

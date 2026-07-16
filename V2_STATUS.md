@@ -37,6 +37,13 @@ delete v1 + MUI). Branch: **`feature/redesign-ui`** (this worktree). Not pushed.
 
 **Run:** `corepack npm run dev` (apt npm is broken — use corepack) → `/v2` (Home), `/v2/control`
 (manual control), `/` (v1, must stay working). Prod build: `corepack npm run build` (`next build --webpack`).
+**`corepack npm run dev:https`** — same dev server over HTTPS (`next dev --experimental-https`,
+auto self-signed cert via mkcert, cached under `certificates/` which is gitignored). Needed to test
+gamepad control from a phone on the LAN: the W3C Gamepad API is restricted to secure contexts, so
+plain `http://<lan-ip>` silently returns no gamepads (only `http://localhost` is exempt) — see KB
+`v2-app-gamepad-control.md`. On first run it downloads mkcert and prompts for sudo once to trust
+the local CA; the phone will still show a self-signed-certificate browser warning (expected in
+dev — accept/proceed) since the phone doesn't have that CA installed.
 
 ## Where the spec + visual target live (other worktree)
 Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** worktree
@@ -102,6 +109,29 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
     (`.kick`=.1em, `.metric .l`=.06em).
   - Verified: tsc + `npm run build` clean; `/`,`/v2`,`/v2/control` 200; mobile+desktop, light+dark
     rendered vs concept; control PoC unregressed; no h-overflow (390/1440).
+
+## Gamepad (Xbox/PS5) support — Manual control (`/v2/control`)
+- **`src/lib/v2/useGamepad.ts`** — SSR-safe rAF-polling hook (W3C Gamepad API), deadzone
+  ~0.12 on sticks, pauses on tab-hidden (Page Visibility), exposes `{connected, id, axes,
+  buttons}`. Shared by any future consumer (KB flags map-recording R2 as a candidate reuse).
+- **`ManualControl.tsx`** — left stick feeds the *same* command path as the touch d-pad
+  (`Joystick`'s `onDirectionChange`, now lifted to `touchDirection` state; touch wins if both
+  are active). Buttons: A → Stop, B → Dock, X → toggle blade (gated on `unlocked`, matching
+  the on-screen blade button), LB/RB → step the existing 3-position Speed control — all
+  edge-triggered so a held button fires once, not once per animation frame. `Joystick` grew
+  an optional `activeOverride` prop so a gamepad-driven direction highlights the same arrow a
+  touch press would (`ui/Joystick.tsx`, additive/back-compat). A small chip (gamepad icon +
+  controller name, vendor/product suffix stripped) shows in the header while connected; a
+  `Toast` confirms "Controller connected: <name>" once.
+- **`ui/GamepadTip.tsx`** — dismissible "Did you know?" info card, shown only while no
+  controller is connected; dismissal remembered in `localStorage`
+  (`v2.control.gamepadTipDismissed`, same pattern as Map.tsx's basemap/coverage prefs).
+  Disappears the instant a controller connects.
+- Real-controller behavior (button/stick feel, brand quirks, Bluetooth pairing UX) still
+  needs a **human hardware pass** — headless verification stubbed `navigator.getGamepads`
+  and dispatched a synthetic `gamepadconnected` event to confirm the wiring (chip/toast/tip
+  swap, direction highlight, Stop/Dock/blade/speed edge-triggering) but can't exercise a real
+  pad.
 
 ## Build order (checklist)
 - [x] Scaffold Tailwind + tokens + kit
