@@ -242,9 +242,11 @@ export function MapCanvas({
         onSelectVertexRef.current?.({zoneId: zone.id, index});
       });
 
-      marker.on('dragstart', () => {
-        onSelectVertexRef.current?.({zoneId: zone.id, index});
-      });
+      // NOTE: do NOT select the vertex on 'dragstart'. Selecting mutates React `selectedVertex`,
+      // which fires the restyle effect below → `marker.setIcon(...)` → Leaflet's `_initIcon` →
+      // `_initInteraction`, which does `this.dragging.disable(); this.dragging = new MarkerDrag(...)`
+      // — tearing down the drag handler mid-gesture and killing the drag on the first move. A vertex
+      // is selected by a plain click (handler above); dragging only moves it.
 
       // Live-redraw the polygon as the handle moves, without touching React state (that would
       // spam the undo history) — the moved point is committed once, on dragend.
