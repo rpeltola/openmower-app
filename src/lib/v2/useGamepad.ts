@@ -33,9 +33,12 @@ export interface GamepadButtons {
   right: boolean;
 }
 
+export type GamepadBrand = 'xbox' | 'playstation' | 'generic';
+
 export interface GamepadState {
   connected: boolean;
   id: string | null;
+  brand: GamepadBrand;
   axes: GamepadAxes;
   buttons: GamepadButtons;
 }
@@ -63,7 +66,53 @@ const IDLE_BUTTONS: GamepadButtons = {
   right: false,
 };
 
-const IDLE_STATE: GamepadState = {connected: false, id: null, axes: IDLE_AXES, buttons: IDLE_BUTTONS};
+const IDLE_STATE: GamepadState = {
+  connected: false,
+  id: null,
+  brand: 'generic',
+  axes: IDLE_AXES,
+  buttons: IDLE_BUTTONS,
+};
+
+// `Gamepad.id` is a free-form UA string, but Chrome/Firefox both include the USB vendor id
+// and, usually, a product name — e.g. "Xbox Wireless Controller (STANDARD GAMEPAD Vendor:
+// 045e Product: 02ea)" or "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c
+// Product: 0ce6)". Sony = 054c, Microsoft = 045e.
+function detectBrand(id: string): GamepadBrand {
+  const lower = id.toLowerCase();
+  if (lower.includes('054c') || /dualsense|dualshock|playstation/.test(lower)) return 'playstation';
+  if (lower.includes('045e') || lower.includes('xbox')) return 'xbox';
+  return 'generic';
+}
+
+export interface GamepadButtonLabels {
+  a: string;
+  b: string;
+  x: string;
+  y: string;
+  lb: string;
+  rb: string;
+  lt: string;
+  rt: string;
+}
+
+const XBOX_BUTTON_LABELS: GamepadButtonLabels = {a: 'A', b: 'B', x: 'X', y: 'Y', lb: 'LB', rb: 'RB', lt: 'LT', rt: 'RT'};
+const PLAYSTATION_BUTTON_LABELS: GamepadButtonLabels = {
+  a: '✕',
+  b: '○',
+  x: '□',
+  y: '△',
+  lb: 'L1',
+  rb: 'R1',
+  lt: 'L2',
+  rt: 'R2',
+};
+
+/** Brand-correct glyphs for the standard-mapping button roles read by `readButtons` — "generic"
+ *  (unrecognized controller) falls back to the same neutral lettered/bumper naming as Xbox. */
+export function gamepadButtonLabels(brand: GamepadBrand): GamepadButtonLabels {
+  return brand === 'playstation' ? PLAYSTATION_BUTTON_LABELS : XBOX_BUTTON_LABELS;
+}
 
 // Standard-mapping button indices (Xbox/PS5/MFi all report through this layout in the
 // W3C Gamepad API) — see openmower_knowledgebase/v2-app-gamepad-control.md.
@@ -144,7 +193,7 @@ export function useGamepad(): GamepadState {
         const buttons = readButtons(pad);
         const prev = stateRef.current;
         if (!prev.connected || prev.id !== pad.id || !axesEqual(prev.axes, axes) || !buttonsEqual(prev.buttons, buttons)) {
-          setState({connected: true, id: pad.id, axes, buttons});
+          setState({connected: true, id: pad.id, brand: detectBrand(pad.id), axes, buttons});
         }
       }
       rafRef.current = requestAnimationFrame(poll);
@@ -158,7 +207,13 @@ export function useGamepad(): GamepadState {
 
     const onConnect = (e: GamepadEvent) => {
       indexRef.current = e.gamepad.index;
-      setState({connected: true, id: e.gamepad.id, axes: readAxes(e.gamepad), buttons: readButtons(e.gamepad)});
+      setState({
+        connected: true,
+        id: e.gamepad.id,
+        brand: detectBrand(e.gamepad.id),
+        axes: readAxes(e.gamepad),
+        buttons: readButtons(e.gamepad),
+      });
       startLoop();
     };
 

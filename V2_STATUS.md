@@ -139,6 +139,12 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
   remembered in `localStorage` (`v2.control.inputMode`); both modes share the same Speed
   control. The gamepad left stick drives whichever mode is active (`DriveInput` in
   `ManualControl.tsx` picks the control + feeds it the right shape).
+- **Brand-aware glyphs** — `useGamepad` sniffs `Gamepad.id` (`detectBrand`: Sony vendor
+  `054c`/DualSense/DualShock/PlayStation → `playstation`; Microsoft vendor `045e`/Xbox →
+  `xbox`; else `generic`) and exposes `brand` + `gamepadButtonLabels(brand)`. A `GamepadHints`
+  caption on the control page (shown only while connected) renders the actual mapping in the
+  connected pad's own glyphs — PlayStation `✕ ○ □ △` + `L1/R1/L2/R2`, Xbox/generic
+  `A B X Y` + `LB/RB/LT/RT`.
 
 ## Build order (checklist)
 - [x] Scaffold Tailwind + tokens + kit

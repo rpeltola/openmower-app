@@ -12,7 +12,7 @@ import {MiniMap} from '@/components/v2/ui/MiniMap';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Stepper} from '@/components/v2/ui/Stepper';
 import {Toast} from '@/components/v2/ui/Toast';
-import {useGamepad} from '@/lib/v2/useGamepad';
+import {gamepadButtonLabels, type GamepadBrand, useGamepad} from '@/lib/v2/useGamepad';
 import {Bluetooth, Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 
@@ -228,6 +228,8 @@ export function ManualControl() {
               onStop={handleStop}
               className="mt-1 justify-around"
             />
+
+            {gamepad.connected ? <GamepadHints brand={gamepad.brand} /> : null}
           </div>
 
           {/* Desktop console: one card holding press-and-hold unlock, joystick + blade
@@ -269,6 +271,8 @@ export function ManualControl() {
 
             <SegmentedToggle label="Speed" options={SPEED_OPTIONS} value={speed} onChange={setSpeed} />
 
+            {gamepad.connected ? <GamepadHints brand={gamepad.brand} /> : null}
+
             <ActionRow
               hasError={hasError}
               bladeOn={bladeOn}
@@ -282,6 +286,18 @@ export function ManualControl() {
         </aside>
       </main>
     </div>
+  );
+}
+
+// Brand-correct legend for the gamepad button mapping (see the rising-edge effect above:
+// A/✕ = Stop, B/○ = Dock, X/□ = Blade, LB·RB / L1·R1 = Speed) — shown only while a
+// controller is connected, using that controller's own glyphs.
+function GamepadHints({brand}: {brand: GamepadBrand}) {
+  const l = gamepadButtonLabels(brand);
+  return (
+    <p className="text-center text-[.68rem] text-ink-faint">
+      {l.a} Stop · {l.b} Dock · {l.x} Blade · {l.lb}/{l.rb} Speed
+    </p>
   );
 }
 
