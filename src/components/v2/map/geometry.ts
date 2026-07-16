@@ -313,6 +313,33 @@ export function rectangleCorners(a: Meters, b: Meters): Meters[] {
   ];
 }
 
+/** Point-in-polygon (ray casting). Ported verbatim from RevLaw's geo/geometry.js. */
+export function isPointInsidePolygon(point: Meters, polygon: Meters[]): boolean {
+  if (!point || !polygon || polygon.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const xi = polygon[i].x;
+    const yi = polygon[i].y;
+    const xj = polygon[j].x;
+    const yj = polygon[j].y;
+    const intersects =
+      yi > point.y !== yj > point.y && point.x < ((xj - xi) * (point.y - yi)) / (yj - yi + Number.EPSILON) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+/** True if open segments p1-p2 and p3-p4 properly cross. Ported verbatim from RevLaw's
+ *  geo/geometry.js. */
+export function segmentsIntersect(p1: Meters, p2: Meters, p3: Meters, p4: Meters): boolean {
+  const d = (a: Meters, b: Meters, c: Meters) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const d1 = d(p3, p4, p1);
+  const d2 = d(p3, p4, p2);
+  const d3 = d(p1, p2, p3);
+  const d4 = d(p1, p2, p4);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
 /** Regular polygon approximating a circle of `radius` meters about `center` — for the circle
  *  draw-by-drag tool. Net-new (not a RevLaw port). */
 export function circleToPolygon(center: Meters, radius: number, segments = 32): Meters[] {

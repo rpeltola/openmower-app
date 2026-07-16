@@ -6,11 +6,13 @@
 // (batches 1-3 of MAP_EDITOR_SPEC.md), plus the real per-area settings editor (AREA_SETTINGS_SPEC.md,
 // AreaSettingsSheet.tsx). The "Choose zone" Sheet below is just the quick zone switcher now —
 // selecting a zone (there, or by tapping it on the map) opens the settings editor.
-import {latLngToMeters} from '@/lib/v2/geo/projection';
+import {latLngToMeters, metersToLatLng} from '@/lib/v2/geo/projection';
 import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
+import {measureZone} from '@/components/v2/map/measurements';
 import {MOCK_DOCK, MOCK_ORIGIN, MOCK_ZONES, type ZoneType} from '@/components/v2/map/mockMap';
 import {useMapEditor, type EditTool} from '@/components/v2/map/useMapEditor';
+import {validateMap, type MapIssue} from '@/components/v2/map/validation';
 import {Button} from '@/components/v2/ui/Button';
 import {Fab} from '@/components/v2/ui/Fab';
 import {FormField} from '@/components/v2/ui/FormField';
@@ -20,8 +22,11 @@ import {ProgressBar} from '@/components/v2/ui/ProgressBar';
 import {Sheet} from '@/components/v2/ui/Sheet';
 import {Slider} from '@/components/v2/ui/Slider';
 import {StatCard} from '@/components/v2/ui/StatCard';
+import {StatRow} from '@/components/v2/ui/StatRow';
 import type {Map as LeafletMap} from 'leaflet';
 import {
+  AlertCircle,
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Check,
@@ -56,7 +61,7 @@ import {
   X,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import {useEffect, useRef, useState, type ReactNode} from 'react';
+import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 
 const MapCanvas = dynamic(() => import('@/components/v2/map/MapCanvas').then((m) => m.MapCanvas), {
   ssr: false,
@@ -91,6 +96,7 @@ export function Map() {
   const [placingDock, setPlacingDock] = useState(false);
   const [bufferDistance, setBufferDistance] = useState(0.3);
   const [simplifyTolerance, setSimplifyTolerance] = useState(0.1);
+  const [issuesSheetOpen, setIssuesSheetOpen] = useState(false);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
   useEffect(() => {
@@ -118,6 +124,24 @@ export function Map() {
     editor.selectZone(id);
     setZoneSheetOpen(false);
     setAreaSettingsOpen(true);
+  };
+
+  // Live measurements for the selected zone — recomputed from `editor.zones` on every render, so
+  // they reflect every COMMITTED edit (drag-end, brush-stroke-end, transform apply, ...). Nothing
+  // updates mid-gesture (before commit), since live drag previews are Leaflet-only and never touch
+  // React state (see MapCanvas) — "live" here means "immediately after each edit action".
+  const measurements = selectedZone ? measureZone(selectedZone, editor.zones) : null;
+
+  // Map-wide validation — recomputed whenever the zones/dock actually change (self-intersection
+  // checks are O(n²) per zone, worth memoizing).
+  const issues = useMemo(() => validateMap(editor.zones, editor.dock), [editor.zones, editor.dock]);
+
+  const goToIssue = (issue: MapIssue) => {
+    // Select (not open settings for) the zone so the tool dock reflects it without stacking a
+    // second sheet on top of the one the user is browsing issues from.
+    if (issue.zoneId) editor.selectZone(issue.zoneId);
+    setIssuesSheetOpen(false);
+    mapRef.current?.setView(metersToLatLng(issue.point, MOCK_ORIGIN), 20);
   };
 
   return (
@@ -183,6 +207,16 @@ export function Map() {
           <Fab aria-label="Recenter on robot" icon={<Locate size={18} />} onClick={() => mapRef.current?.setZoom(19)} />
         )}
         <Fab aria-label="Base map" icon={<Layers size={18} />} onClick={() => setBasemapSheetOpen(true)} />
+        {editor.editing && (
+          <div className="relative">
+            <Fab aria-label="Validation issues" icon={<AlertTriangle size={18} />} onClick={() => setIssuesSheetOpen(true)} />
+            {issues.length > 0 && (
+              <span className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">
+                {issues.length}
+              </span>
+            )}
+          </div>
+        )}
         <Fab aria-label="Zoom in" icon={<Plus size={18} />} onClick={() => mapRef.current?.zoomIn()} />
         <Fab aria-label="Zoom out" icon={<Minus size={18} />} onClick={() => mapRef.current?.zoomOut()} />
       </div>
@@ -198,6 +232,21 @@ export function Map() {
               sub={selectedZone?.type}
               onClick={() => setZoneSheetOpen(true)}
             />
+
+            {measurements && (
+              <div className="rounded-[10px] bg-surface-2 px-2.5 py-1.5">
+                <StatRow
+                  label="Area"
+                  value={`${measurements.areaM2.toFixed(0)} m² · ${(measurements.areaM2 / 10000).toFixed(3)}`}
+                  unit="ha"
+                />
+                <StatRow label="Perimeter" value={measurements.perimeterM.toFixed(1)} unit="m" />
+                {measurements.netMowableM2 !== null && (
+                  <StatRow label="Net mowable" value={measurements.netMowableM2.toFixed(0)} unit="m²" />
+                )}
+              </div>
+            )}
+
             <div className="mt-2 flex items-center gap-1.5 overflow-x-auto">
               {TOOLS.map((t) => (
                 <Button
@@ -462,6 +511,31 @@ export function Map() {
               </Button>
             </FormField>
           </div>
+        )}
+      </Sheet>
+
+      <Sheet
+        open={issuesSheetOpen}
+        onClose={() => setIssuesSheetOpen(false)}
+        title={issues.length > 0 ? `${issues.length} issue${issues.length === 1 ? '' : 's'}` : 'No issues'}
+      >
+        {issues.length === 0 ? (
+          <div className="py-2 text-center text-[.82rem] text-ink-soft">Map geometry looks good.</div>
+        ) : (
+          issues.map((issue) => (
+            <ListRow
+              key={issue.id}
+              icon={
+                issue.severity === 'error' ? (
+                  <AlertCircle size={16} className="text-danger" />
+                ) : (
+                  <AlertTriangle size={16} className="text-warn" />
+                )
+              }
+              title={issue.message}
+              onClick={() => goToIssue(issue)}
+            />
+          ))
         )}
       </Sheet>
     </div>
