@@ -117,9 +117,21 @@ export interface MapEditor {
   redo: () => void;
 }
 
+// History + pointer live in ONE state atom (not two useState calls) so a commit is a single
+// functional setState that reads its own previous {history, pointer} atomically — two useState
+// updaters (as this used to be) can't guarantee that if something ever calls commitState twice
+// before React re-renders between them, since each updater would independently close over its
+// own previous value instead of a consistent pair.
+interface HistoryState {
+  history: MapState[];
+  pointer: number;
+}
+
 export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor {
-  const [history, setHistory] = useState<MapState[]>([{zones: initialZones, dock: initialDock}]);
-  const [pointer, setPointer] = useState(0);
+  const [historyState, setHistoryState] = useState<HistoryState>({
+    history: [{zones: initialZones, dock: initialDock}],
+    pointer: 0,
+  });
   const [editing, setEditingState] = useState(false);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(initialZones[0]?.id ?? null);
   const [selectedVertex, setSelectedVertex] = useState<SelectedVertex | null>(null);
@@ -127,15 +139,15 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
   const [snapPick, setSnapPick] = useState<SelectedVertex | null>(null);
   const [multiSelected, setMultiSelectedState] = useState<Set<number>>(new Set());
 
+  const {history, pointer} = historyState;
   const {zones, dock} = history[pointer];
 
-  const commitState = useCallback(
-    (next: MapState) => {
-      setHistory((h) => [...h.slice(0, pointer + 1), next]);
-      setPointer((p) => p + 1);
-    },
-    [pointer],
-  );
+  const commitState = useCallback((next: MapState) => {
+    setHistoryState((s) => ({
+      history: [...s.history.slice(0, s.pointer + 1), next],
+      pointer: s.pointer + 1,
+    }));
+  }, []);
 
   const commitZones = useCallback((next: Zone[]) => commitState({zones: next, dock}), [commitState, dock]);
   const commitDock = useCallback((next: Dock) => commitState({zones, dock: next}), [commitState, zones]);
@@ -371,14 +383,14 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
   );
 
   const undo = useCallback(() => {
-    setPointer((p) => Math.max(0, p - 1));
+    setHistoryState((s) => ({...s, pointer: Math.max(0, s.pointer - 1)}));
     setSelectedVertex(null);
   }, []);
 
   const redo = useCallback(() => {
-    setPointer((p) => Math.min(history.length - 1, p + 1));
+    setHistoryState((s) => ({...s, pointer: Math.min(s.history.length - 1, s.pointer + 1)}));
     setSelectedVertex(null);
-  }, [history.length]);
+  }, []);
 
   // Keyboard: tool shortcuts (V/A/B/S/M/R/O/G), Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+D duplicate
   // zone, arrow-key vertex nudge (select tool, a vertex selected), and Delete/Backspace to remove

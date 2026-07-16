@@ -239,6 +239,7 @@ function AreaSettingsContent({
             min={0}
             max={0.5}
             step={0.01}
+            inherited={settings.outline_offset === undefined}
             onCommit={(v) => onUpdateSettings({outline_offset: v})}
           />
 
@@ -250,6 +251,7 @@ function AreaSettingsContent({
             min={20}
             max={80}
             step={1}
+            inherited={settings.cutting_height_mm === undefined}
             onCommit={(v) => onUpdateSettings({cutting_height_mm: Math.round(v)})}
           >
             <div className="mt-1.5 flex items-start gap-1.5 text-[.7rem] leading-[1.4] text-ink-faint">
@@ -411,6 +413,9 @@ interface DebouncedSliderFieldProps {
   max: number;
   step: number;
   onCommit: (value: number) => void;
+  /** True when `value` is the inherited GLOBAL_DEFAULTS fallback (the field itself is unset) —
+   *  shows the same "Inherited: …" affordance as the Advanced steppers. */
+  inherited?: boolean;
   children?: ReactNode;
 }
 
@@ -420,14 +425,19 @@ interface DebouncedSliderFieldProps {
  * entry on release" (AREA_SETTINGS_SPEC.md). Wraps the shared kit Slider rather than changing it,
  * since Slider is used well beyond the map editor.
  */
-function DebouncedSliderField({label, value, display, unit, min, max, step, onCommit, children}: DebouncedSliderFieldProps) {
+function DebouncedSliderField({label, value, display, unit, min, max, step, onCommit, inherited, children}: DebouncedSliderFieldProps) {
   const [draft, setDraft] = useState(value);
   // Re-sync when the committed value changes for a reason OTHER than our own drag (switching
   // zones, Restore defaults, undo/redo) — a no-op while dragging, since `value` only changes once
   // we ourselves commit it.
   useEffect(() => setDraft(value), [value]);
   return (
-    <FormField label={label} value={display(draft)} unit={unit}>
+    <FormField
+      label={label}
+      value={display(draft)}
+      unit={unit}
+      hint={inherited ? `Inherited: ${display(value)}${unit ?? ''}` : undefined}
+    >
       <div
         onPointerUp={() => onCommit(draft)}
         onKeyUp={(e) => {

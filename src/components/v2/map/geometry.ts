@@ -239,8 +239,11 @@ export function offsetPolygon(points: Meters[], dist: number): Meters[] {
     }
     dx /= len;
     dy /= len;
-    const nx = ccw ? -dy : dy;
-    const ny = ccw ? dx : -dx;
+    // RevLaw's source ternary assumes a y-down (screen/canvas) frame; ours is y-north (ENU,
+    // y-up), which flips the CCW-normal orientation test — inverted here so positive `dist`
+    // grows and negative shrinks in OUR frame, matching the docstring above and every caller.
+    const nx = ccw ? dy : -dy;
+    const ny = ccw ? -dx : dx;
     lines.push({p: {x: a.x + nx * dist, y: a.y + ny * dist}, d: {x: dx, y: dy}});
   }
   const result: Meters[] = [];

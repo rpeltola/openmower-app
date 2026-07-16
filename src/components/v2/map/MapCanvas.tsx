@@ -671,6 +671,11 @@ export function MapCanvas({
   }, [zones, origin, editing, selectedZoneId, tool, onSelectZone]);
 
   // ---- selected/picked-vertex highlight: restyle existing handles in place (no recreation) ------
+  // `zones` is in the deps so a committed edit (which recreates the handle markers in the effect
+  // above, all unhighlighted) reapplies the highlight right away instead of leaving it dark until
+  // some unrelated state change happens to rerun this effect. Safe mid-drag: this only runs from a
+  // React re-render, and nothing re-renders during an active drag (the live preview is Leaflet-
+  // only) — a render only happens once the drag has already ended and committed.
   useEffect(() => {
     handleMarkersRef.current.forEach((marker, index) => {
       const highlighted =
@@ -680,7 +685,7 @@ export function MapCanvas({
           (tool === 'multi' && multiSelected.has(index)));
       marker.setIcon(makeHandleIcon(highlighted));
     });
-  }, [selectedVertex, snapPick, multiSelected, selectedZoneId, editing, tool]);
+  }, [selectedVertex, snapPick, multiSelected, selectedZoneId, editing, tool, zones]);
 
   // ---- coverage preview overlay (visual only — see coverage.ts) --------------------------------
   useEffect(() => {
