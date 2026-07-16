@@ -2,17 +2,17 @@
 
 import {AnalogStick, type StickVector} from '@/components/v2/ui/AnalogStick';
 import {Button} from '@/components/v2/ui/Button';
-import {CameraSlot} from '@/components/v2/ui/CameraSlot';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
 import {GamepadTip} from '@/components/v2/ui/GamepadTip';
 import {HoldToUnlock} from '@/components/v2/ui/HoldToUnlock';
 import {Direction, Joystick} from '@/components/v2/ui/Joystick';
-import {MiniMap} from '@/components/v2/ui/MiniMap';
+import {MainViewport} from '@/components/v2/ui/MainViewport';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Stepper} from '@/components/v2/ui/Stepper';
 import {Toast} from '@/components/v2/ui/Toast';
 import {useMediaQuery} from '@/components/v2/lib/useMediaQuery';
+import {useCapabilities} from '@/lib/v2/capabilities';
 import {gamepadButtonLabels, type GamepadButtonLabels, useGamepad} from '@/lib/v2/useGamepad';
 import {Bluetooth, Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
@@ -66,6 +66,8 @@ export function ManualControl() {
   const isLandscapeCockpit = useMediaQuery('(orientation: landscape) and (max-height: 500px)');
   const isDesktopWidth = useMediaQuery('(min-width: 768px)');
   const isDesktop = isDesktopWidth && !isLandscapeCockpit;
+
+  const caps = useCapabilities();
 
   const gamepad = useGamepad();
   // Brand-correct glyphs for the badges on the buttons a gamepad actually maps to — null
@@ -141,6 +143,54 @@ export function ManualControl() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gamepad.connected, gamepad.id]);
 
+  // The portrait console — shared by the mobile-portrait layout (full width) and the
+  // landscape-with-camera layout (narrow side column next to the viewport). Blade height
+  // is capability-gated: the grid still reserves its column when hidden (`grid-cols-
+  // [1fr_auto_1fr]` with an empty 3rd track) so the drive input stays centered either way.
+  const portraitConsole = (
+    <>
+      <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
+
+      <SegmentedToggle
+        label="Input"
+        options={INPUT_MODE_OPTIONS}
+        value={inputMode}
+        onChange={(v) => setInputMode(v as InputMode)}
+      />
+
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+        <SegmentedSpeedColumn speed={speed} onStep={stepSpeed} gamepadLabels={gamepadLabels} />
+        <DriveInput
+          size={140}
+          mode={inputMode}
+          disabled={!unlocked}
+          onDirectionChange={setTouchDirection}
+          directionOverride={driveDirection}
+          onVectorChange={setTouchVector}
+          vectorOverride={driveVector}
+        />
+        {caps.mowHeightAdjustment ? (
+          <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
+        ) : null}
+      </div>
+
+      {!unlocked ? (
+        <p className="text-center text-xs text-ink-faint">Blade stays locked until you slide to unlock.</p>
+      ) : null}
+
+      <ActionRow
+        hasError={hasError}
+        bladeOn={bladeOn}
+        bladeDisabled={!unlocked}
+        onToggleBlade={handleToggleBlade}
+        onDock={handleDock}
+        onStop={handleStop}
+        gamepadLabels={gamepadLabels}
+        className="mt-1 justify-around"
+      />
+    </>
+  );
+
   return (
     <div className="relative mx-auto flex w-full max-w-[1400px] flex-col md:h-dvh">
       <Toast message={toast} onDismiss={() => setToast(null)} />
@@ -190,32 +240,67 @@ export function ManualControl() {
             : 'flex flex-1 flex-col gap-4 overflow-y-auto p-4'
         }
       >
-        {isDesktop ? (
-          <section className="flex min-w-0 flex-1 flex-col gap-3">
-            <CameraSlot
-              label="Front camera"
-              size="lg"
-              badge="Vision add-on"
-              caption="Reserved — installs with the vision add-on"
-              className="flex-1"
-            />
-            <div className="grid h-32 flex-none grid-cols-3 gap-3">
-              <CameraSlot label="Left" size="sm" />
-              <CameraSlot label="Rear" size="sm" />
-              <CameraSlot label="Right" size="sm" />
-            </div>
-          </section>
-        ) : null}
+        {/* The DJI-style viewport (camera FPV main + map PiP, tap to swap) replaces the
+            old always-desktop camera-slot grid — capability-gated on `cameras.front`, see
+            MainViewport. Desktop always gets a viewport (map-only if no camera); mobile/
+            landscape only gain one when there's an actual front camera to drive by. */}
+        {isDesktop ? <MainViewport showCamera={caps.cameras.front} headingDeg={-18} className="min-w-0 flex-1" /> : null}
 
         <aside className={isDesktop ? 'flex w-[408px] flex-none flex-col gap-3' : 'flex flex-1 flex-col gap-3'}>
           {!isLandscapeCockpit ? <GamepadTip connected={gamepad.connected} /> : null}
 
-          {isDesktop ? <MiniMap className="h-[214px] flex-none" headingDeg={-18} /> : null}
-
-          {isLandscapeCockpit ? (
-            /* Landscape cockpit: a phone turned sideways to drive — the same controls as
-               the portrait console, just laid out in a row so the width gets used instead
-               of forcing a tall stack into a short viewport. */
+          {isLandscapeCockpit && caps.cameras.front ? (
+            /* Landscape + a front camera to drive by: the viewport takes the width, a
+               compact console sits in a narrow column beside it — trimmed down from the
+               portrait console (no "Input" caption, a single action row instead of 2x2,
+               a smaller drive input) so it actually fits a ~390px-tall viewport without
+               scrolling — Stop is a safety action, it shouldn't be a scroll away. */
+            <div className="flex flex-1 gap-3 overflow-hidden">
+              <MainViewport showCamera headingDeg={-18} className="min-w-0 flex-1" />
+              <div className="flex w-[236px] flex-none flex-col items-center gap-1.5 overflow-y-auto">
+                <HoldToUnlock
+                  unlocked={unlocked}
+                  onUnlock={() => setUnlocked(true)}
+                  onLock={() => setUnlocked(false)}
+                  className="w-full"
+                />
+                <SegmentedToggle
+                  options={INPUT_MODE_OPTIONS}
+                  value={inputMode}
+                  onChange={(v) => setInputMode(v as InputMode)}
+                  className="w-full"
+                />
+                <div className="flex items-center gap-3">
+                  <SegmentedSpeedColumn speed={speed} onStep={stepSpeed} gamepadLabels={gamepadLabels} />
+                  <DriveInput
+                    size={100}
+                    mode={inputMode}
+                    disabled={!unlocked}
+                    onDirectionChange={setTouchDirection}
+                    directionOverride={driveDirection}
+                    onVectorChange={setTouchVector}
+                    vectorOverride={driveVector}
+                  />
+                  {caps.mowHeightAdjustment ? (
+                    <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
+                  ) : null}
+                </div>
+                <ActionRow
+                  hasError={hasError}
+                  bladeOn={bladeOn}
+                  bladeDisabled={!unlocked}
+                  onToggleBlade={handleToggleBlade}
+                  onDock={handleDock}
+                  onStop={handleStop}
+                  gamepadLabels={gamepadLabels}
+                  className="gap-2"
+                />
+              </div>
+            </div>
+          ) : isLandscapeCockpit ? (
+            /* Landscape, no camera: the same controls as the portrait console, just laid
+               out in a row so the width gets used instead of forcing a tall stack into a
+               short viewport. */
             <div className="flex flex-1 items-center gap-4 overflow-x-auto px-1">
               <div className="flex flex-none flex-col items-center gap-2">
                 <HoldToUnlock
@@ -245,7 +330,9 @@ export function ManualControl() {
                 vectorOverride={driveVector}
               />
 
-              <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
+              {caps.mowHeightAdjustment ? (
+                <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
+              ) : null}
 
               {/* 2x2 wrap, not a 4-tall column — a landscape phone is short, so a single
                   column of 4 action buttons would run off the bottom of the viewport. */}
@@ -285,17 +372,19 @@ export function ManualControl() {
                   onVectorChange={setTouchVector}
                   vectorOverride={driveVector}
                 />
-                <Stepper
-                  label="Blade"
-                  value={bladeHeight}
-                  unit=" mm"
-                  min={20}
-                  max={60}
-                  step={5}
-                  disabled={!unlocked}
-                  onChange={setBladeHeight}
-                  orientation="column"
-                />
+                {caps.mowHeightAdjustment ? (
+                  <Stepper
+                    label="Blade"
+                    value={bladeHeight}
+                    unit=" mm"
+                    min={20}
+                    max={60}
+                    step={5}
+                    disabled={!unlocked}
+                    onChange={setBladeHeight}
+                    orientation="column"
+                  />
+                ) : null}
               </div>
 
               <div>
@@ -320,49 +409,15 @@ export function ManualControl() {
               />
             </Card>
           ) : (
-            /* Mobile portrait console: chips already in header; slide-to-unlock +
-               speed/joystick/blade trio + explain caption + action row, matching the phone
-               concept 1:1. */
+            /* Mobile portrait: an FPV viewport up top when there's a front camera to drive
+               by (an add-on that isn't installed shows nothing here — no camera on mobile
+               stays exactly as it was before this capability existed), then the same
+               console as every other layout. */
             <div className="flex flex-col gap-3">
-              <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
-
-              <SegmentedToggle
-                label="Input"
-                options={INPUT_MODE_OPTIONS}
-                value={inputMode}
-                onChange={(v) => setInputMode(v as InputMode)}
-              />
-
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                <SegmentedSpeedColumn speed={speed} onStep={stepSpeed} gamepadLabels={gamepadLabels} />
-                <DriveInput
-                  size={140}
-                  mode={inputMode}
-                  disabled={!unlocked}
-                  onDirectionChange={setTouchDirection}
-                  directionOverride={driveDirection}
-                  onVectorChange={setTouchVector}
-                  vectorOverride={driveVector}
-                />
-                <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
-              </div>
-
-              {!unlocked ? (
-                <p className="text-center text-xs text-ink-faint">
-                  Blade stays locked until you slide to unlock.
-                </p>
+              {caps.cameras.front ? (
+                <MainViewport showCamera headingDeg={-18} className="aspect-video w-full flex-none" />
               ) : null}
-
-              <ActionRow
-                hasError={hasError}
-                bladeOn={bladeOn}
-                bladeDisabled={!unlocked}
-                onToggleBlade={handleToggleBlade}
-                onDock={handleDock}
-                onStop={handleStop}
-                gamepadLabels={gamepadLabels}
-                className="mt-1 justify-around"
-              />
+              {portraitConsole}
             </div>
           )}
         </aside>

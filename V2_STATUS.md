@@ -166,10 +166,35 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
   even at ≥768px width. The top-level `<main>`/`<aside>`/console branch is now a JS
   three-way (`isLandscapeCockpit` / `isDesktop` / else-portrait) instead of raw `md:`
   classes, so the phone-landscape branch can't be shadowed by the width-only breakpoint.
-  The landscape cockpit reuses the exact same controls as portrait (same components, same
-  state) laid out in a row, with the action row wrapped 2×2 (not a 4-tall column — a
-  landscape phone is short). The header chrome (chips, Close button) is intentionally left
-  on the plain `md:` breakpoint — out of scope, cosmetic-only difference in landscape.
+  The landscape-with-no-camera cockpit reuses the exact same controls as portrait laid out
+  in a row, with the action row wrapped 2×2 (not a 4-tall column — a landscape phone is
+  short). The header chrome (chips, Close button) is intentionally left on the plain `md:`
+  breakpoint — out of scope, cosmetic-only difference in landscape.
+- **Hardware capabilities gating** — new `lib/v2/capabilities.ts`: a typed
+  `HardwareCapabilities` (`mowHeightAdjustment`, `bladeMotor`, `rainSensor`, per-position
+  `cameras: {front,left,rear,right}`) + a mock `DEVICE_CAPABILITIES` for the real hardware
+  (YardForce SA-series: no height motor, blade motor + rain sensor present, one front
+  camera only) + `useCapabilities()`. Clearly commented as MOCK — swapping in the real
+  gateway/MQTT-advertised capabilities only touches this one file, no call site. Blade
+  HEIGHT (the `BladeColumn`/`Stepper`) is now gated on `mowHeightAdjustment` everywhere it
+  appears (mobile, desktop, both landscape variants) — blade ON/OFF (a different
+  capability, `bladeMotor`, true here) is untouched. The grid/flex tracks are left in place
+  when hidden rather than restructured, so the drive input stays centered either way — no
+  layout jump, just an empty column.
+- **DJI Fly-style camera/map viewport** — replaced the old always-desktop, always-"reserved"
+  camera-slot grid with `ui/MainViewport.tsx` + `ui/CameraFeed.tsx`: one big view (camera
+  FPV or map) with the other inset as a small tappable PiP that swaps to become the main
+  view. Capability-gated on `cameras.front` — no front camera → just the map, no PiP,
+  nothing to swap to (desktop still gets a full map view; mobile/landscape get NOTHING new,
+  matching the pre-existing no-camera behavior exactly). With the mock (front-only): the
+  viewport now shows on **mobile too** (an FPV top strip, `aspect-video`, since a front
+  camera is for driving) not just desktop; the desktop aside's old standalone `MiniMap`
+  panel is gone (its job is now the viewport's map/PiP). Landscape + a front camera gets its
+  own compact bespoke console (not the shared `portraitConsole` — that didn't fit a
+  ~390px-tall viewport height-wise; trimmed drive-input size, one action row instead of
+  2×2, no "Input" caption) so Stop/Dock aren't a scroll away. `CameraFeed` is deliberately
+  hardcoded black/white (not theme tokens) — a camera viewfinder stays dark regardless of
+  the app's light/dark theme.
 
 ## Build order (checklist)
 - [x] Scaffold Tailwind + tokens + kit
