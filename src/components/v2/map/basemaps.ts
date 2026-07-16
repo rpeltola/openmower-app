@@ -12,8 +12,9 @@ export interface Basemap {
 }
 
 // Finnish National Land Survey (Maanmittauslaitos) open WMTS. The WGS84_Pseudo-Mercator
-// matrix set is plain EPSG:3857 XYZ, so it drops straight into a Leaflet tileLayer. Needs
-// a free API key (Pseudo-Mercator tops out at zoom 16; maxNativeZoom lets Leaflet overzoom).
+// matrix set is plain EPSG:3857 XYZ, so it drops straight into a Leaflet tileLayer. Needs a
+// free API key. ortokuva serves real tiles up to zoom 18 (measured: z14-18 → JPEG, z19+ → 404);
+// maxNativeZoom:18 uses those sharpest native tiles and only overzooms past 18.
 const MML_API_KEY = process.env.NEXT_PUBLIC_MOWER_MML_API_KEY ?? '';
 
 export const BASEMAPS: Basemap[] = [
@@ -29,7 +30,7 @@ export const BASEMAPS: Basemap[] = [
     label: 'MML Orthophoto (Finland)',
     url: `https://avoin-karttakuva.maanmittauslaitos.fi/avoin/wmts/1.0.0/ortokuva/default/WGS84_Pseudo-Mercator/{z}/{y}/{x}.jpg?api-key=${MML_API_KEY}`,
     attribution: '&copy; Maanmittauslaitos',
-    maxNativeZoom: 16,
+    maxNativeZoom: 18,
   },
   {
     id: 'osm',
