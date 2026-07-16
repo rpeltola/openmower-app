@@ -126,6 +126,46 @@ export function snapEvenly(
   return {points: result, changed: indexPath.length};
 }
 
+/** Shoelace polygon area, in square meters. Ported verbatim from RevLaw's geo/geometry.js. */
+export function polygonArea(polygon: Meters[]): number {
+  if (!polygon || polygon.length < 3) return 0;
+  let areaTwice = 0;
+  for (let i = 0; i < polygon.length; i += 1) {
+    const j = (i + 1) % polygon.length;
+    areaTwice += polygon[i].x * polygon[j].y - polygon[j].x * polygon[i].y;
+  }
+  return Math.abs(areaTwice) / 2;
+}
+
+/** Perimeter (sum of edge lengths) in meters. Ported verbatim from RevLaw's geo/geometry.js. */
+export function polygonPerimeter(polygon: Meters[]): number {
+  if (!polygon || polygon.length < 2) return 0;
+  let total = 0;
+  for (let i = 0; i < polygon.length; i += 1) {
+    const j = (i + 1) % polygon.length;
+    total += distance(polygon[i], polygon[j]);
+  }
+  return total;
+}
+
+/** Axis-aligned bounding box. Ported verbatim from RevLaw's geo/geometry.js. */
+export function boundingBox(
+  points: Meters[],
+): {minX: number; minY: number; maxX: number; maxY: number; width: number; height: number} | null {
+  if (!points || !points.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return {minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY};
+}
+
 /** Polygon centroid (simple point-average, not area-weighted — matches RevLaw's geo/geometry.js). */
 export function centroid(points: Meters[]): Meters | null {
   if (!points || points.length === 0) return null;

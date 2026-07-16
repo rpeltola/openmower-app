@@ -3,9 +3,11 @@
 // Map screen — the map is the hero (full-bleed), UI floats over it in pills / FABs / a stat card
 // (design-language.md "The map is the hero"). Real Leaflet canvas underneath; concept chrome on top.
 // Map-editor port: edit mode, zone selection, vertex tools, zone create/transform, undo/redo
-// (batches 1-3 of MAP_EDITOR_SPEC.md). The zone-list Sheet below is a placeholder — the
-// area-settings batch replaces it with the real per-area settings editor.
+// (batches 1-3 of MAP_EDITOR_SPEC.md), plus the real per-area settings editor (AREA_SETTINGS_SPEC.md,
+// AreaSettingsSheet.tsx). The "Choose zone" Sheet below is just the quick zone switcher now —
+// selecting a zone (there, or by tapping it on the map) opens the settings editor.
 import {latLngToMeters} from '@/lib/v2/geo/projection';
+import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {MOCK_DOCK, MOCK_ORIGIN, MOCK_ZONES, type ZoneType} from '@/components/v2/map/mockMap';
 import {useMapEditor, type EditTool} from '@/components/v2/map/useMapEditor';
@@ -15,7 +17,6 @@ import {FormField} from '@/components/v2/ui/FormField';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
-import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Sheet} from '@/components/v2/ui/Sheet';
 import {Slider} from '@/components/v2/ui/Slider';
 import {StatCard} from '@/components/v2/ui/StatCard';
@@ -66,12 +67,6 @@ const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24};
 
 const BASEMAP_STORAGE_KEY = 'v2.basemap';
 
-const ZONE_TYPE_OPTIONS: {value: ZoneType; label: string}[] = [
-  {value: 'mow', label: 'Mowing'},
-  {value: 'nav', label: 'Navigation'},
-  {value: 'obstacle', label: 'Obstacle'},
-];
-
 const TOOLS: {value: EditTool; label: string; icon: ReactNode}[] = [
   {value: 'select', label: 'Select / drag', icon: <MousePointer2 size={16} />},
   {value: 'add', label: 'Add point', icon: <CirclePlus size={16} />},
@@ -89,6 +84,7 @@ export function Map() {
   const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
   const [basemapSheetOpen, setBasemapSheetOpen] = useState(false);
   const [zoneSheetOpen, setZoneSheetOpen] = useState(false);
+  const [areaSettingsOpen, setAreaSettingsOpen] = useState(false);
   const [transformSheetOpen, setTransformSheetOpen] = useState(false);
   const [brushRadius, setBrushRadius] = useState(1.2);
   const [brushStrength, setBrushStrength] = useState(0.6);
@@ -116,6 +112,14 @@ export function Map() {
     editor.addZone(center);
   };
 
+  // Selecting a zone (zone-list picker, or tapping it on the map) opens the settings editor for
+  // it — the zone-list Sheet itself stays around as a quick way to switch which zone that is.
+  const openZoneSettings = (id: string) => {
+    editor.selectZone(id);
+    setZoneSheetOpen(false);
+    setAreaSettingsOpen(true);
+  };
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       <MapCanvas
@@ -135,7 +139,7 @@ export function Map() {
         placingDock={placingDock}
         onZonesChange={editor.commitZones}
         onSelectVertex={editor.selectVertex}
-        onSelectZone={editor.selectZone}
+        onSelectZone={openZoneSettings}
         onPickSnapVertex={editor.pickSnapVertex}
         onToggleMultiVertex={editor.toggleMultiVertex}
         onSetMultiSelected={editor.setMultiSelected}
@@ -320,44 +324,35 @@ export function Map() {
         ))}
       </Sheet>
 
-      <Sheet open={zoneSheetOpen} onClose={() => setZoneSheetOpen(false)} title="Edit zone">
+      <Sheet open={zoneSheetOpen} onClose={() => setZoneSheetOpen(false)} title="Choose zone">
         {editor.zones.map((z) => (
           <ListRow
             key={z.id}
             title={z.name}
             sub={z.type}
-            onClick={() => {
-              editor.selectZone(z.id);
-              setZoneSheetOpen(false);
-            }}
+            onClick={() => openZoneSettings(z.id)}
             trailing={z.id === editor.selectedZoneId ? <Check size={17} className="text-accent" /> : undefined}
           />
         ))}
       </Sheet>
+
+      <AreaSettingsSheet
+        open={areaSettingsOpen}
+        onClose={() => setAreaSettingsOpen(false)}
+        zone={selectedZone}
+        onSwitchZone={() => setZoneSheetOpen(true)}
+        onRename={(name) => selectedZone && editor.renameZone(selectedZone.id, name)}
+        onSetType={(type) => selectedZone && editor.setZoneType(selectedZone.id, type)}
+        onSetActive={(active) => selectedZone && editor.setZoneActive(selectedZone.id, active)}
+        onUpdateSettings={(patch) => selectedZone && editor.updateZoneSettings(selectedZone.id, patch)}
+        onResetSettings={() => selectedZone && editor.resetZoneSettings(selectedZone.id)}
+      />
 
       {/* Zone create/transform — placeholder home for this until the area-settings batch folds
           the Basics (name/type/active) part into the real per-area settings editor. */}
       <Sheet open={transformSheetOpen} onClose={() => setTransformSheetOpen(false)} title={selectedZone?.name ?? 'Transform'}>
         {selectedZone && (
           <div className="space-y-3.5">
-            <FormField label="Name">
-              <input
-                key={selectedZone.id}
-                type="text"
-                defaultValue={selectedZone.name}
-                onBlur={(e) => editor.renameZone(selectedZone.id, e.target.value || selectedZone.name)}
-                className="h-10 w-full rounded-[var(--radius-control)] border border-border bg-surface-2 px-2.5 text-sm text-ink"
-              />
-            </FormField>
-
-            <FormField label="Type">
-              <SegmentedToggle
-                options={ZONE_TYPE_OPTIONS}
-                value={selectedZone.type}
-                onChange={(v) => editor.setZoneType(selectedZone.id, v as ZoneType)}
-              />
-            </FormField>
-
             <div className="flex items-center gap-2">
               <Button
                 variant="soft"

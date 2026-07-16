@@ -15,7 +15,7 @@ import {
   snapEvenly,
   translatePoints,
 } from '@/components/v2/map/geometry';
-import type {Dock, Zone, ZoneType} from '@/components/v2/map/mockMap';
+import type {AreaSettings, Dock, Zone, ZoneType} from '@/components/v2/map/mockMap';
 
 export type EditTool = 'select' | 'add' | 'delete' | 'snap' | 'brush' | 'multi' | 'rect' | 'circle' | 'move';
 
@@ -84,6 +84,11 @@ export interface MapEditor {
   deleteZone: (id: string) => void;
   renameZone: (id: string, name: string) => void;
   setZoneType: (id: string, type: ZoneType) => void;
+  setZoneActive: (id: string, active: boolean) => void;
+  /** Merge a patch into the zone's settings (undefined values clear that field back to inherit). */
+  updateZoneSettings: (id: string, patch: Partial<AreaSettings>) => void;
+  /** Clear ALL of a zone's settings overrides back to inherit. */
+  resetZoneSettings: (id: string) => void;
   /** Move a zone earlier/later in the array — firmware selects areas by order. */
   reorderZone: (id: string, direction: 'up' | 'down') => void;
   /** Rotate the selected zone ±ROTATE_STEP_DEG about its centroid. */
@@ -263,7 +268,29 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
 
   const setZoneType = useCallback(
     (id: string, type: ZoneType) => {
-      commitZones(zones.map((z) => (z.id === id ? {...z, type} : z)));
+      // v1 rule: the mowing overrides block only applies to type 'mow' — switching away clears it.
+      commitZones(zones.map((z) => (z.id === id ? {...z, type, settings: type === 'mow' ? z.settings : undefined} : z)));
+    },
+    [zones, commitZones],
+  );
+
+  const setZoneActive = useCallback(
+    (id: string, active: boolean) => {
+      commitZones(zones.map((z) => (z.id === id ? {...z, active} : z)));
+    },
+    [zones, commitZones],
+  );
+
+  const updateZoneSettings = useCallback(
+    (id: string, patch: Partial<AreaSettings>) => {
+      commitZones(zones.map((z) => (z.id === id ? {...z, settings: {...z.settings, ...patch}} : z)));
+    },
+    [zones, commitZones],
+  );
+
+  const resetZoneSettings = useCallback(
+    (id: string) => {
+      commitZones(zones.map((z) => (z.id === id ? {...z, settings: undefined} : z)));
     },
     [zones, commitZones],
   );
@@ -404,6 +431,9 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     deleteZone,
     renameZone,
     setZoneType,
+    setZoneActive,
+    updateZoneSettings,
+    resetZoneSettings,
     reorderZone,
     rotateSelectedZone,
     scaleSelectedZone,
