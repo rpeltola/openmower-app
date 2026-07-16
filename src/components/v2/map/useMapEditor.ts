@@ -96,9 +96,12 @@ export interface MapEditor {
   pickSnapVertex: (vertex: SelectedVertex) => void;
   toggleMultiVertex: (index: number) => void;
   setMultiSelected: (indices: number[]) => void;
-  /** Create a new zone from a ready-made outline (default type 'mow') — rect/circle draw tools
-   *  call this with their finished shape; the new zone becomes selected. Returns the new id. */
-  createZone: (outline: Zone['outline'], type?: ZoneType) => string;
+  /** Create a new zone from a ready-made outline (default type 'mow', default name "New <type> N"
+   *  — pass `name` to set it in the SAME commit instead of a separate renameZone call, which would
+   *  close over a stale pre-create `zones` snapshot and silently drop the new zone). Rect/circle
+   *  draw tools call this with their finished shape; the new zone becomes selected. Returns the
+   *  new id. */
+  createZone: (outline: Zone['outline'], type?: ZoneType, name?: string) => string;
   /** Add zone (a square centered on `center`, side `sizeM` meters, default type 'mow'). Returns
    *  the new id. */
   addZone: (center: Zone['outline'][number], type?: ZoneType, sizeM?: number) => string;
@@ -244,9 +247,14 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
   }, []);
 
   const createZone = useCallback(
-    (outline: Zone['outline'], type: ZoneType = 'mow') => {
+    (outline: Zone['outline'], type: ZoneType = 'mow', name?: string) => {
       const id = makeZoneId();
-      const newZone: Zone = {id, name: `New ${ZONE_TYPE_LABELS[type].toLowerCase()} ${zones.length + 1}`, type, outline};
+      const newZone: Zone = {
+        id,
+        name: name || `New ${ZONE_TYPE_LABELS[type].toLowerCase()} ${zones.length + 1}`,
+        type,
+        outline,
+      };
       commitZones([...zones, newZone]);
       setSelectedZoneId(id);
       return id;

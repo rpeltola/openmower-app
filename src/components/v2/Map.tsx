@@ -304,8 +304,11 @@ export function Map() {
     setRecordType('mow');
     setRecordPose({x: start.x, y: start.y, heading: 0});
     setRecordDirection(null);
+    recordDistSinceLastPointRef.current = 0;
     editor.setEditing(false);
     closeAllEditSheets();
+    closePlanPreview();
+    setMockBlocked(false);
     setRecordStep('r2');
   };
 
@@ -321,8 +324,10 @@ export function Map() {
   const closeRecordLoop = () => setRecordStep('r3');
 
   const saveRecording = (name: string, fineTune: boolean) => {
-    const id = editor.createZone(recordPoints, recordType);
-    editor.renameZone(id, name);
+    // Name it in the SAME createZone commit — a separate renameZone call right after would close
+    // over the pre-create `zones` snapshot (no re-render in between) and silently drop the new
+    // zone, since its `.map` wouldn't find the just-created id in that stale array.
+    const id = editor.createZone(recordPoints, recordType, name);
     setRecordStep(null);
     setRecordPoints([]);
     setRecordMarks([]);
@@ -914,8 +919,9 @@ export function Map() {
       )}
 
       {/* S7 — plan preview: the route draws on over ~1.4s (planPreviewProgress), then holds. Sits
-          above the normal chrome (z-900) since it takes over the screen; the tool dock/stat card
-          underneath are already hidden (onPreviewPlan exits edit mode + closes every sheet). */}
+          above the normal chrome (z-900) since it takes over the screen — onPreviewPlan already
+          exited edit mode + closed every sheet, so the only thing underneath is the live-view
+          stat card, which this covers at the same position (not hidden, just painted over). */}
       {planPreviewZone && planPreviewEstimate && (
         <>
           <div className="absolute inset-x-3 top-3 z-[900] flex items-center gap-2">
