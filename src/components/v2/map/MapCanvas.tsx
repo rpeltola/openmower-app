@@ -76,6 +76,13 @@ export interface MapCanvasProps {
 
   /** Coverage preview overlay (visual planning aid, §F) — absent/null hides it. */
   coveragePreview?: {outlineLaps: Meters[][]; fillSegments: CoverageSegment[]} | null;
+  /** Mowed-so-far lanes (MAP_SCREEN_SPEC S1) — mock progress painting for the live (non-editing)
+   *  view; absent/null hides it. Distinct layer from `coveragePreview` (that's edit-mode planning). */
+  mowedLanes?: CoverageSegment[] | null;
+  /** Position-uncertainty ring around the robot footprint (MAP_SCREEN_SPEC S2), meters radius. */
+  robotAccuracyM?: number;
+  /** True = the ring reads as a blocked/lost-fix state (larger, warn-colored) instead of normal. */
+  robotBlocked?: boolean;
 }
 
 // Vertex-handle colors are fixed (not theme-dependent), same rule as the zone colors — they must
@@ -87,6 +94,14 @@ const HANDLE_SELECTED = '#22d3ee';
 // Coverage-preview colors (§F) — green outline laps, cyan back-and-forth fill, per the spec.
 const COVERAGE_LAP_COLOR = '#22c55e';
 const COVERAGE_FILL_COLOR = '#22d3ee';
+
+// Mowed-so-far lane color (MAP_SCREEN_SPEC S1) — a pale mint, fixed like every other map color, so
+// it stays legible over satellite imagery and never shifts with the app's light/dark theme.
+const MOWED_LANE_COLOR = '#a7e8c9';
+
+// Position-uncertainty ring colors (S2) — normal vs. blocked/lost-fix.
+const UNCERTAINTY_NORMAL_COLOR = '#38bdf8';
+const UNCERTAINTY_BLOCKED_COLOR = '#f2b134';
 
 // Vertex-handle icon. Kept out of the marker-creation effect's deps so changing which vertex is
 // selected/picked only restyles handles (setIcon) instead of recreating them — recreating mid-drag
@@ -154,15 +169,20 @@ export function MapCanvas({
   onCreateZone,
   onDockChange,
   coveragePreview = null,
+  mowedLanes = null,
+  robotAccuracyM = 0.3,
+  robotBlocked = false,
 }: MapCanvasProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const zoneLayerRef = useRef<L.FeatureGroup | null>(null);
+  const mowedLayerRef = useRef<L.LayerGroup | null>(null);
   const coverageLayerRef = useRef<L.LayerGroup | null>(null);
   const handleLayerRef = useRef<L.LayerGroup | null>(null);
   const dockLayerRef = useRef<L.LayerGroup | null>(null);
   const robotLayerRef = useRef<L.LayerGroup | null>(null);
+  const uncertaintyRingRef = useRef<L.Circle | null>(null);
   const brushCursorRef = useRef<L.Circle | null>(null);
   const draftLayerRef = useRef<L.LayerGroup | null>(null);
   const zonePolygonsRef = useRef<Map<string, L.Polygon>>(new Map());
@@ -215,6 +235,7 @@ export function MapCanvas({
     map.attributionControl.setPrefix(false);
 
     zoneLayerRef.current = L.featureGroup().addTo(map);
+    mowedLayerRef.current = L.layerGroup().addTo(map);
     coverageLayerRef.current = L.layerGroup().addTo(map);
     handleLayerRef.current = L.layerGroup().addTo(map);
     dockLayerRef.current = L.layerGroup().addTo(map);
@@ -685,6 +706,23 @@ export function MapCanvas({
     });
   }, [coveragePreview, origin]);
 
+  // ---- mowed-so-far lanes (MAP_SCREEN_SPEC S1 — mock progress painting, live view only) --------
+  useEffect(() => {
+    const layer = mowedLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    if (!mowedLanes) return;
+    mowedLanes.forEach((seg) => {
+      L.polyline([metersToLatLng(seg.a, origin), metersToLatLng(seg.b, origin)], {
+        color: MOWED_LANE_COLOR,
+        weight: 5,
+        lineCap: 'round',
+        opacity: 0.9,
+        interactive: false,
+      }).addTo(layer);
+    });
+  }, [mowedLanes, origin]);
+
   // ---- dock marker: draggable while editing (place-by-click also lands here via onDockChange) ---
   useEffect(() => {
     const dockLayer = dockLayerRef.current;
@@ -702,11 +740,21 @@ export function MapCanvas({
     });
   }, [dock, origin, editing]);
 
-  // ---- to-scale robot footprint + heading nose (imperative update) ------------------------------
+  // ---- to-scale robot footprint + heading nose + position-uncertainty ring (S2) ----------------
   useEffect(() => {
     const robotLayer = robotLayerRef.current;
     if (!mapRef.current || !robotLayer) return;
     robotLayer.clearLayers();
+    const ringColor = robotBlocked ? UNCERTAINTY_BLOCKED_COLOR : UNCERTAINTY_NORMAL_COLOR;
+    uncertaintyRingRef.current = L.circle(metersToLatLng(pose, origin), {
+      radius: robotAccuracyM,
+      color: ringColor,
+      weight: 2,
+      dashArray: '6,5',
+      fillColor: ringColor,
+      fillOpacity: 0.12,
+      interactive: false,
+    }).addTo(robotLayer);
     L.polygon(footprintPolygon(pose, footprint, origin), {
       color: '#0b1f16',
       weight: 1.5,
@@ -714,7 +762,34 @@ export function MapCanvas({
       fillOpacity: 0.95,
     }).addTo(robotLayer);
     L.polyline(headingNose(pose, footprint, origin), {color: '#0b1f16', weight: 2.5}).addTo(robotLayer);
-  }, [pose, footprint, origin]);
+  }, [pose, footprint, origin, robotAccuracyM, robotBlocked]);
+
+  // ---- uncertainty-ring pulse: a gentle opacity breathe, paused while the tab is hidden ---------
+  useEffect(() => {
+    let phase = 0;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const tick = () => {
+      phase = (phase + 1) % 120;
+      const pulse = 0.7 + 0.3 * Math.sin((phase / 120) * Math.PI * 2);
+      uncertaintyRingRef.current?.setStyle({opacity: pulse});
+    };
+    const start = () => {
+      if (intervalId === null) intervalId = setInterval(tick, 60);
+    };
+    const stop = () => {
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+    const onVisibility = () => (document.hidden ? stop() : start());
+    document.addEventListener('visibilitychange', onVisibility);
+    if (!document.hidden) start();
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   return <div ref={elRef} className={className} aria-label="Garden map" />;
 }

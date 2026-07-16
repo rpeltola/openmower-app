@@ -49,7 +49,9 @@ import {
   Minus,
   Move,
   Paintbrush2,
+  Pause,
   Pencil,
+  Play,
   Plus,
   RectangleHorizontal,
   Redo2,
@@ -98,6 +100,10 @@ const DEFAULT_COVERAGE_SETTINGS: CoveragePreviewSettings = {
   angleOffsetDeg: 0,
   angleIsAbsolute: false,
 };
+
+// Mowed-so-far lanes (S1) use a fixed lane spacing — separate from the user-adjustable coverage-
+// preview tool width above, since one is "what already happened" and the other is a what-if plan.
+const MOWED_LANE_SPACING_M = 0.24;
 
 const TOOLS: {value: EditTool; label: string; icon: ReactNode}[] = [
   {value: 'select', label: 'Select / drag', icon: <MousePointer2 size={16} />},
@@ -152,6 +158,9 @@ export function Map() {
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
   const [coverageSheetOpen, setCoverageSheetOpen] = useState(false);
   const [coverage, setCoverage] = useState(DEFAULT_COVERAGE_SETTINGS);
+  // S5 — mock pause/resume for the live-view stat card (a real "hold position" toggle, distinct
+  // from S6's involuntary RTK-lost block).
+  const [mockPaused, setMockPaused] = useState(false);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
   useEffect(() => {
@@ -241,6 +250,20 @@ export function Map() {
       fillSegments: coverageLines(selectedZone.outline, obstacles, coverage.toolWidthM, baseAngle),
     };
   }, [coverage, selectedZone, editor.zones]);
+
+  // Mowed-so-far lanes (MAP_SCREEN_SPEC S1) — mock progress painting for the live view (hidden
+  // while editing, same as the real robot wouldn't repaint the map mid-edit). Reuses the coverage-
+  // line generator at a fixed lane spacing, independent of the edit-mode coverage-preview settings,
+  // and shows only the leading MOW.coverage% of lines so it visually matches the existing "62%
+  // mowed" stat in the live-view card.
+  const mowedLanesData = useMemo(() => {
+    if (editor.editing) return null;
+    const mowingZone = editor.zones.find((z) => z.name === MOW.area && z.type === 'mow');
+    if (!mowingZone) return null;
+    const obstacles = editor.zones.filter((z) => z.type === 'obstacle' && z.outline.length >= 3).map((z) => z.outline);
+    const lines = coverageLines(mowingZone.outline, obstacles, MOWED_LANE_SPACING_M, principalAngleDeg(mowingZone.outline));
+    return lines.slice(0, Math.round((lines.length * MOW.coverage) / 100));
+  }, [editor.editing, editor.zones]);
 
   const goToIssue = (issue: MapIssue) => {
     // Select (not open settings for) the zone so the tool dock reflects it without stacking a
@@ -340,6 +363,8 @@ export function Map() {
           setPlacingDock(false);
         }}
         coveragePreview={coveragePreviewData}
+        mowedLanes={mowedLanesData}
+        robotAccuracyM={0.35}
       />
 
       {/* top status pills (live view) / editing indicator (edit mode) */}
@@ -352,7 +377,7 @@ export function Map() {
       ) : (
         <div className="pointer-events-none absolute inset-x-3 top-3 z-[500] flex flex-wrap items-center gap-2">
           <OverlayChip>
-            <span className="text-accent">●</span> Mowing
+            <span className={mockPaused ? 'text-warn' : 'text-accent'}>●</span> {mockPaused ? 'Paused' : 'Mowing'}
           </OverlayChip>
           <OverlayChip>{MOW.area}</OverlayChip>
           <OverlayChip className="ml-auto">
@@ -526,16 +551,29 @@ export function Map() {
         <StatCard className="absolute inset-x-3 bottom-3 z-[500] md:left-3 md:right-auto md:w-[320px]">
           <div className="flex items-center gap-2.5">
             <div className="flex-1 leading-tight">
-              <div className="text-[.92rem] font-semibold text-ink">Mowing {MOW.area}</div>
+              <div className="text-[.92rem] font-semibold text-ink">
+                {mockPaused ? 'Paused' : 'Mowing'} {MOW.area}
+              </div>
               <div className="text-[.76rem] text-ink-soft">
-                {MOW.coverage}% · {MOW.timeLeftMin} min left
+                {MOW.coverage}% · {mockPaused ? 'holding position' : `${MOW.timeLeftMin} min left`}
               </div>
             </div>
           </div>
           <ProgressBar value={MOW.coverage} className="mt-2.5" />
-          <Button variant="danger" className="mt-2.5 w-full justify-center">
-            <Square size={13} fill="currentColor" /> Stop &amp; hold position
-          </Button>
+          <div className="mt-2.5 flex items-center gap-2">
+            {mockPaused ? (
+              <Button variant="primary" className="flex-1 justify-center" onClick={() => setMockPaused(false)}>
+                <Play size={13} fill="currentColor" /> Resume
+              </Button>
+            ) : (
+              <Button variant="ghost" className="flex-1 justify-center" onClick={() => setMockPaused(true)}>
+                <Pause size={13} fill="currentColor" /> Pause
+              </Button>
+            )}
+            <Button variant="danger" className="flex-1 justify-center">
+              <Square size={13} fill="currentColor" /> Stop
+            </Button>
+          </div>
         </StatCard>
       )}
 
