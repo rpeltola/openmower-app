@@ -8,6 +8,7 @@ import {mockHistograms, USE_MOCK_PERSISTENCE} from '@/lib/mockPersistence';
 import {useMowersStore, useSelectedMower} from '@/stores/mowersStore';
 import type {HistogramBuckets} from '@/stores/schemas';
 import {estimateMinutesToFull, formatMinutesToFull} from '@/utils/charge-estimate';
+import {escHasFault, fmtEscFault} from '@/utils/esc-faults';
 
 import {
   BatteryChargingFull as BatteryChargingIcon,
@@ -215,6 +216,29 @@ function HistogramRow({
 function fmtDirection(value: number | null | undefined): string {
   if (value == null) return '—';
   return value === 1 ? 'FWD' : 'REV';
+}
+
+/**
+ * Fault readout: a red chip naming the cause when the ESC reports one, an unobtrusive "OK"
+ * otherwise. This is the whole reason the ESC reports a code -- an operator should see
+ * "Over-temp (FET)", not have to infer a dead motor from a stopped rpm.
+ */
+function FaultReadout({label, code}: {label: ReactNode; code: number | null | undefined}) {
+  const faulted = escHasFault(code);
+  return (
+    <Readout
+      label={label}
+      value={
+        faulted ? (
+          <Chip size="small" color="error" label={fmtEscFault(code)} />
+        ) : (
+          <Typography component="span" variant="body2" color="text.secondary">
+            {fmtEscFault(code)}
+          </Typography>
+        )
+      }
+    />
+  );
 }
 
 /** A simple label/value pair for readouts that aren't metered. */
@@ -548,10 +572,7 @@ export default function SensorsPage() {
                     label="Left duty / input voltage"
                     value={`${fmt(escLeft.duty_cycle, 2)} / ${fmt(escLeft.input_voltage, 1, 'V')}`}
                   />
-                  <Readout
-                    label="Left tacho / direction"
-                    value={`${fmt(escLeft.tacho_absolute, 0)} / ${fmtDirection(escLeft.direction)}`}
-                  />
+                  <FaultReadout label="Left fault" code={escLeft.fault_code} />
                 </>
               )}
               {escRight && (
@@ -571,10 +592,7 @@ export default function SensorsPage() {
                     label="Right duty / input voltage"
                     value={`${fmt(escRight.duty_cycle, 2)} / ${fmt(escRight.input_voltage, 1, 'V')}`}
                   />
-                  <Readout
-                    label="Right tacho / direction"
-                    value={`${fmt(escRight.tacho_absolute, 0)} / ${fmtDirection(escRight.direction)}`}
-                  />
+                  <FaultReadout label="Right fault" code={escRight.fault_code} />
                 </>
               )}
               {mower && (
@@ -599,6 +617,7 @@ export default function SensorsPage() {
                     label="Mower temp (motor / ESC)"
                     value={`${fmt(mower.motor_temperature, 1)} / ${fmt(mower.esc_temperature, 1, '°C')}`}
                   />
+                  <FaultReadout label="Mower fault" code={mower.esc_fault_code} />
                   <Readout
                     label="Rain"
                     value={

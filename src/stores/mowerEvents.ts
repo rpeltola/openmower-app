@@ -1,4 +1,12 @@
 import {BASE_EVENT_KEYS, type MowerEvent} from './schemas';
+import {fmtEscFault} from '@/utils/esc-faults';
+
+// Wire values of the ESC_FAULT `motor` field -> display name.
+const ESC_MOTOR_LABELS: Record<string, string> = {
+  left: 'Left drive',
+  right: 'Right drive',
+  mower: 'Mower',
+};
 
 export interface MowerEventState {
   eventsByDate: Record<string, MowerEvent[]>;
@@ -132,6 +140,8 @@ function isEventTitleAttribute(event: MowerEvent, key: string): boolean {
       return key === 'reason';
     case 'AREA':
       return key === 'area_name' || key === 'area_id';
+    case 'ESC_FAULT':
+      return key === 'motor' || key === 'fault_code';
     default:
       return false;
   }
@@ -200,6 +210,11 @@ export function getEventLabel(event: MowerEvent): string {
     case 'AREA': {
       return event.area_name ? `Starting to mow area "${event.area_name}"` : 'Starting to mow next area';
     }
+    case 'ESC_FAULT': {
+      const motor = ESC_MOTOR_LABELS[String(event.motor)] ?? String(event.motor);
+      const code = Number(event.fault_code);
+      return code === 0 ? `${motor} motor fault cleared` : `${motor} motor: ${fmtEscFault(code)}`;
+    }
     default:
       return getEventTypeLabel(event.type);
   }
@@ -229,6 +244,8 @@ export function getEventTypeLabel(type: string): string {
       return 'Navigation error';
     case 'UNDOCKING_FAILED':
       return 'Undocking failed';
+    case 'ESC_FAULT':
+      return 'Motor fault';
     default:
       return type;
   }

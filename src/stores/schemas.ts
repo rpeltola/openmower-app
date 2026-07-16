@@ -48,7 +48,10 @@ const escStatusSchema = z.looseObject({
   temperature_pcb: nullableNumber,
   duty_cycle: nullableNumber,
   input_voltage: nullableNumber,
-  tacho_absolute: nullableNumber,
+  // The ESC's own reason for a fault, not just that there was one (0 = none reported).
+  // The gateway stopped sending tacho_absolute when the firmware gave up those bytes to
+  // carry this instead; an odometer reading nobody acted on, traded for a cause.
+  fault_code: z.number(),
   direction: nullableNumber,
 });
 
@@ -82,6 +85,7 @@ export const sensorsSchema = z.looseObject({
   mower: z
     .looseObject({
       esc_status: z.number(),
+      esc_fault_code: z.number(),
       esc_temperature: nullableNumber,
       esc_current: nullableNumber,
       motor_temperature: nullableNumber,
@@ -618,6 +622,11 @@ export const eventSchema = z.union([
       type: z.literal('AREA'),
       area_id: z.string(),
       area_name: z.string(),
+    }),
+    baseEventSchema.extend({
+      type: z.literal('ESC_FAULT'),
+      motor: z.string(),
+      fault_code: z.number(),
     }),
   ]),
   baseEventSchema,

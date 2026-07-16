@@ -11,6 +11,7 @@ import {
   GpsOff as GpsUnavailableIcon,
   Layers as AreaIcon,
   NotificationsActive as EmergencyActiveIcon,
+  ElectricBolt as MotorFaultIcon,
   HelpOutline as UnknownEventIcon,
   TaskAlt as JobCompleteIcon,
   WrongLocation as NavigationErrorIcon,
@@ -43,6 +44,8 @@ export function getEventTypeIcon(type: string): ReactElement {
       return <NavigationErrorIcon color="error" fontSize="small" />;
     case 'UNDOCKING_FAILED':
       return <UndockingFailedIcon color="warning" fontSize="small" />;
+    case 'ESC_FAULT':
+      return <MotorFaultIcon color="error" fontSize="small" />;
     default:
       return <UnknownEventIcon color="disabled" fontSize="small" />;
   }
@@ -66,6 +69,13 @@ export function getEventIcon(event: MowerEvent): ReactElement {
   if (event.type === 'BLADES') {
     return <BladesIcon color={event.enabled ? 'primary' : 'disabled'} fontSize="small" />;
   }
+  if (event.type === 'ESC_FAULT') {
+    return event.fault_code === 0 ? (
+      <CheckIcon color="success" fontSize="small" />
+    ) : (
+      <MotorFaultIcon color="error" fontSize="small" />
+    );
+  }
   return getEventTypeIcon(event.type);
 }
 
@@ -77,6 +87,7 @@ export function getEventTypeColor(type: string): string {
   switch (type) {
     case 'EMERGENCY':
     case 'NAVIGATION_ERROR':
+    case 'ESC_FAULT':
       return '#d32f2f'; // error
     case 'UNDOCKING_FAILED':
       return '#ed6c02'; // warning
