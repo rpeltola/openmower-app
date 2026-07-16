@@ -70,8 +70,16 @@ export function Diagnostics() {
         }
       />
 
-      {/* ===== Mobile: single-column stack of sensor cards ("every signal, one screen") ===== */}
-      <div className="flex flex-1 flex-col gap-3 md:hidden">
+      {/* ===== Mobile: single-column stack of sensor cards ("every signal, one screen") =====
+          Concept `.body` fades its bottom edge via `mask-image` (openmower-app-concept.html
+          "A · DIAGNOSTICS") so the dense list trails off instead of hard-cutting. */}
+      <div
+        className="flex flex-1 flex-col gap-3 md:hidden"
+        style={{
+          WebkitMaskImage: 'linear-gradient(180deg, #000 90%, transparent 99%)',
+          maskImage: 'linear-gradient(180deg, #000 90%, transparent 99%)',
+        }}
+      >
         <DiagCard label="Battery & power">
           <div className="grid grid-cols-2 gap-x-[.6rem] gap-y-[.4rem]">
             <StatRow label="Voltage" value={BATTERY.voltageV} unit="V" />

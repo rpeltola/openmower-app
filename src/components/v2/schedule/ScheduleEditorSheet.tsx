@@ -1,6 +1,7 @@
 'use client';
 
 import {cn} from '@/components/v2/lib/cn';
+import {AreaPickerList} from '@/components/v2/schedule/AreaPickerList';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
@@ -10,6 +11,17 @@ import {StatePill} from '@/components/v2/ui/StatePill';
 import {Switch} from '@/components/v2/ui/Switch';
 import {Battery, ChevronRight, Clock, CloudRain, Map as MapIcon, Moon} from 'lucide-react';
 import {useState} from 'react';
+
+// Mock mow-area list (design-language.md "Cross-platform contract" world, Kotipiha) — the real
+// area list will come from the map/zones store once that's wired to Schedule.
+const MOW_AREAS = ['Etupiha', 'Takapiha', 'Saunan edessä'];
+
+function areasSummary(selected: string[]): string {
+  if (selected.length === 0) return 'No areas selected';
+  if (selected.length === MOW_AREAS.length) return 'All areas';
+  if (selected.length <= 2) return selected.join(', ');
+  return `${selected.length} areas`;
+}
 
 export interface ScheduleEditorSheetProps {
   open: boolean;
@@ -46,6 +58,18 @@ export function ScheduleEditorSheet({
   const [days, setDays] = useState(activeDays);
   const [rainSkip, setRainSkip] = useState(initialRainSkip);
   const [quietHours, setQuietHours] = useState(initialQuietHours);
+  // `areas` (the prop) is a free-text summary from the parent; parse it into a starting
+  // selection when it names known areas, else default to all (matches "All areas").
+  const [selectedAreas, setSelectedAreas] = useState<string[]>(() => {
+    if (areas.trim() === 'All areas') return MOW_AREAS;
+    const named = areas.split(',').map((a) => a.trim()).filter((a) => MOW_AREAS.includes(a));
+    return named.length > 0 ? named : MOW_AREAS;
+  });
+  const [areaPickerOpen, setAreaPickerOpen] = useState(false);
+
+  function toggleArea(area: string) {
+    setSelectedAreas((prev) => (prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]));
+  }
 
   return (
     <Sheet open={open} onClose={onClose} className="max-h-[88vh] overflow-y-auto">
@@ -103,10 +127,21 @@ export function ScheduleEditorSheet({
             </span>
           }
           title="Areas"
-          sub={areas}
-          trailing={<ChevronRight size={14} strokeWidth={2.4} className="text-ink-faint" />}
+          sub={areasSummary(selectedAreas)}
+          onClick={() => setAreaPickerOpen((v) => !v)}
+          trailing={
+            <ChevronRight
+              size={14}
+              strokeWidth={2.4}
+              className={cn('text-ink-faint transition-transform', areaPickerOpen && 'rotate-90')}
+            />
+          }
         />
       </Card>
+
+      {areaPickerOpen ? (
+        <AreaPickerList areas={MOW_AREAS} selected={selectedAreas} onToggle={toggleArea} />
+      ) : null}
 
       <Card className="px-[.6rem]">
         <ListRow
