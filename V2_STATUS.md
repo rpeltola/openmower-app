@@ -87,6 +87,11 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
       MML-Finland/OSM] is next; then vertex tools, transforms, measurements/validation, command
       palette, coverage preview, versioned save/backups). NOTE: Esri has no deep imagery at the rural
       Finland datum ("Map data not yet available") — the MML basemap fixes it (feature A).
+      - [x] Basemap switcher DONE (Esri / MML-Finland / OSM); MML wired w/ key, maxNativeZoom 18.
+      - [ ] **BACKLOG (low priority): MML sharpening** — MML ortokuva is ~0.5 m/px source, so it
+            upscales/blurs at garden closeup (fundamental, not a bug). Optional nicety: switch MML
+            from WMTS to **WMS** (server renders exact bbox at screen res → smooth, not pixelated;
+            RevLaw: "WMS renders crisp at any zoom"), and/or cap overzoom to ~native+1. Deferred.
 - [x] **Schedule (`/v2/schedule`)** — weekly plan + rain-skip + mow-all-now (mobile), week calendar
       + policy card (desktop), editor as a Sheet. Verified mobile/desktop/dark + sheet. Committed.
 - [x] **Activity (`/v2/activity`)** — Events/History/Stats sub-tabs; desktop History list+detail.
