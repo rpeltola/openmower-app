@@ -33,6 +33,23 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
 - **Responsive**: one component tree; only the ~5 layout patterns (`AppShell`, `ResponsiveSheet`,
   `SplitView`, `MapCanvas`) adapt mobile↔desktop; most components identical on both.
 
+## 🔴 KNOWN BROKEN — fix first next session
+- **Map vertex DRAG does not move handles** (user-confirmed in a real browser, twice — NOT a
+  headless-test artifact). Add / delete / undo / redo / selection all WORK (verified via clicks);
+  only the drag gesture fails. Diagnosis so far (`map/MapCanvas.tsx` handles effect):
+  1. Original cause: `dragstart` → `onSelectVertex(...)` sets `selectedVertex`, which was a dep of
+     the handle-creation effect → `handleLayer.clearLayers()` destroyed the marker **mid-drag**.
+  2. Attempt in `466108f` removed `selectedVertex` from that effect's deps + moved highlight to a
+     separate restyle effect — BUT that restyle effect calls `marker.setIcon()` on selection change,
+     and `dragstart` still fires `onSelectVertex` → the restyle runs → `setIcon` **replaces the
+     dragging marker's icon DOM element**, which detaches Leaflet's Draggable from it → drag still
+     dies. (Same class of bug, new mechanism.)
+  - **Candidate fix (untried, ~1 line):** remove the `marker.on('dragstart', …onSelectVertex…)`
+     call entirely (a vertex being dragged doesn't need to also be "selected"); OR guard the restyle
+     effect to skip `setIcon` on a marker whose `.dragging` is active; OR don't use a divIcon whose
+     element churns. Then VERIFY IN A REAL BROWSER (headless Playwright can't reliably drive Leaflet
+     marker drag — don't trust a headless pass).
+
 ## Progress
 - ✅ **`6b3ec8c`** — scaffold Tailwind + tokens + kit + **manual-control PoC** (`/v2/control`),
   verified ~1:1 on mobile + desktop, v1 untouched.
@@ -92,6 +109,12 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
             upscales/blurs at garden closeup (fundamental, not a bug). Optional nicety: switch MML
             from WMTS to **WMS** (server renders exact bbox at screen res → smooth, not pixelated;
             RevLaw: "WMS renders crisp at any zoom"), and/or cap overzoom to ~native+1. Deferred.
+      - [~] **Vertex tools batch 1** (`466108f`): edit mode + handles + tool dock; add/delete/
+            undo/redo/selection WORK, **drag BROKEN** (see 🔴 KNOWN BROKEN at top). `map/geometry.ts`
+            (nearest-edge, ported from RevLaw), `map/useMapEditor.ts` (state + snapshot undo/redo).
+      - [ ] Next map-editor batches (KB checklist §C–I): fix drag → snap-to-line, smear brush,
+            multi/box-select, transforms (rotate/scale/duplicate/buffer/simplify), measurements,
+            validation, command palette + shortcuts, coverage preview, versioned save + backups.
 - [x] **Schedule (`/v2/schedule`)** — weekly plan + rain-skip + mow-all-now (mobile), week calendar
       + policy card (desktop), editor as a Sheet. Verified mobile/desktop/dark + sheet. Committed.
 - [x] **Activity (`/v2/activity`)** — Events/History/Stats sub-tabs; desktop History list+detail.
@@ -101,6 +124,12 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
 - [x] **Settings (`/v2/settings`)** — grouped list (mobile) + rail/detail two-pane (desktop).
       Verified. Committed. TODO: desktop detail pane only renders Notifications for any category.
 - [ ] State screens (booting, paused-GPS, height-confirm, onboarding)
+- [x] **State screens** (`/v2/states` showcase) — booting, height-confirm, paused-blocker (disabled
+      Mow + reason + growing uncertainty ring), onboarding. Verified.
+- [x] **Mobile parity pass** — Activity/History + Settings now have mobile drill-ins (tap → detail →
+      back) instead of dropping the desktop detail pane. **PRINCIPLE (apply to every screen): mobile-
+      first, FULL feature parity — never hide features on mobile; give each a mobile idiom (drill-in/
+      sheet).** Still audit: Schedule mobile lacks the full week-calendar (has the plan); fine-ish.
 - [ ] Wire REAL data (MQTT store/hooks/schemas — currently ALL MOCK; the stores/lib/hooks are
       shared with v1 and library-agnostic)
 - [ ] Cut over: v2 → `/`, delete v1 + MUI + the Tailwind-preflight workaround
