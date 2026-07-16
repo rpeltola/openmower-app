@@ -2,10 +2,12 @@
 
 // Map screen — the map is the hero (full-bleed), UI floats over it in pills / FABs / a stat card
 // (design-language.md "The map is the hero"). Real Leaflet canvas underneath; concept chrome on top.
-// Map-editor port: edit mode, zone selection, vertex select/add/delete/snap/brush/multi-select,
-// undo/redo (batches 1-2 of MAP_EDITOR_SPEC.md). Later batches add create/transform tools.
+// Map-editor port: edit mode, zone selection, vertex tools, zone create/transform, undo/redo
+// (batches 1-3 of MAP_EDITOR_SPEC.md). The zone-list Sheet below is a placeholder — the
+// area-settings batch replaces it with the real per-area settings editor.
+import {latLngToMeters} from '@/lib/v2/geo/projection';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
-import {MOCK_ZONES} from '@/components/v2/map/mockMap';
+import {MOCK_DOCK, MOCK_ORIGIN, MOCK_ZONES, type ZoneType} from '@/components/v2/map/mockMap';
 import {useMapEditor, type EditTool} from '@/components/v2/map/useMapEditor';
 import {Button} from '@/components/v2/ui/Button';
 import {Fab} from '@/components/v2/ui/Fab';
@@ -13,25 +15,40 @@ import {FormField} from '@/components/v2/ui/FormField';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
+import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Sheet} from '@/components/v2/ui/Sheet';
 import {Slider} from '@/components/v2/ui/Slider';
 import {StatCard} from '@/components/v2/ui/StatCard';
 import type {Map as LeafletMap} from 'leaflet';
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
+  Circle as CircleIcon,
   CirclePlus,
+  Copy,
   Eraser,
+  Expand,
   Layers,
   Locate,
+  MapPin,
   MapPinned,
   MousePointer2,
   Minus,
+  Move,
   Paintbrush2,
   Pencil,
   Plus,
+  RectangleHorizontal,
   Redo2,
+  RotateCcw,
+  RotateCw,
+  Shrink,
+  Sliders,
+  Spline,
   Square,
   SquareDashedMousePointer,
+  SquarePlus,
   Trash2,
   Undo2,
   Waypoints,
@@ -49,6 +66,12 @@ const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24};
 
 const BASEMAP_STORAGE_KEY = 'v2.basemap';
 
+const ZONE_TYPE_OPTIONS: {value: ZoneType; label: string}[] = [
+  {value: 'mow', label: 'Mowing'},
+  {value: 'nav', label: 'Navigation'},
+  {value: 'obstacle', label: 'Obstacle'},
+];
+
 const TOOLS: {value: EditTool; label: string; icon: ReactNode}[] = [
   {value: 'select', label: 'Select / drag', icon: <MousePointer2 size={16} />},
   {value: 'add', label: 'Add point', icon: <CirclePlus size={16} />},
@@ -56,6 +79,9 @@ const TOOLS: {value: EditTool; label: string; icon: ReactNode}[] = [
   {value: 'snap', label: 'Snap line', icon: <Waypoints size={16} />},
   {value: 'brush', label: 'Push brush', icon: <Paintbrush2 size={16} />},
   {value: 'multi', label: 'Multi-select', icon: <SquareDashedMousePointer size={16} />},
+  {value: 'move', label: 'Move zone', icon: <Move size={16} />},
+  {value: 'rect', label: 'Draw rectangle', icon: <RectangleHorizontal size={16} />},
+  {value: 'circle', label: 'Draw circle', icon: <CircleIcon size={16} />},
 ];
 
 export function Map() {
@@ -63,9 +89,13 @@ export function Map() {
   const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
   const [basemapSheetOpen, setBasemapSheetOpen] = useState(false);
   const [zoneSheetOpen, setZoneSheetOpen] = useState(false);
+  const [transformSheetOpen, setTransformSheetOpen] = useState(false);
   const [brushRadius, setBrushRadius] = useState(1.2);
   const [brushStrength, setBrushStrength] = useState(0.6);
-  const editor = useMapEditor(MOCK_ZONES);
+  const [placingDock, setPlacingDock] = useState(false);
+  const [bufferDistance, setBufferDistance] = useState(0.3);
+  const [simplifyTolerance, setSimplifyTolerance] = useState(0.1);
+  const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
   useEffect(() => {
     const stored = localStorage.getItem(BASEMAP_STORAGE_KEY);
@@ -79,6 +109,12 @@ export function Map() {
   };
 
   const selectedZone = editor.zones.find((z) => z.id === editor.selectedZoneId);
+  const selectedZoneIndex = editor.zones.findIndex((z) => z.id === editor.selectedZoneId);
+
+  const addZoneAtCenter = () => {
+    const center = mapRef.current ? latLngToMeters(mapRef.current.getCenter(), MOCK_ORIGIN) : {x: 0, y: 0};
+    editor.addZone(center);
+  };
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -87,6 +123,7 @@ export function Map() {
         basemapId={basemapId}
         onReady={(m) => (mapRef.current = m)}
         zones={editor.zones}
+        dock={editor.dock}
         editing={editor.editing}
         selectedZoneId={editor.selectedZoneId}
         selectedVertex={editor.selectedVertex}
@@ -95,12 +132,21 @@ export function Map() {
         multiSelected={editor.multiSelected}
         brushRadius={brushRadius}
         brushStrength={brushStrength}
+        placingDock={placingDock}
         onZonesChange={editor.commitZones}
         onSelectVertex={editor.selectVertex}
         onSelectZone={editor.selectZone}
         onPickSnapVertex={editor.pickSnapVertex}
         onToggleMultiVertex={editor.toggleMultiVertex}
         onSetMultiSelected={editor.setMultiSelected}
+        onCreateZone={(outline) => {
+          editor.createZone(outline);
+          editor.setTool('select');
+        }}
+        onDockChange={(next) => {
+          editor.commitDock(next);
+          setPlacingDock(false);
+        }}
       />
 
       {/* top status pills (live view) / editing indicator (edit mode) */}
@@ -204,6 +250,29 @@ export function Map() {
             )}
 
             <div className="mt-2.5 flex items-center gap-2">
+              <Button variant="soft" size="sm" className="flex-1" onClick={addZoneAtCenter}>
+                <SquarePlus size={14} /> Add zone
+              </Button>
+              <Button
+                variant={placingDock ? 'primary' : 'soft'}
+                size="sm"
+                className="flex-1"
+                onClick={() => setPlacingDock((v) => !v)}
+              >
+                <MapPin size={14} /> {placingDock ? 'Tap the map…' : 'Place dock'}
+              </Button>
+              <Button
+                variant="soft"
+                size="sm"
+                className="flex-1"
+                onClick={() => setTransformSheetOpen(true)}
+                disabled={!selectedZone}
+              >
+                <Sliders size={14} /> Transform
+              </Button>
+            </div>
+
+            <div className="mt-2.5 flex items-center gap-2">
               <Button variant="ghost" size="sm" className="flex-1" onClick={editor.undo} disabled={!editor.canUndo}>
                 <Undo2 size={14} /> Undo
               </Button>
@@ -264,6 +333,141 @@ export function Map() {
             trailing={z.id === editor.selectedZoneId ? <Check size={17} className="text-accent" /> : undefined}
           />
         ))}
+      </Sheet>
+
+      {/* Zone create/transform — placeholder home for this until the area-settings batch folds
+          the Basics (name/type/active) part into the real per-area settings editor. */}
+      <Sheet open={transformSheetOpen} onClose={() => setTransformSheetOpen(false)} title={selectedZone?.name ?? 'Transform'}>
+        {selectedZone && (
+          <div className="space-y-3.5">
+            <FormField label="Name">
+              <input
+                key={selectedZone.id}
+                type="text"
+                defaultValue={selectedZone.name}
+                onBlur={(e) => editor.renameZone(selectedZone.id, e.target.value || selectedZone.name)}
+                className="h-10 w-full rounded-[var(--radius-control)] border border-border bg-surface-2 px-2.5 text-sm text-ink"
+              />
+            </FormField>
+
+            <FormField label="Type">
+              <SegmentedToggle
+                options={ZONE_TYPE_OPTIONS}
+                value={selectedZone.type}
+                onChange={(v) => editor.setZoneType(selectedZone.id, v as ZoneType)}
+              />
+            </FormField>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="soft"
+                size="sm"
+                className="flex-1"
+                onClick={() => editor.reorderZone(selectedZone.id, 'up')}
+                disabled={selectedZoneIndex <= 0}
+              >
+                <ArrowUp size={14} /> Order up
+              </Button>
+              <Button
+                variant="soft"
+                size="sm"
+                className="flex-1"
+                onClick={() => editor.reorderZone(selectedZone.id, 'down')}
+                disabled={selectedZoneIndex < 0 || selectedZoneIndex >= editor.zones.length - 1}
+              >
+                <ArrowDown size={14} /> Order down
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="soft" size="sm" className="flex-1" onClick={() => editor.duplicateZone(selectedZone.id)}>
+                <Copy size={14} /> Duplicate
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                className="flex-1"
+                onClick={() => {
+                  editor.deleteZone(selectedZone.id);
+                  setTransformSheetOpen(false);
+                }}
+              >
+                <Trash2 size={14} /> Delete zone
+              </Button>
+            </div>
+
+            <div className="h-px bg-border" />
+
+            <FormField label="Rotate" hint="About the zone's centroid.">
+              <div className="flex items-center gap-2">
+                <Button variant="soft" size="sm" className="flex-1" onClick={() => editor.rotateSelectedZone(-1)}>
+                  <RotateCcw size={14} /> −15°
+                </Button>
+                <Button variant="soft" size="sm" className="flex-1" onClick={() => editor.rotateSelectedZone(1)}>
+                  <RotateCw size={14} /> +15°
+                </Button>
+              </div>
+            </FormField>
+
+            <FormField label="Scale" hint="About the zone's centroid.">
+              <div className="flex items-center gap-2">
+                <Button variant="soft" size="sm" className="flex-1" onClick={() => editor.scaleSelectedZone(-1)}>
+                  <Shrink size={14} /> −5%
+                </Button>
+                <Button variant="soft" size="sm" className="flex-1" onClick={() => editor.scaleSelectedZone(1)}>
+                  <Expand size={14} /> +5%
+                </Button>
+              </div>
+            </FormField>
+
+            <FormField
+              label="Grow / shrink"
+              value={bufferDistance >= 0 ? `+${bufferDistance.toFixed(2)}` : bufferDistance.toFixed(2)}
+              unit=" m"
+              hint="Uniform outline offset — positive grows, negative shrinks."
+            >
+              <Slider
+                value={bufferDistance}
+                min={-1}
+                max={1}
+                step={0.05}
+                onChange={setBufferDistance}
+                aria-label="Grow/shrink distance"
+              />
+              <Button
+                variant="soft"
+                size="sm"
+                className="mt-1.5 w-full justify-center"
+                onClick={() => editor.bufferSelectedZone(bufferDistance)}
+              >
+                Apply
+              </Button>
+            </FormField>
+
+            <FormField
+              label="Simplify outline"
+              value={simplifyTolerance.toFixed(2)}
+              unit=" m tolerance"
+              hint="Douglas-Peucker — removes points that don't change the shape by more than this."
+            >
+              <Slider
+                value={simplifyTolerance}
+                min={0.02}
+                max={1}
+                step={0.02}
+                onChange={setSimplifyTolerance}
+                aria-label="Simplify tolerance"
+              />
+              <Button
+                variant="soft"
+                size="sm"
+                className="mt-1.5 w-full justify-center"
+                onClick={() => editor.simplifySelectedZone(simplifyTolerance)}
+              >
+                <Spline size={14} /> Simplify
+              </Button>
+            </FormField>
+          </div>
+        )}
       </Sheet>
     </div>
   );

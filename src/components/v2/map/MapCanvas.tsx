@@ -17,8 +17,17 @@ import {
   type Origin,
   type Pose,
 } from '@/lib/v2/geo/projection';
-import {dragBrush, nearestEdgeInsertIndex} from '@/components/v2/map/geometry';
-import {MOCK_DOCK, MOCK_FOOTPRINT, MOCK_ORIGIN, MOCK_POSE, MOCK_ZONES, ZONE_STYLE, type Zone} from '@/components/v2/map/mockMap';
+import {centroid, circleToPolygon, dragBrush, nearestEdgeInsertIndex, rectangleCorners} from '@/components/v2/map/geometry';
+import {
+  MOCK_DOCK,
+  MOCK_FOOTPRINT,
+  MOCK_ORIGIN,
+  MOCK_POSE,
+  MOCK_ZONES,
+  ZONE_STYLE,
+  type Dock,
+  type Zone,
+} from '@/components/v2/map/mockMap';
 import {DEFAULT_BASEMAP_ID, resolveBasemap} from '@/components/v2/map/basemaps';
 import type {EditTool, SelectedVertex} from '@/components/v2/map/useMapEditor';
 import L from 'leaflet';
@@ -28,7 +37,7 @@ import {useEffect, useRef} from 'react';
 export interface MapCanvasProps {
   origin?: Origin;
   zones?: Zone[];
-  dock?: {position: {x: number; y: number}};
+  dock?: Dock;
   pose?: Pose;
   footprint?: Footprint;
   className?: string;
@@ -49,6 +58,9 @@ export interface MapCanvasProps {
   /** Push/smear brush radius (m) and follow-strength (0..1) — contextual sliders in the tool dock. */
   brushRadius?: number;
   brushStrength?: number;
+  /** True while a "place dock" action is armed — the next map click moves the dock there,
+   *  regardless of the current vertex tool. */
+  placingDock?: boolean;
   /** Fires with the whole updated zones array on every committed edit (drag-end, insert, delete). */
   onZonesChange?: (zones: Zone[]) => void;
   onSelectVertex?: (vertex: SelectedVertex | null) => void;
@@ -56,6 +68,10 @@ export interface MapCanvasProps {
   onPickSnapVertex?: (vertex: SelectedVertex) => void;
   onToggleMultiVertex?: (index: number) => void;
   onSetMultiSelected?: (indices: number[]) => void;
+  /** Fires with a finished outline from the rectangle/circle draw tools. */
+  onCreateZone?: (outline: Zone['outline']) => void;
+  /** Fires on dock drag-end, and on a map click while `placingDock` is armed. */
+  onDockChange?: (dock: Dock) => void;
 }
 
 // Vertex-handle colors are fixed (not theme-dependent), same rule as the zone colors — they must
@@ -80,6 +96,29 @@ function makeHandleIcon(highlighted: boolean) {
   });
 }
 
+// Move-whole-zone (tool 'move') centroid handle — a diamond, distinct from the round vertex
+// handles, so it reads as "drag to translate the whole shape" rather than "edit this vertex".
+const MOVE_HANDLE_COLOR = '#ffb020';
+function makeMoveIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<span style="display:block;width:18px;height:18px;border-radius:5px;background:${MOVE_HANDLE_COLOR};border:2px solid ${HANDLE_STROKE};box-shadow:0 1px 3px rgba(0,0,0,.45);transform:rotate(45deg);"></span>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
+
+// Dock marker icon — a filled circle matching the old circleMarker look, but an L.marker (not a
+// vector layer) so it can be dragged.
+function makeDockIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<span style="display:block;width:16px;height:16px;border-radius:50%;background:#5aa9ff;border:2px solid #ffffff;box-shadow:0 1px 3px rgba(0,0,0,.45);"></span>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
+}
+
 export function MapCanvas({
   origin = MOCK_ORIGIN,
   zones = MOCK_ZONES,
@@ -97,12 +136,15 @@ export function MapCanvas({
   multiSelected = EMPTY_SET,
   brushRadius = 1.2,
   brushStrength = 0.6,
+  placingDock = false,
   onZonesChange,
   onSelectVertex,
   onSelectZone,
   onPickSnapVertex,
   onToggleMultiVertex,
   onSetMultiSelected,
+  onCreateZone,
+  onDockChange,
 }: MapCanvasProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -112,6 +154,7 @@ export function MapCanvas({
   const dockLayerRef = useRef<L.LayerGroup | null>(null);
   const robotLayerRef = useRef<L.LayerGroup | null>(null);
   const brushCursorRef = useRef<L.Circle | null>(null);
+  const draftLayerRef = useRef<L.LayerGroup | null>(null);
   const zonePolygonsRef = useRef<Map<string, L.Polygon>>(new Map());
   const handleMarkersRef = useRef<L.Marker[]>([]);
   const fittedRef = useRef(false);
@@ -144,6 +187,12 @@ export function MapCanvas({
   onToggleMultiVertexRef.current = onToggleMultiVertex;
   const onSetMultiSelectedRef = useRef(onSetMultiSelected);
   onSetMultiSelectedRef.current = onSetMultiSelected;
+  const onCreateZoneRef = useRef(onCreateZone);
+  onCreateZoneRef.current = onCreateZone;
+  const onDockChangeRef = useRef(onDockChange);
+  onDockChangeRef.current = onDockChange;
+  const placingDockRef = useRef(placingDock);
+  placingDockRef.current = placingDock;
 
   // ---- one-time map + layer-group creation -----------------------------------------------------
   useEffect(() => {
@@ -159,6 +208,7 @@ export function MapCanvas({
     handleLayerRef.current = L.layerGroup().addTo(map);
     dockLayerRef.current = L.layerGroup().addTo(map);
     robotLayerRef.current = L.layerGroup().addTo(map);
+    draftLayerRef.current = L.layerGroup().addTo(map);
     brushCursorRef.current = L.circle(map.getCenter(), {
       radius: brushRadiusRef.current,
       color: HANDLE_SELECTED,
@@ -179,12 +229,23 @@ export function MapCanvas({
     let boxStart: L.Point | null = null;
     let boxSelectDiv: HTMLDivElement | null = null;
 
-    // "Add" tool: a map click inserts a vertex on the selected zone's nearest edge. "Select"/
-    // "multi" tools: clicking empty map (not a vertex handle — those stop propagation) clears the
-    // current selection.
+    // Rectangle/circle draw-by-drag (tools 'rect'/'circle') — a dashed preview shape that follows
+    // the drag, finished into a new zone outline on pointer-up.
+    let draftStart: Meters | null = null;
+    let draftShape: L.Polygon | L.Circle | null = null;
+
+    // "Place dock" (armed via `placingDock`) takes priority over any tool: the next map click
+    // moves the dock there and does NOT fall through to the tool's own click behavior. "Add"
+    // tool: a map click inserts a vertex on the selected zone's nearest edge. "Select"/"multi"
+    // tools: clicking empty map (not a vertex handle — those stop propagation) clears the current
+    // selection.
     map.on('click', (e: L.LeafletMouseEvent) => {
       if (!editingRef.current) return;
       const point = latLngToMeters(e.latlng, originRef.current);
+      if (placingDockRef.current) {
+        onDockChangeRef.current?.({position: point});
+        return;
+      }
       const currentTool = toolRef.current;
       if (currentTool === 'add') {
         const zoneId = selectedZoneIdRef.current;
@@ -233,6 +294,28 @@ export function MapCanvas({
         brushZoneId = zoneId;
         brushWorkingOutline = zone.outline.map((p) => ({x: p.x, y: p.y}));
         brushLast = latLngToMeters(e.latlng, originRef.current);
+        return;
+      }
+
+      if (currentTool === 'rect' || currentTool === 'circle') {
+        draftStart = latLngToMeters(e.latlng, originRef.current);
+        draftShape =
+          currentTool === 'circle'
+            ? L.circle(e.latlng, {
+                radius: 0.05,
+                color: HANDLE_SELECTED,
+                weight: 2,
+                dashArray: '4,4',
+                fillColor: HANDLE_SELECTED,
+                fillOpacity: 0.08,
+              }).addTo(draftLayerRef.current!)
+            : L.polygon([e.latlng, e.latlng, e.latlng, e.latlng], {
+                color: HANDLE_SELECTED,
+                weight: 2,
+                dashArray: '4,4',
+                fillColor: HANDLE_SELECTED,
+                fillOpacity: 0.08,
+              }).addTo(draftLayerRef.current!);
       }
     });
 
@@ -264,6 +347,18 @@ export function MapCanvas({
         brushLast = point;
         const polygon = zonePolygonsRef.current.get(brushZoneId);
         polygon?.setLatLngs(brushWorkingOutline.map((p) => metersToLatLng(p, originRef.current)));
+        return;
+      }
+
+      if (draftStart && draftShape) {
+        const cur = latLngToMeters(e.latlng, originRef.current);
+        if (toolRef.current === 'circle') {
+          const radius = Math.max(Math.hypot(cur.x - draftStart.x, cur.y - draftStart.y), 0.05);
+          (draftShape as L.Circle).setRadius(radius);
+        } else {
+          const corners = rectangleCorners(draftStart, cur);
+          (draftShape as L.Polygon).setLatLngs(corners.map((p) => metersToLatLng(p, originRef.current)));
+        }
       }
     });
 
@@ -301,6 +396,21 @@ export function MapCanvas({
       brushWorkingOutline = null;
       brushZoneId = null;
       brushLast = null;
+
+      if (draftStart && draftShape) {
+        const cur = latLngToMeters(e.latlng, originRef.current);
+        if (toolRef.current === 'circle') {
+          const radius = Math.hypot(cur.x - draftStart.x, cur.y - draftStart.y);
+          if (radius > 0.2) onCreateZoneRef.current?.(circleToPolygon(draftStart, Math.max(radius, 0.3)));
+        } else {
+          const w = Math.abs(cur.x - draftStart.x);
+          const h = Math.abs(cur.y - draftStart.y);
+          if (w > 0.2 && h > 0.2) onCreateZoneRef.current?.(rectangleCorners(draftStart, cur));
+        }
+        draftShape.remove();
+        draftShape = null;
+        draftStart = null;
+      }
     });
 
     onReady?.(map);
@@ -383,11 +493,57 @@ export function MapCanvas({
     }
 
     handleMarkersRef.current = [];
-    // The brush tool works on the whole outline via drag-paint, not individual vertex handles —
-    // hide them so they don't intercept the brush's map-level pointer events.
-    if (!editing || !selectedZoneId || tool === 'brush') return;
+    // The brush tool works on the whole outline via drag-paint, and rect/circle draw independent
+    // new shapes — none of them need individual vertex handles, so hide them (brush especially
+    // must not have handles intercepting its map-level pointer events).
+    if (!editing || !selectedZoneId || tool === 'brush' || tool === 'rect' || tool === 'circle') return;
     const zone = zones.find((z) => z.id === selectedZoneId);
     if (!zone) return;
+
+    // Move-whole-zone (tool 'move'): a single centroid handle translates every vertex together —
+    // no per-vertex handles in this tool.
+    if (tool === 'move') {
+      const center = centroid(zone.outline);
+      if (!center) return;
+      const marker = L.marker(metersToLatLng(center, origin), {
+        draggable: true,
+        icon: makeMoveIcon(),
+        zIndexOffset: 950,
+        title: 'Move zone',
+      }).addTo(handleLayer);
+      handleMarkersRef.current.push(marker);
+
+      let startOutline: Meters[] | null = null;
+      let startPoint: Meters | null = null;
+      marker.on('dragstart', () => {
+        const current = zonesRef.current.find((z) => z.id === zone.id);
+        if (!current) return;
+        startOutline = current.outline.map((p) => ({x: p.x, y: p.y}));
+        startPoint = latLngToMeters(marker.getLatLng(), originRef.current);
+      });
+      marker.on('drag', () => {
+        const polygon = zonePolygonsRef.current.get(zone.id);
+        if (!polygon || !startOutline || !startPoint) return;
+        const cur = latLngToMeters(marker.getLatLng(), originRef.current);
+        const dx = cur.x - startPoint.x;
+        const dy = cur.y - startPoint.y;
+        const liveOutline = startOutline.map((p) => ({x: p.x + dx, y: p.y + dy}));
+        polygon.setLatLngs(liveOutline.map((p) => metersToLatLng(p, originRef.current)));
+      });
+      marker.on('dragend', () => {
+        const currentZones = zonesRef.current;
+        const current = currentZones.find((z) => z.id === zone.id);
+        if (!current || !startOutline || !startPoint) return;
+        const cur = latLngToMeters(marker.getLatLng(), originRef.current);
+        const dx = cur.x - startPoint.x;
+        const dy = cur.y - startPoint.y;
+        const outline = startOutline.map((p) => ({x: p.x + dx, y: p.y + dy}));
+        onZonesChangeRef.current?.(currentZones.map((z) => (z.id === zone.id ? {...z, outline} : z)));
+        startOutline = null;
+        startPoint = null;
+      });
+      return;
+    }
 
     zone.outline.forEach((point, index) => {
       // 'select' and 'multi' drag vertices directly (multi may drag the whole selected group —
@@ -494,21 +650,22 @@ export function MapCanvas({
     });
   }, [selectedVertex, snapPick, multiSelected, selectedZoneId, editing, tool]);
 
-  // ---- dock marker (imperative update, independent of zone/edit state) --------------------------
+  // ---- dock marker: draggable while editing (place-by-click also lands here via onDockChange) ---
   useEffect(() => {
     const dockLayer = dockLayerRef.current;
     if (!mapRef.current || !dockLayer) return;
     dockLayer.clearLayers();
-    L.circleMarker(metersToLatLng(dock.position, origin), {
-      radius: 6,
-      color: '#ffffff',
-      weight: 2,
-      fillColor: '#5aa9ff',
-      fillOpacity: 1,
+    const marker = L.marker(metersToLatLng(dock.position, origin), {
+      draggable: editing,
+      icon: makeDockIcon(),
+      zIndexOffset: 800,
     })
       .bindTooltip('Dock', {direction: 'top', className: 'v2-map-label'})
       .addTo(dockLayer);
-  }, [dock, origin]);
+    marker.on('dragend', () => {
+      onDockChangeRef.current?.({position: latLngToMeters(marker.getLatLng(), originRef.current)});
+    });
+  }, [dock, origin, editing]);
 
   // ---- to-scale robot footprint + heading nose (imperative update) ------------------------------
   useEffect(() => {

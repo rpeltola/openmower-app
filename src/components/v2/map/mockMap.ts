@@ -56,7 +56,11 @@ export const MOCK_ZONES: Zone[] = [
   },
 ];
 
-export const MOCK_DOCK: {position: {x: number; y: number}} = {position: {x: -8, y: -5.5}};
+export interface Dock {
+  position: {x: number; y: number};
+}
+
+export const MOCK_DOCK: Dock = {position: {x: -8, y: -5.5}};
 
 // Robot mid-mow, heading roughly north-east (radians CCW from +x/east).
 export const MOCK_POSE: Pose = {x: -1.5, y: 0.5, heading: 0.6};
