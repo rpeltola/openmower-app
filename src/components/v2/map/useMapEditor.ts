@@ -6,6 +6,7 @@
 // local: no MQTT here, just the state MapCanvas renders and Map.tsx's tool dock drives. The
 // area-settings batch extends this further (updateZoneSettings/resetZoneSettings).
 import {useCallback, useEffect, useState} from 'react';
+import {mergeOutlines, splitOutlineWithLine, subtractOutlines} from '@/components/v2/map/booleanOps';
 import {
   centroid,
   offsetPolygon,
@@ -24,7 +25,24 @@ import {
   type ZoneType,
 } from '@/components/v2/map/mockMap';
 
-export type EditTool = 'select' | 'add' | 'delete' | 'snap' | 'brush' | 'multi' | 'rect' | 'circle' | 'move';
+export type EditTool =
+  | 'select'
+  | 'add'
+  | 'delete'
+  | 'snap'
+  | 'brush'
+  | 'multi'
+  | 'rect'
+  | 'circle'
+  | 'move'
+  | 'split';
+
+/** Result of a boolean area operation (merge/split/subtract) — surfaced to the user instead of
+ *  v1's console.error-only failure handling (MAP_BOOLEAN_OPS_SPEC.md). */
+export interface OpResult {
+  ok: boolean;
+  reason?: string;
+}
 
 export interface SelectedVertex {
   zoneId: string;
@@ -124,6 +142,17 @@ export interface MapEditor {
   bufferSelectedZone: (distanceM: number) => void;
   /** Douglas-Peucker simplify of the selected zone's outline at the given tolerance (m). */
   simplifySelectedZone: (toleranceM: number) => void;
+  /** Merge `otherIds` into `targetId` (turf union) — target's id/name/type/settings survive, the
+   *  others are deleted. One undo entry. Fails (no-op) if the areas don't combine into one. */
+  mergeZones: (targetId: string, otherIds: string[]) => OpResult;
+  /** Split a zone along `cutLine` into N new zones (cloned type/settings, names suffixed " (1)",
+   *  " (2)", …), replacing the original. One undo entry. Fails if the cut doesn't produce >= 2
+   *  pieces (e.g. the line doesn't cross the boundary). */
+  splitZone: (zoneId: string, cutLine: Zone['outline']) => OpResult;
+  /** Cut `otherIds` out of `targetId` (turf difference) — `keepOthers` controls whether the cutter
+   *  zones survive alongside the reshaped target. One undo entry. Fails if the result would be
+   *  empty, split into multiple pieces, or leave a hole (v2 outlines are single-ring). */
+  subtractZones: (targetId: string, otherIds: string[], keepOthers: boolean) => OpResult;
   undo: () => void;
   redo: () => void;
 }
@@ -402,6 +431,73 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     [selectedZoneId, zones, commitZones],
   );
 
+  // --- Boolean area operations (MAP_BOOLEAN_OPS_SPEC.md, v1 parity) --------------------------
+  // Each builds the ENTIRE next `zones` array and calls commitZones exactly once — unlike the
+  // createZone-then-renameZone bug found earlier, there's no second callback closing over a stale
+  // pre-op snapshot here.
+
+  const mergeZones = useCallback(
+    (targetId: string, otherIds: string[]): OpResult => {
+      const target = zones.find((z) => z.id === targetId);
+      const others = otherIds.map((id) => zones.find((z) => z.id === id)).filter((z): z is Zone => !!z);
+      if (!target || others.length === 0) return {ok: false, reason: 'Pick at least one other area to merge.'};
+      const merged = mergeOutlines([target.outline, ...others.map((z) => z.outline)]);
+      if (!merged) return {ok: false, reason: "Areas don't overlap — can't merge into one."};
+      const otherIdSet = new Set(others.map((z) => z.id));
+      const next = zones
+        .filter((z) => !otherIdSet.has(z.id))
+        .map((z) => (z.id === targetId ? {...z, outline: merged} : z));
+      commitZones(next);
+      setSelectedZoneId(targetId);
+      return {ok: true};
+    },
+    [zones, commitZones],
+  );
+
+  const splitZone = useCallback(
+    (zoneId: string, cutLine: Zone['outline']): OpResult => {
+      const zone = zones.find((z) => z.id === zoneId);
+      if (!zone) return {ok: false, reason: 'No zone selected.'};
+      const pieces = splitOutlineWithLine(zone.outline, cutLine);
+      if (!pieces) return {ok: false, reason: 'Draw a line that crosses the area boundary.'};
+      const newZones: Zone[] = pieces.map((outline, i) => ({
+        id: makeZoneId(),
+        name: `${zone.name} (${i + 1})`,
+        type: zone.type,
+        active: zone.active,
+        outline,
+        settings: zone.settings ? {...zone.settings} : undefined,
+      }));
+      const index = zones.findIndex((z) => z.id === zoneId);
+      const next = [...zones.slice(0, index), ...newZones, ...zones.slice(index + 1)];
+      commitZones(next);
+      setSelectedZoneId(newZones[0].id);
+      return {ok: true};
+    },
+    [zones, commitZones],
+  );
+
+  const subtractZones = useCallback(
+    (targetId: string, otherIds: string[], keepOthers: boolean): OpResult => {
+      const target = zones.find((z) => z.id === targetId);
+      const others = otherIds.map((id) => zones.find((z) => z.id === id)).filter((z): z is Zone => !!z);
+      if (!target || others.length === 0) return {ok: false, reason: 'Pick at least one other area to subtract.'};
+      const result = subtractOutlines(
+        target.outline,
+        others.map((z) => z.outline),
+      );
+      if (!result) return {ok: false, reason: 'Result would be empty, split, or have a hole.'};
+      const otherIdSet = new Set(others.map((z) => z.id));
+      const next = zones
+        .filter((z) => keepOthers || !otherIdSet.has(z.id))
+        .map((z) => (z.id === targetId ? {...z, outline: result} : z));
+      commitZones(next);
+      setSelectedZoneId(targetId);
+      return {ok: true};
+    },
+    [zones, commitZones],
+  );
+
   const undo = useCallback(() => {
     setHistoryState((s) => ({...s, pointer: Math.max(0, s.pointer - 1)}));
     setSelectedVertex(null);
@@ -521,6 +617,9 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     scaleSelectedZone,
     bufferSelectedZone,
     simplifySelectedZone,
+    mergeZones,
+    splitZone,
+    subtractZones,
     undo,
     redo,
   };

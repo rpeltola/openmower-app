@@ -90,6 +90,13 @@ export interface MapCanvasProps {
    *  red dots at `marks` ("Mark no-go" — visual only, doesn't create a real zone). Absent/null
    *  hides the whole layer. */
   recording?: {points: Meters[]; pose: Pose; marks: Meters[]} | null;
+
+  /** Split-draw cut-line trace (MAP_BOOLEAN_OPS_SPEC.md) — the points tapped so far in tool
+   *  'split', rendered as a dashed accent polyline + vertex dots (reuses the `recording` layer's
+   *  visual idiom, simpler: no wash/pose/marks). Absent/null hides it. */
+  cutLine?: Meters[] | null;
+  /** Fires with the clicked point (meters) while tool is 'split' and editing. */
+  onAddCutLinePoint?: (point: Meters) => void;
 }
 
 // Vertex-handle colors are fixed (not theme-dependent), same rule as the zone colors — they must
@@ -184,6 +191,8 @@ export function MapCanvas({
   robotAccuracyM = 0.3,
   robotBlocked = false,
   recording = null,
+  cutLine = null,
+  onAddCutLinePoint,
 }: MapCanvasProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -192,6 +201,7 @@ export function MapCanvas({
   const mowedLayerRef = useRef<L.LayerGroup | null>(null);
   const coverageLayerRef = useRef<L.LayerGroup | null>(null);
   const recordingLayerRef = useRef<L.LayerGroup | null>(null);
+  const cutLineLayerRef = useRef<L.LayerGroup | null>(null);
   const handleLayerRef = useRef<L.LayerGroup | null>(null);
   const dockLayerRef = useRef<L.LayerGroup | null>(null);
   const robotLayerRef = useRef<L.LayerGroup | null>(null);
@@ -236,6 +246,8 @@ export function MapCanvas({
   onDockChangeRef.current = onDockChange;
   const placingDockRef = useRef(placingDock);
   placingDockRef.current = placingDock;
+  const onAddCutLinePointRef = useRef(onAddCutLinePoint);
+  onAddCutLinePointRef.current = onAddCutLinePoint;
 
   // ---- one-time map + layer-group creation -----------------------------------------------------
   useEffect(() => {
@@ -251,6 +263,7 @@ export function MapCanvas({
     mowedLayerRef.current = L.layerGroup().addTo(map);
     coverageLayerRef.current = L.layerGroup().addTo(map);
     recordingLayerRef.current = L.layerGroup().addTo(map);
+    cutLineLayerRef.current = L.layerGroup().addTo(map);
     handleLayerRef.current = L.layerGroup().addTo(map);
     dockLayerRef.current = L.layerGroup().addTo(map);
     robotLayerRef.current = L.layerGroup().addTo(map);
@@ -306,6 +319,8 @@ export function MapCanvas({
         onSelectVertexRef.current?.(null);
       } else if (currentTool === 'multi') {
         onSetMultiSelectedRef.current?.([]);
+      } else if (currentTool === 'split') {
+        onAddCutLinePointRef.current?.(point);
       }
     });
 
@@ -539,10 +554,12 @@ export function MapCanvas({
     }
 
     handleMarkersRef.current = [];
-    // The brush tool works on the whole outline via drag-paint, and rect/circle draw independent
-    // new shapes — none of them need individual vertex handles, so hide them (brush especially
-    // must not have handles intercepting its map-level pointer events).
-    if (!editing || !selectedZoneId || tool === 'brush' || tool === 'rect' || tool === 'circle') return;
+    // The brush tool works on the whole outline via drag-paint, rect/circle draw independent new
+    // shapes, and split draws a cut line — none of them need individual vertex handles, so hide
+    // them (brush/split especially must not have handles intercepting map-level pointer events).
+    if (!editing || !selectedZoneId || tool === 'brush' || tool === 'rect' || tool === 'circle' || tool === 'split') {
+      return;
+    }
     const zone = zones.find((z) => z.id === selectedZoneId);
     if (!zone) return;
 
@@ -805,6 +822,32 @@ export function MapCanvas({
       interactive: false,
     }).addTo(layer);
   }, [recording, origin]);
+
+  // ---- split cut-line trace (MAP_BOOLEAN_OPS_SPEC.md — tool 'split') -----------------------------
+  useEffect(() => {
+    const layer = cutLineLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    if (!cutLine || cutLine.length === 0) return;
+    if (cutLine.length >= 2) {
+      L.polyline(cutLine.map((p) => metersToLatLng(p, origin)), {
+        color: RECORDING_TRACE_COLOR,
+        weight: 2.5,
+        dashArray: '6,5',
+        interactive: false,
+      }).addTo(layer);
+    }
+    cutLine.forEach((p) => {
+      L.circleMarker(metersToLatLng(p, origin), {
+        radius: 4,
+        color: '#ffffff',
+        weight: 1.5,
+        fillColor: RECORDING_TRACE_COLOR,
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(layer);
+    });
+  }, [cutLine, origin]);
 
   // ---- dock marker: draggable while editing (place-by-click also lands here via onDockChange) ---
   useEffect(() => {

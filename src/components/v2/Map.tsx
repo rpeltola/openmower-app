@@ -25,7 +25,7 @@ import {
   type Zone,
   type ZoneType,
 } from '@/components/v2/map/mockMap';
-import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool} from '@/components/v2/map/useMapEditor';
+import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool, type OpResult} from '@/components/v2/map/useMapEditor';
 import {validateMap, type MapIssue} from '@/components/v2/map/validation';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
@@ -43,6 +43,7 @@ import {StatCard} from '@/components/v2/ui/StatCard';
 import {StatePill} from '@/components/v2/ui/StatePill';
 import {StatRow} from '@/components/v2/ui/StatRow';
 import {Switch} from '@/components/v2/ui/Switch';
+import {Toast} from '@/components/v2/ui/Toast';
 import type {Map as LeafletMap} from 'leaflet';
 import {
   AlertCircle,
@@ -77,6 +78,7 @@ import {
   Route,
   RotateCcw,
   RotateCw,
+  ScissorsLineDashed,
   Shrink,
   Signpost,
   Sliders,
@@ -84,6 +86,8 @@ import {
   Square,
   SquareDashedMousePointer,
   SquarePlus,
+  SquaresSubtract,
+  SquaresUnite,
   Target,
   Trash2,
   Undo2,
@@ -216,6 +220,15 @@ export function Map() {
   const [recordDirection, setRecordDirection] = useState<'up' | 'down' | 'left' | 'right' | null>(null);
   const [recordSpeed, setRecordSpeed] = useState<RecordSpeed>('normal');
   const [recordType, setRecordType] = useState<ZoneType>('mow');
+  // Boolean area operations (MAP_BOOLEAN_OPS_SPEC.md) — merge/split/subtract live in the Transform
+  // sheet's "Area operations" section rather than a new tool-row icon or dock row.
+  const [mergePickerOpen, setMergePickerOpen] = useState(false);
+  const [mergePickIds, setMergePickIds] = useState<Set<string>>(new Set());
+  const [subtractPickerOpen, setSubtractPickerOpen] = useState(false);
+  const [subtractPickIds, setSubtractPickIds] = useState<Set<string>>(new Set());
+  const [subtractKeepOthers, setSubtractKeepOthers] = useState(true);
+  const [cutLinePoints, setCutLinePoints] = useState<Meters[]>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
   useEffect(() => {
@@ -275,12 +288,84 @@ export function Map() {
     setZoneSheetOpen(false);
     setIssuesSheetOpen(false);
     setAddObjectSheetOpen(false);
+    setMergePickerOpen(false);
+    setSubtractPickerOpen(false);
+    setCutLinePoints([]);
   };
 
   const toggleEditing = () => {
     const next = !editor.editing;
     editor.setEditing(next);
     if (!next) closeAllEditSheets();
+  };
+
+  // --- Boolean area operations (MAP_BOOLEAN_OPS_SPEC.md) --------------------------------------
+  const showOpResult = (result: OpResult, failureFallback: string) => {
+    if (!result.ok) setToastMessage(result.reason ?? failureFallback);
+  };
+
+  const openMergePicker = () => {
+    setMergePickIds(new Set());
+    setMergePickerOpen(true);
+  };
+
+  const openSubtractPicker = () => {
+    setSubtractPickIds(new Set());
+    setSubtractKeepOthers(true);
+    setSubtractPickerOpen(true);
+  };
+
+  const startSplitDraw = () => {
+    // Split-draw needs both the map's editing-gated click handling and the contextual Finish/
+    // Cancel controls in the edit dock — force edit mode on so it works even when Split is run
+    // from the command palette in live view.
+    editor.setEditing(true);
+    setTransformSheetOpen(false);
+    setCutLinePoints([]);
+    editor.setTool('split');
+  };
+
+  const cancelSplitDraw = () => {
+    setCutLinePoints([]);
+    editor.setTool('select');
+  };
+
+  const finishSplitDraw = () => {
+    if (!selectedZone) return;
+    const result = editor.splitZone(selectedZone.id, cutLinePoints);
+    setCutLinePoints([]);
+    editor.setTool('select');
+    showOpResult(result, 'Could not split this area.');
+  };
+
+  const toggleMergePick = (id: string) =>
+    setMergePickIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleSubtractPick = (id: string) =>
+    setSubtractPickIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const confirmMerge = () => {
+    if (!selectedZone) return;
+    const result = editor.mergeZones(selectedZone.id, Array.from(mergePickIds));
+    setMergePickerOpen(false);
+    showOpResult(result, 'Could not merge these areas.');
+  };
+
+  const confirmSubtract = () => {
+    if (!selectedZone) return;
+    const result = editor.subtractZones(selectedZone.id, Array.from(subtractPickIds), subtractKeepOthers);
+    setSubtractPickerOpen(false);
+    showOpResult(result, 'Could not subtract these areas.');
   };
 
   // --- S8 boundary recording -----------------------------------------------------------------
@@ -573,6 +658,27 @@ export function Map() {
     },
     {id: 'zone-settings', label: 'Zone settings…', disabled: !selectedZone, onRun: () => setAreaSettingsOpen(true)},
     {id: 'transform', label: 'Transform zone…', disabled: !selectedZone, onRun: () => setTransformSheetOpen(true)},
+    {
+      id: 'merge',
+      label: 'Merge…',
+      icon: <SquaresUnite size={15} />,
+      disabled: !selectedZone || editor.zones.length < 2,
+      onRun: openMergePicker,
+    },
+    {
+      id: 'split',
+      label: 'Split',
+      icon: <ScissorsLineDashed size={15} />,
+      disabled: !selectedZone,
+      onRun: startSplitDraw,
+    },
+    {
+      id: 'subtract',
+      label: 'Subtract…',
+      icon: <SquaresSubtract size={15} />,
+      disabled: !selectedZone || editor.zones.length < 2,
+      onRun: openSubtractPicker,
+    },
     {id: 'choose-zone', label: 'Choose zone…', onRun: () => setZoneSheetOpen(true)},
     {id: 'validation', label: `Validation issues (${issues.length})`, onRun: () => setIssuesSheetOpen(true)},
     {id: 'basemap', label: 'Base map…', onRun: () => setBasemapSheetOpen(true)},
@@ -631,6 +737,8 @@ export function Map() {
         robotAccuracyM={mockBlocked ? 1.4 : 0.35}
         robotBlocked={mockBlocked}
         recording={recordStep === 'r2' ? {points: recordPoints, pose: recordPose, marks: recordMarks} : null}
+        cutLine={editor.tool === 'split' ? cutLinePoints : null}
+        onAddCutLinePoint={(p) => setCutLinePoints((pts) => [...pts, p])}
       />
 
       {/* top status pills (live view) / editing indicator (edit mode) */}
@@ -776,6 +884,28 @@ export function Map() {
                     aria-label="Brush strength"
                   />
                 </FormField>
+              </div>
+            )}
+            {editor.tool === 'split' && (
+              <div className="mt-2.5 space-y-2">
+                <div className="text-[.72rem] text-ink-faint">
+                  Tap the map to draw a cut line across the area — {cutLinePoints.length} point
+                  {cutLinePoints.length === 1 ? '' : 's'}.
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" className="flex-1" onClick={cancelSplitDraw}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="flex-1"
+                    disabled={cutLinePoints.length < 2}
+                    onClick={finishSplitDraw}
+                  >
+                    <ScissorsLineDashed size={14} /> Finish split
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -1118,9 +1248,102 @@ export function Map() {
                 <Spline size={14} /> Simplify
               </Button>
             </FormField>
+
+            <div className="h-px bg-border" />
+
+            <FormField label="Area operations" hint="Combine this area with, cut a line through, or subtract other areas.">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="soft"
+                  size="sm"
+                  className="flex-1"
+                  disabled={editor.zones.length < 2}
+                  onClick={openMergePicker}
+                >
+                  <SquaresUnite size={14} /> Merge…
+                </Button>
+                <Button variant="soft" size="sm" className="flex-1" onClick={startSplitDraw}>
+                  <ScissorsLineDashed size={14} /> Split
+                </Button>
+                <Button
+                  variant="soft"
+                  size="sm"
+                  className="flex-1"
+                  disabled={editor.zones.length < 2}
+                  onClick={openSubtractPicker}
+                >
+                  <SquaresSubtract size={14} /> Subtract…
+                </Button>
+              </div>
+            </FormField>
           </div>
         )}
       </Sheet>
+
+      <Sheet
+        open={mergePickerOpen}
+        onClose={() => setMergePickerOpen(false)}
+        title={selectedZone ? `Merge into ${selectedZone.name}` : 'Merge'}
+      >
+        <div className="space-y-2.5">
+          <div className="text-[.76rem] text-ink-soft">Pick the areas to merge in — their outline joins the target.</div>
+          <div className="space-y-0.5">
+            {editor.zones
+              .filter((z) => z.id !== selectedZone?.id)
+              .map((z) => (
+                <ListRow
+                  key={z.id}
+                  title={z.name}
+                  sub={ZONE_TYPE_LABELS[z.type]}
+                  onClick={() => toggleMergePick(z.id)}
+                  trailing={mergePickIds.has(z.id) ? <Check size={17} className="text-accent" /> : undefined}
+                />
+              ))}
+          </div>
+          <Button variant="primary" className="w-full justify-center" disabled={mergePickIds.size === 0} onClick={confirmMerge}>
+            <SquaresUnite size={14} /> Merge {mergePickIds.size > 0 ? `(${mergePickIds.size + 1} areas)` : ''}
+          </Button>
+        </div>
+      </Sheet>
+
+      <Sheet
+        open={subtractPickerOpen}
+        onClose={() => setSubtractPickerOpen(false)}
+        title={selectedZone ? `Subtract from ${selectedZone.name}` : 'Subtract'}
+      >
+        <div className="space-y-2.5">
+          <div className="text-[.76rem] text-ink-soft">Pick the areas to cut out of the target.</div>
+          <div className="space-y-0.5">
+            {editor.zones
+              .filter((z) => z.id !== selectedZone?.id)
+              .map((z) => (
+                <ListRow
+                  key={z.id}
+                  title={z.name}
+                  sub={ZONE_TYPE_LABELS[z.type]}
+                  onClick={() => toggleSubtractPick(z.id)}
+                  trailing={subtractPickIds.has(z.id) ? <Check size={17} className="text-accent" /> : undefined}
+                />
+              ))}
+          </div>
+          <FormField label="Keep the other areas">
+            <div className="flex items-center justify-between">
+              <span className="text-[.72rem] text-ink-faint">Off deletes the cutter areas after subtracting.</span>
+              <Switch checked={subtractKeepOthers} onCheckedChange={setSubtractKeepOthers} aria-label="Keep the other areas" />
+            </div>
+          </FormField>
+          <Button
+            variant="primary"
+            className="w-full justify-center"
+            disabled={subtractPickIds.size === 0}
+            onClick={confirmSubtract}
+          >
+            <SquaresSubtract size={14} /> Subtract
+          </Button>
+        </div>
+      </Sheet>
+
+      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
 
       <Sheet
         open={issuesSheetOpen}
