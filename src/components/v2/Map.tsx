@@ -17,6 +17,7 @@ import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool} from '@/components/v2/m
 import {validateMap, type MapIssue} from '@/components/v2/map/validation';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
+import {Chip} from '@/components/v2/ui/Chip';
 import {CommandPalette, type CommandPaletteAction} from '@/components/v2/ui/CommandPalette';
 import {Fab} from '@/components/v2/ui/Fab';
 import {FormField} from '@/components/v2/ui/FormField';
@@ -26,6 +27,7 @@ import {ProgressBar} from '@/components/v2/ui/ProgressBar';
 import {Sheet} from '@/components/v2/ui/Sheet';
 import {Slider} from '@/components/v2/ui/Slider';
 import {StatCard} from '@/components/v2/ui/StatCard';
+import {StatePill} from '@/components/v2/ui/StatePill';
 import {StatRow} from '@/components/v2/ui/StatRow';
 import {Switch} from '@/components/v2/ui/Switch';
 import type {Map as LeafletMap} from 'leaflet';
@@ -181,6 +183,10 @@ export function Map() {
   // in the desktop Areas panel changes this). MOW.coverage/timeLeftMin stay fixed mock numbers
   // regardless of which area is active — a deliberate simplification, not real per-area progress.
   const [activeMowZoneId, setActiveMowZoneId] = useState(() => MOCK_ZONES.find((z) => z.name === MOW.area)?.id ?? null);
+  // S6 — mock "blockers as data": an involuntary RTK-lost pause (distinct from S5's voluntary
+  // Pause). No real trigger exists yet, so it's toggled from the command palette for now — reuses
+  // states/PausedBlockerScreen.tsx's visual language, rendered as the Map's own live-view state.
+  const [mockBlocked, setMockBlocked] = useState(false);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
   useEffect(() => {
@@ -374,6 +380,13 @@ export function Map() {
       onRun: () => mapRef.current?.setZoom(19),
     },
     {id: 'coverage-preview', label: 'Coverage preview…', icon: <Route size={15} />, onRun: () => setCoverageSheetOpen(true)},
+    {
+      id: 'simulate-rtk-lost',
+      label: mockBlocked ? 'Simulate: clear RTK-lost' : 'Simulate: RTK lost',
+      disabled: editor.editing,
+      icon: <AlertTriangle size={15} />,
+      onRun: () => setMockBlocked((v) => !v),
+    },
     {id: 'cheat-sheet', label: 'Keyboard shortcuts', hint: '?', icon: <HelpCircle size={15} />, onRun: () => setCheatSheetOpen(true)},
   ];
 
@@ -410,7 +423,8 @@ export function Map() {
         }}
         coveragePreview={coveragePreviewData}
         mowedLanes={mowedLanesData}
-        robotAccuracyM={0.35}
+        robotAccuracyM={mockBlocked ? 1.4 : 0.35}
+        robotBlocked={mockBlocked}
       />
 
       {/* top status pills (live view) / editing indicator (edit mode) */}
@@ -419,6 +433,13 @@ export function Map() {
           <OverlayChip>
             <Pencil size={12} className="text-accent" /> Editing map
           </OverlayChip>
+        </div>
+      ) : mockBlocked ? (
+        <div className="pointer-events-none absolute inset-x-3 top-3 z-[500] flex flex-wrap items-center gap-2">
+          <OverlayChip>
+            <span className="text-warn">●</span> RTK lost
+          </OverlayChip>
+          <OverlayChip className="ml-auto">{mowAreaName}</OverlayChip>
         </div>
       ) : (
         <div className="pointer-events-none absolute inset-x-3 top-3 z-[500] flex flex-wrap items-center gap-2">
@@ -592,6 +613,35 @@ export function Map() {
             </div>
           </div>
         </div>
+      ) : mockBlocked ? (
+        /* S6 — blockers as data: the mower stopped itself on a position it can't trust. Mow stays
+           disabled with its reason attached; Dock is still one tap away. Visual language mirrors
+           states/PausedBlockerScreen.tsx, rendered here as the Map's own live state. */
+        <>
+          <StatePill
+            tone="warn"
+            icon={<AlertTriangle size={16} strokeWidth={2.4} />}
+            label="Paused · Waiting for GPS fix"
+            sub="Position uncertainty is growing"
+            className="absolute inset-x-3 top-[3.1rem] z-[500] shadow-[var(--shadow-m)] md:left-3 md:right-auto md:w-[360px]"
+          />
+          <StatCard className="absolute inset-x-3 bottom-3 z-[500] md:left-3 md:right-auto md:w-[320px]">
+            <p className="m-0 text-[.8rem] leading-[1.45] text-ink-soft">
+              The mower stopped itself — it won&rsquo;t drive on a position it can&rsquo;t trust.
+            </p>
+            <div className="mt-2.5 flex items-center gap-2">
+              <Button variant="primary" disabled className="flex-1 justify-center">
+                <Play size={16} fill="currentColor" /> Mow
+              </Button>
+              <Chip variant="warn" className="flex-none">
+                Needs a GPS fix
+              </Chip>
+            </div>
+            <Button variant="ghost" className="mt-2 w-full justify-center">
+              <Home size={15} strokeWidth={2.2} /> Dock
+            </Button>
+          </StatCard>
+        </>
       ) : (
         <>
           {/* floating stat card (live view, mobile — desktop gets the Areas panel below too) */}
