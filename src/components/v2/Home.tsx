@@ -1,5 +1,8 @@
+'use client';
+
+import {NotificationCenter} from '@/components/v2/NotificationCenter';
 import {ActivityFeedCard, type ActivityEvent} from '@/components/v2/ui/ActivityFeedCard';
-import {Button} from '@/components/v2/ui/Button';
+import {Button, buttonVariants} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
@@ -10,7 +13,9 @@ import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {PositionTrustCard} from '@/components/v2/ui/PositionTrustCard';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {StatePill} from '@/components/v2/ui/StatePill';
-import {Bell, CheckCircle2, Home as HomeIcon, Sprout, Square} from 'lucide-react';
+import {Bell, CheckCircle2, Gamepad2, Home as HomeIcon, Sprout, Square} from 'lucide-react';
+import Link from 'next/link';
+import {useState} from 'react';
 
 // Canonical mock world (design-language.md "Cross-platform contract"): Kotipiha, mowing
 // Etupiha 62%, 24 min left, battery 71%, RTK fixed. Home is a read/glance screen — this PoC
@@ -39,6 +44,8 @@ const RECENT_EVENTS: ActivityEvent[] = [
 ];
 
 export function Home() {
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+
   return (
     <div className="flex min-h-full flex-col gap-4 p-4 md:h-full md:min-h-0 md:gap-5 md:p-6">
       <ScreenHeader
@@ -46,7 +53,10 @@ export function Home() {
         title="Good morning"
         actions={
           <>
-            <Button variant="soft" size="icon" aria-label="Notifications">
+            <Link href="/v2/control" aria-label="Manual control" className={buttonVariants({variant: 'soft', size: 'icon'})}>
+              <Gamepad2 size={17} strokeWidth={2} />
+            </Link>
+            <Button variant="soft" size="icon" aria-label="Notifications" onClick={() => setNotificationsOpen(true)}>
               <Bell size={17} strokeWidth={2} />
             </Button>
             <Button variant="danger-solid" size="md" className="hidden md:inline-flex">
@@ -120,6 +130,8 @@ export function Home() {
           <NextScheduledCard when="Wed 10:00 · All areas" detail="~1 h 40 min · rain-skip on" />
         </div>
       </div>
+
+      <NotificationCenter open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
     </div>
   );
 }

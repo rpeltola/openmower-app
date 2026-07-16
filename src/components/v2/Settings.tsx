@@ -1,5 +1,6 @@
 'use client';
 
+import {MowerSelector} from '@/components/v2/MowerSelector';
 import {cn} from '@/components/v2/lib/cn';
 import {SettingsCategoryDetail} from '@/components/v2/settings/SettingsCategoryDetail';
 import {SettingsCategoryRail} from '@/components/v2/settings/SettingsCategoryRail';
@@ -32,7 +33,8 @@ import {
   Wifi,
   Zap,
 } from 'lucide-react';
-import {useState} from 'react';
+import {useSearchParams} from 'next/navigation';
+import {useEffect, useState} from 'react';
 
 function DrillChevron() {
   return <ChevronRight size={15} strokeWidth={2.4} className="flex-none text-ink-faint" />;
@@ -48,6 +50,7 @@ function DrillValue({value}: {value: string}) {
 }
 
 export function Settings() {
+  const searchParams = useSearchParams();
   const [notifications, setNotifications] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(NOTIFICATION_CATEGORIES.map((c) => [c.key, c.defaultOn])),
   );
@@ -57,6 +60,18 @@ export function Settings() {
   const [safetyToggles, setSafetyToggles] = useState<SafetyToggles>({geofence: true, tiltLift: true});
   // Mobile-only: which pane the grouped list has drilled into (desktop always shows rail + pane).
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
+  const [mowerSelectorOpen, setMowerSelectorOpen] = useState(false);
+
+  // Deep link from More's "About" row (`/v2/settings?category=about`) — jump straight to
+  // that category/detail pane instead of landing on the default grouped list.
+  useEffect(() => {
+    const deepLink = searchParams.get('category');
+    if (deepLink && CATEGORY_LABELS[deepLink]) {
+      setCategory(deepLink);
+      setMobileView('detail');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const categoryLabel = CATEGORY_LABELS[category] ?? '';
 
@@ -113,6 +128,7 @@ export function Settings() {
                 }
                 title="YardForce"
                 sub="Kotipiha"
+                onClick={() => setMowerSelectorOpen(true)}
                 trailing={<DrillChevron />}
               />
             </SettingsGroup>
@@ -221,6 +237,8 @@ export function Settings() {
           />
         </div>
       </div>
+
+      <MowerSelector open={mowerSelectorOpen} onClose={() => setMowerSelectorOpen(false)} />
     </div>
   );
 }

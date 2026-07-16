@@ -1,5 +1,6 @@
 'use client';
 
+import {MowerSelector} from '@/components/v2/MowerSelector';
 import {cn} from '@/components/v2/lib/cn';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
 import {
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
+import {useState} from 'react';
 
 interface NavItem {
   href: string;
@@ -60,6 +62,7 @@ export interface AppShellProps {
  *  the `(shell)` route group; `/v2/control` opts out (its own full-screen Close). */
 export function AppShell({children}: AppShellProps) {
   const pathname = usePathname() ?? '/v2';
+  const [mowerSelectorOpen, setMowerSelectorOpen] = useState(false);
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] md:h-dvh">
@@ -72,14 +75,18 @@ export function AppShell({children}: AppShellProps) {
           <span className="text-[1.02rem] font-bold tracking-tight text-ink">OpenMower</span>
         </div>
 
-        <div className="mb-1.5 flex items-center gap-2 rounded-[10px] border border-border bg-surface px-2.5 py-2">
+        <button
+          type="button"
+          onClick={() => setMowerSelectorOpen(true)}
+          className="mb-1.5 flex items-center gap-2 rounded-[10px] border border-border bg-surface px-2.5 py-2 text-left"
+        >
           <div className="h-[26px] w-[26px] flex-none rounded-[7px]" style={{background: '#F26A1B'}} />
           <div className="min-w-0 flex-1 leading-tight">
             <div className="truncate text-[.82rem] font-semibold text-ink">YardForce</div>
             <div className="truncate text-[.7rem] text-ink-soft">Kotipiha</div>
           </div>
           <ChevronDown size={15} className="flex-none text-ink-faint" />
-        </div>
+        </button>
 
         <nav className="flex flex-col gap-1">
           {DESKTOP_NAV.map((item) => {
@@ -150,6 +157,8 @@ export function AppShell({children}: AppShellProps) {
           })}
         </nav>
       </div>
+
+      <MowerSelector open={mowerSelectorOpen} onClose={() => setMowerSelectorOpen(false)} />
     </div>
   );
 }

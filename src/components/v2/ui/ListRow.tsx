@@ -1,4 +1,5 @@
 import {cn} from '@/components/v2/lib/cn';
+import Link from 'next/link';
 import {type ReactNode} from 'react';
 
 export interface ListRowProps {
@@ -7,12 +8,16 @@ export interface ListRowProps {
   sub?: string;
   trailing?: ReactNode;
   onClick?: () => void;
+  /** Renders the row as a `next/link` instead of a button — for rows that navigate to a
+   *  route (e.g. More's Diagnostics/Settings entries) rather than mutating local state. */
+  href?: string;
   className?: string;
 }
 
 /** Concept `.rowline` — a settings-list row: icon, title/sub text block, trailing control.
- *  Renders as a `<button>` when `onClick` is given, else a plain `<div>`. */
-export function ListRow({icon, title, sub, trailing, onClick, className}: ListRowProps) {
+ *  Renders as a `Link` when `href` is given, a `<button>` when `onClick` is given, else a
+ *  plain `<div>`. */
+export function ListRow({icon, title, sub, trailing, onClick, href, className}: ListRowProps) {
   const content = (
     <>
       {icon ? <span className="flex-none">{icon}</span> : null}
@@ -24,6 +29,16 @@ export function ListRow({icon, title, sub, trailing, onClick, className}: ListRo
     </>
   );
 
+  const rowClassName = cn('flex w-full items-center gap-[.7rem] border-0 bg-transparent py-2.5 text-left', className);
+
+  if (href) {
+    return (
+      <Link href={href} className={rowClassName}>
+        {content}
+      </Link>
+    );
+  }
+
   if (onClick) {
     return (
       <button
@@ -31,7 +46,7 @@ export function ListRow({icon, title, sub, trailing, onClick, className}: ListRo
         onClick={onClick}
         // bg-transparent is required: preflight is omitted, so a bg-less <button> shows the
         // native (light, theme-blind) buttonface. Concept rows are transparent on their card.
-        className={cn('flex w-full items-center gap-[.7rem] border-0 bg-transparent py-2.5 text-left', className)}
+        className={rowClassName}
       >
         {content}
       </button>

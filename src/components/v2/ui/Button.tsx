@@ -2,7 +2,7 @@ import {cn} from '@/components/v2/lib/cn';
 import {cva, type VariantProps} from 'class-variance-authority';
 import {type ButtonHTMLAttributes, forwardRef} from 'react';
 
-const buttonVariants = cva(
+export const buttonVariants = cva(
   // border-0 clears the UA button border that leaks through (preflight is omitted for v1
   // coexistence); bordered variants (ghost) re-add their own `border` via twMerge.
   'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--radius-control)] border-0 font-semibold ' +

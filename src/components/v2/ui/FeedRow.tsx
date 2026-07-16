@@ -8,6 +8,7 @@ const iconVariants = cva('grid h-[26px] w-[26px] flex-none place-items-center ro
       accent: 'bg-accent-wash text-accent',
       info: 'bg-info-wash text-info',
       warn: 'bg-warn-wash text-warn',
+      danger: 'bg-danger-wash text-danger',
       neutral: 'bg-surface-2 text-ink-soft',
     },
   },
