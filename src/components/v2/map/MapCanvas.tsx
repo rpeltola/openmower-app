@@ -18,6 +18,7 @@ import {
   type Pose,
 } from '@/lib/v2/geo/projection';
 import {centroid, circleToPolygon, dragBrush, nearestEdgeInsertIndex, rectangleCorners} from '@/components/v2/map/geometry';
+import type {CoverageSegment} from '@/components/v2/map/coverage';
 import {
   MOCK_DOCK,
   MOCK_FOOTPRINT,
@@ -72,6 +73,9 @@ export interface MapCanvasProps {
   onCreateZone?: (outline: Zone['outline']) => void;
   /** Fires on dock drag-end, and on a map click while `placingDock` is armed. */
   onDockChange?: (dock: Dock) => void;
+
+  /** Coverage preview overlay (visual planning aid, §F) — absent/null hides it. */
+  coveragePreview?: {outlineLaps: Meters[][]; fillSegments: CoverageSegment[]} | null;
 }
 
 // Vertex-handle colors are fixed (not theme-dependent), same rule as the zone colors — they must
@@ -79,6 +83,10 @@ export interface MapCanvasProps {
 const HANDLE_FILL = '#ffffff';
 const HANDLE_STROKE = '#111827';
 const HANDLE_SELECTED = '#22d3ee';
+
+// Coverage-preview colors (§F) — green outline laps, cyan back-and-forth fill, per the spec.
+const COVERAGE_LAP_COLOR = '#22c55e';
+const COVERAGE_FILL_COLOR = '#22d3ee';
 
 // Vertex-handle icon. Kept out of the marker-creation effect's deps so changing which vertex is
 // selected/picked only restyles handles (setIcon) instead of recreating them — recreating mid-drag
@@ -145,11 +153,13 @@ export function MapCanvas({
   onSetMultiSelected,
   onCreateZone,
   onDockChange,
+  coveragePreview = null,
 }: MapCanvasProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const zoneLayerRef = useRef<L.FeatureGroup | null>(null);
+  const coverageLayerRef = useRef<L.LayerGroup | null>(null);
   const handleLayerRef = useRef<L.LayerGroup | null>(null);
   const dockLayerRef = useRef<L.LayerGroup | null>(null);
   const robotLayerRef = useRef<L.LayerGroup | null>(null);
@@ -205,6 +215,7 @@ export function MapCanvas({
     map.attributionControl.setPrefix(false);
 
     zoneLayerRef.current = L.featureGroup().addTo(map);
+    coverageLayerRef.current = L.layerGroup().addTo(map);
     handleLayerRef.current = L.layerGroup().addTo(map);
     dockLayerRef.current = L.layerGroup().addTo(map);
     robotLayerRef.current = L.layerGroup().addTo(map);
@@ -649,6 +660,30 @@ export function MapCanvas({
       marker.setIcon(makeHandleIcon(highlighted));
     });
   }, [selectedVertex, snapPick, multiSelected, selectedZoneId, editing, tool]);
+
+  // ---- coverage preview overlay (visual only — see coverage.ts) --------------------------------
+  useEffect(() => {
+    const layer = coverageLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    if (!coveragePreview) return;
+    coveragePreview.outlineLaps.forEach((lap) => {
+      L.polygon(lap.map((p) => metersToLatLng(p, origin)), {
+        color: COVERAGE_LAP_COLOR,
+        weight: 1.5,
+        dashArray: '2,5',
+        fill: false,
+        interactive: false,
+      }).addTo(layer);
+    });
+    coveragePreview.fillSegments.forEach((seg) => {
+      L.polyline([metersToLatLng(seg.a, origin), metersToLatLng(seg.b, origin)], {
+        color: COVERAGE_FILL_COLOR,
+        weight: 1.5,
+        interactive: false,
+      }).addTo(layer);
+    });
+  }, [coveragePreview, origin]);
 
   // ---- dock marker: draggable while editing (place-by-click also lands here via onDockChange) ---
   useEffect(() => {

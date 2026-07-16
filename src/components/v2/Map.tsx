@@ -9,6 +9,8 @@
 import {latLngToMeters, metersToLatLng} from '@/lib/v2/geo/projection';
 import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
+import {coverageLines, outlineLaps} from '@/components/v2/map/coverage';
+import {principalAngleDeg} from '@/components/v2/map/geometry';
 import {measureZone} from '@/components/v2/map/measurements';
 import {MOCK_DOCK, MOCK_ORIGIN, MOCK_ZONES, type ZoneType} from '@/components/v2/map/mockMap';
 import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool} from '@/components/v2/map/useMapEditor';
@@ -24,6 +26,7 @@ import {Sheet} from '@/components/v2/ui/Sheet';
 import {Slider} from '@/components/v2/ui/Slider';
 import {StatCard} from '@/components/v2/ui/StatCard';
 import {StatRow} from '@/components/v2/ui/StatRow';
+import {Switch} from '@/components/v2/ui/Switch';
 import type {Map as LeafletMap} from 'leaflet';
 import {
   AlertCircle,
@@ -50,6 +53,7 @@ import {
   Plus,
   RectangleHorizontal,
   Redo2,
+  Route,
   RotateCcw,
   RotateCw,
   Shrink,
@@ -74,6 +78,26 @@ const MapCanvas = dynamic(() => import('@/components/v2/map/MapCanvas').then((m)
 const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24};
 
 const BASEMAP_STORAGE_KEY = 'v2.basemap';
+const COVERAGE_STORAGE_KEY = 'v2.coveragePreview';
+
+// Coverage preview (§F) — visual only, remembered locally, never written to the map.
+interface CoveragePreviewSettings {
+  enabled: boolean;
+  toolWidthM: number;
+  outlineLapCount: number;
+  angleOffsetDeg: number;
+  /** true = angleOffsetDeg is the absolute stripe direction; false = an offset from the
+   *  outline's auto-detected principal angle (mirrors mower_logic's mow_angle_offset_is_absolute). */
+  angleIsAbsolute: boolean;
+}
+
+const DEFAULT_COVERAGE_SETTINGS: CoveragePreviewSettings = {
+  enabled: false,
+  toolWidthM: 0.24,
+  outlineLapCount: 2,
+  angleOffsetDeg: 0,
+  angleIsAbsolute: false,
+};
 
 const TOOLS: {value: EditTool; label: string; icon: ReactNode}[] = [
   {value: 'select', label: 'Select / drag', icon: <MousePointer2 size={16} />},
@@ -126,12 +150,32 @@ export function Map() {
   const [issuesSheetOpen, setIssuesSheetOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
+  const [coverageSheetOpen, setCoverageSheetOpen] = useState(false);
+  const [coverage, setCoverage] = useState(DEFAULT_COVERAGE_SETTINGS);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
   useEffect(() => {
     const stored = localStorage.getItem(BASEMAP_STORAGE_KEY);
     if (stored && BASEMAPS.some((b) => b.id === stored)) setBasemapId(stored);
   }, []);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(COVERAGE_STORAGE_KEY);
+    if (!stored) return;
+    try {
+      setCoverage({...DEFAULT_COVERAGE_SETTINGS, ...JSON.parse(stored)});
+    } catch {
+      // ignore malformed localStorage content — keep the defaults
+    }
+  }, []);
+
+  const updateCoverage = (patch: Partial<CoveragePreviewSettings>) => {
+    setCoverage((prev) => {
+      const next = {...prev, ...patch};
+      localStorage.setItem(COVERAGE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   // UI-only shortcuts (the tool/undo/nudge/delete shortcuts live in useMapEditor, next to the
   // state they drive). Available regardless of edit mode — Ctrl/Cmd+K is useful any time.
@@ -182,6 +226,21 @@ export function Map() {
   // Map-wide validation — recomputed whenever the zones/dock actually change (self-intersection
   // checks are O(n²) per zone, worth memoizing).
   const issues = useMemo(() => validateMap(editor.zones, editor.dock), [editor.zones, editor.dock]);
+
+  // Coverage preview (§F) — visual only, for the selected mow zone. Obstacles anywhere on the map
+  // carve holes in the fill (matches how the robot would actually treat them, not just ones inside
+  // this particular zone's bounds).
+  const coveragePreviewData = useMemo(() => {
+    if (!coverage.enabled || !selectedZone || selectedZone.type !== 'mow') return null;
+    const obstacles = editor.zones.filter((z) => z.type === 'obstacle' && z.outline.length >= 3).map((z) => z.outline);
+    const baseAngle = coverage.angleIsAbsolute
+      ? coverage.angleOffsetDeg
+      : principalAngleDeg(selectedZone.outline) + coverage.angleOffsetDeg;
+    return {
+      outlineLaps: outlineLaps(selectedZone.outline, coverage.outlineLapCount, coverage.toolWidthM),
+      fillSegments: coverageLines(selectedZone.outline, obstacles, coverage.toolWidthM, baseAngle),
+    };
+  }, [coverage, selectedZone, editor.zones]);
 
   const goToIssue = (issue: MapIssue) => {
     // Select (not open settings for) the zone so the tool dock reflects it without stacking a
@@ -245,6 +304,7 @@ export function Map() {
       disabled: editor.editing,
       onRun: () => mapRef.current?.setZoom(19),
     },
+    {id: 'coverage-preview', label: 'Coverage preview…', icon: <Route size={15} />, onRun: () => setCoverageSheetOpen(true)},
     {id: 'cheat-sheet', label: 'Keyboard shortcuts', hint: '?', icon: <HelpCircle size={15} />, onRun: () => setCheatSheetOpen(true)},
   ];
 
@@ -279,6 +339,7 @@ export function Map() {
           editor.commitDock(next);
           setPlacingDock(false);
         }}
+        coveragePreview={coveragePreviewData}
       />
 
       {/* top status pills (live view) / editing indicator (edit mode) */}
@@ -320,6 +381,13 @@ export function Map() {
               </span>
             )}
           </div>
+        )}
+        {editor.editing && (
+          <Fab
+            aria-label="Coverage preview"
+            icon={<Route size={18} className={coverage.enabled ? 'text-accent' : undefined} />}
+            onClick={() => setCoverageSheetOpen(true)}
+          />
         )}
         <Fab aria-label="Zoom in" icon={<Plus size={18} />} onClick={() => mapRef.current?.zoomIn()} />
         <Fab aria-label="Zoom out" icon={<Minus size={18} />} onClick={() => mapRef.current?.zoomOut()} />
@@ -656,6 +724,86 @@ export function Map() {
             trailing={<span className="font-mono text-[.72rem] text-ink-faint">{s.keys}</span>}
           />
         ))}
+      </Sheet>
+
+      <Sheet open={coverageSheetOpen} onClose={() => setCoverageSheetOpen(false)} title="Coverage preview">
+        <div className="space-y-3.5">
+          <FormField label="Show preview">
+            <div className="flex items-center justify-between">
+              <span className="text-[.78rem] text-ink-soft">
+                {selectedZone?.type === 'mow' ? 'Visual only — never written to the map.' : 'Select a mowing area first.'}
+              </span>
+              <Switch
+                checked={coverage.enabled}
+                onCheckedChange={(v) => updateCoverage({enabled: v})}
+                disabled={selectedZone?.type !== 'mow'}
+                aria-label="Show coverage preview"
+              />
+            </div>
+          </FormField>
+
+          <FormField label="Tool width" value={coverage.toolWidthM.toFixed(2)} unit=" m">
+            <Slider
+              value={coverage.toolWidthM}
+              min={0.1}
+              max={0.6}
+              step={0.01}
+              onChange={(v) => updateCoverage({toolWidthM: v})}
+              aria-label="Tool width"
+            />
+          </FormField>
+
+          <FormField label="Outline laps" value={coverage.outlineLapCount} hint="Edge-first perimeter passes.">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="soft"
+                size="icon"
+                className="h-9 w-9"
+                aria-label="Fewer outline laps"
+                onClick={() => updateCoverage({outlineLapCount: Math.max(0, coverage.outlineLapCount - 1)})}
+              >
+                <Minus size={14} />
+              </Button>
+              <div className="flex-1 text-center font-mono text-sm tabular-nums text-ink">{coverage.outlineLapCount}</div>
+              <Button
+                variant="soft"
+                size="icon"
+                className="h-9 w-9"
+                aria-label="More outline laps"
+                onClick={() => updateCoverage({outlineLapCount: coverage.outlineLapCount + 1})}
+              >
+                <Plus size={14} />
+              </Button>
+            </div>
+          </FormField>
+
+          <FormField
+            label="Fill angle offset"
+            value={coverage.angleOffsetDeg}
+            unit="°"
+            hint={coverage.angleIsAbsolute ? 'Absolute direction.' : "Offset from the outline's auto-detected angle."}
+          >
+            <Slider
+              value={coverage.angleOffsetDeg}
+              min={-90}
+              max={90}
+              step={5}
+              onChange={(v) => updateCoverage({angleOffsetDeg: v})}
+              aria-label="Fill angle offset"
+            />
+          </FormField>
+
+          <FormField label="Angle is absolute">
+            <div className="flex items-center justify-between">
+              <span className="text-[.72rem] text-ink-faint">Off = relative to the outline&apos;s own angle.</span>
+              <Switch
+                checked={coverage.angleIsAbsolute}
+                onCheckedChange={(v) => updateCoverage({angleIsAbsolute: v})}
+                aria-label="Angle offset is absolute"
+              />
+            </div>
+          </FormField>
+        </div>
       </Sheet>
 
       <CommandPalette

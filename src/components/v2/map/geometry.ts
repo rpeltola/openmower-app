@@ -313,6 +313,34 @@ export function rectangleCorners(a: Meters, b: Meters): Meters[] {
   ];
 }
 
+/**
+ * The polygon's principal axis angle (degrees, atan2-based PCA over its vertices) — RevLaw's
+ * "auto-detect mow angle from the outline". Ported verbatim from RevLaw's geo/geometry.js.
+ */
+export function principalAngleDeg(points: Meters[]): number {
+  const n = points?.length || 0;
+  if (n < 2) return 0;
+  let mx = 0;
+  let my = 0;
+  for (const p of points) {
+    mx += p.x;
+    my += p.y;
+  }
+  mx /= n;
+  my /= n;
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  for (const p of points) {
+    const dx = p.x - mx;
+    const dy = p.y - my;
+    sxx += dx * dx;
+    syy += dy * dy;
+    sxy += dx * dy;
+  }
+  return (0.5 * Math.atan2(2 * sxy, sxx - syy) * 180) / Math.PI;
+}
+
 /** Point-in-polygon (ray casting). Ported verbatim from RevLaw's geo/geometry.js. */
 export function isPointInsidePolygon(point: Meters, polygon: Meters[]): boolean {
   if (!point || !polygon || polygon.length < 3) return false;
