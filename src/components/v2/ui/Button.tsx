@@ -3,7 +3,9 @@ import {cva, type VariantProps} from 'class-variance-authority';
 import {type ButtonHTMLAttributes, forwardRef} from 'react';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-semibold ' +
+  // border-0 clears the UA button border that leaks through (preflight is omitted for v1
+  // coexistence); bordered variants (ghost) re-add their own `border` via twMerge.
+  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--radius-control)] border-0 font-semibold ' +
     'transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none ' +
     'active:scale-[0.97] transition-transform',
   {
@@ -12,7 +14,9 @@ const buttonVariants = cva(
         primary: 'bg-accent text-white hover:bg-accent-ink',
         ghost:
           'bg-surface-2 text-ink-soft border border-border hover:text-ink hover:border-ink-faint',
-        danger: 'bg-surface-2 text-danger border border-danger/40 hover:bg-danger-wash',
+        // Borderless surface-2 chrome — concept `.ico`/`.fab` (notification bell, map FABs).
+        soft: 'bg-surface-2 text-ink-soft hover:text-ink',
+        danger: 'bg-danger-wash text-danger hover:brightness-95 dark:hover:brightness-110',
         'danger-solid': 'bg-danger text-white hover:brightness-95',
       },
       size: {

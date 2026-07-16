@@ -46,11 +46,38 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
   Playwright screenshots at 390×844 + 1440×900 light/dark checked against the concept.
   Nav items for not-yet-built screens (Map/Schedule/Activity/Diagnostics/Settings/More) link out
   but 404 until those steps land — expected at this stage.
+- ✅ **Pixel pass vs concept** (UNCOMMITTED) — diffed `/v2` render against the mobile concept and
+  fixed the drifts at the **primitive level** so every future screen inherits them. **Headline fix:
+  all padding/margin utilities were dead app-wide** (see the CRITICAL gotcha below) — restored by
+  importing utilities unlayered; that alone fixed missing page margins, squashed tiles, and the
+  clipped header. Also:
+  - `Button`: base radius pill→`--radius-control` (14px; the concept has **zero** pill buttons —
+    all 11–16px rects; icon sizes keep `rounded-full`). `danger` variant → `bg-danger-wash`
+    (concept `.btn-danger`), not grey+red-outline. Added a borderless `soft` variant for icon
+    chrome (bell / map FABs, concept `.ico`/`.fab`). Added `border-0` to the base (see gotcha).
+  - `AppShell`: mobile content sits on **`bg-surface`** (white) — concept `.screen{background:
+    var(--surface)}`; desktop keeps the tinted `--bg` canvas. This was the "washed-out tiles" bug
+    (surface-2 tiles on a surface-2-ish `--bg` had no contrast).
+  - `MowingHero` radius 16→**18px** (concept `.mowhero`); mono label/kicker letter-spacing widened
+    (`.kick`=.1em, `.metric .l`=.06em).
+  - Verified: tsc + `npm run build` clean; `/`,`/v2`,`/v2/control` 200; mobile+desktop, light+dark
+    rendered vs concept; control PoC unregressed; no h-overflow (390/1440).
 
 ## Build order (checklist)
 - [x] Scaffold Tailwind + tokens + kit
 - [x] Manual-control PoC (`/v2/control`)
 - [x] **AppShell + Home (`/v2`)** ← built + verified, UNCOMMITTED (owner to review + commit)
+- [x] **Home componentized** — inline blocks extracted to `ScreenHeader`, `PositionTrustCard`,
+      `NextScheduledCard`, `ActivityFeedCard`, `OverlayChip`; verified pixel-identical (per-pixel
+      diff vs baseline: only the animated mower differs). Position-trust card pinned to bottom
+      (concept anchors it above the tab bar).
+- [x] **Shared kit expansion** — `Switch`, `Slider`, `FormField`, `ListRow`, `Sheet`, `Fab`,
+      `StatCard` (concept-faithful; `--shadow-s/m` tokens added). Mounted + QA'd on **`/v2/kit`**
+      (dev-only gallery, the visual-regression surface). Light+dark verified; Sheet open verified.
+- [x] **Diagnostics (`/v2/diagnostics`)** — first view through the agent pipeline (delegate w/
+      concept as spec → I verify vs concept). All 6 sensor cards, sparklines, L/R ESC grid;
+      mobile stack + desktop 3-col grid; light+dark verified vs concept; tsc+build clean. New kit
+      primitives: `DiagCard`, `StatRow`, `Sparkline`. Central button reset proven (bare button clean).
 - [ ] Map (live + area-settings + edit + create + recording + preview)
 - [ ] Schedule (calendar + editor)
 - [ ] Activity (events + history + replay + stats)
@@ -72,6 +99,39 @@ run from `/tmp/pw-test`). Confirm `/v2`, `/v2/control`, and `/` all 200. **Stop 
 port**: `lsof -ti tcp:<n> | xargs -r kill` (don't `pkill -f "next dev"` — it matches its own cmd).
 
 ## Gotchas
+- **v1's global reset kills v2 padding/margin utilities (CRITICAL — was silently breaking every
+  screen).** `src/app/globals.css` has an **unlayered** `* { margin:0; padding:0 }`. It leaks into
+  /v2, and an unlayered rule beats a layered one regardless of specificity — so while utilities were
+  imported as `@import 'tailwindcss/utilities.css' layer(utilities)`, EVERY `p-*`/`px-*`/`m-*`/`mt-*`
+  lost to that `*` reset (only `gap-*` survived, which masked it → no page margins, squashed tiles,
+  clipped header). Fix: **import utilities UNLAYERED** (drop `layer(utilities)`) so `.p-4` (0,1,0)
+  beats `*` (0,0,0). Only loaded on /v2, only matches v2 classes → no v1/MUI impact. **Do not
+  re-add the layer.** Always measure real geometry (bounding boxes / computed padding) when
+  verifying, not just eyeballed thumbnails — this bug is invisible in a quick glance.
+- **Native button chrome is now handled centrally — use `<Button>`, never raw `<button>` in app
+  code.** The reset in `tailwind.css` is `:where(.v2-root button){appearance:none;border:0;
+  padding:0;background:transparent;…}` — zero specificity, so (since utilities are unlayered) any
+  `bg-*`/`border-*`/`p-*` utility overrides it, but a bare `<button>` renders clean (no UA border/
+  buttonface/padding) in BOTH themes. This is Tailwind-preflight-for-buttons without preflight.
+  Verified: bare button = transparent/0-border/0-pad; primary/ghost/danger keep their utilities.
+  So authored buttons no longer need per-instance `border-0`/`bg-transparent`. **Rule:** raw
+  `<button>` lives ONLY in `components/v2/ui/**`; app/composite code uses `<Button>` or a kit
+  component. Enforced by an eslint `no-restricted-syntax` rule (eslint.config.mjs) — but note the
+  project's ESLint currently CRASHES on a pre-existing upstream `@eslint/eslintrc` config-validator
+  bug, so the rule can't run via CLI until that's fixed. Known debt: `ManualControl.tsx` (early PoC)
+  still has 4 raw `<button>`s to migrate to the kit (they render fine now thanks to the reset).
+- **Preflight-omitted button reset (IMPORTANT).** Because Tailwind preflight is skipped, native
+  `<button>` UA chrome leaks. The reset in `tailwind.css` is deliberately **minimal**
+  (`appearance:none` + `cursor` + `font-family:inherit` only) and **unlayered**. Do NOT add
+  `border/background/padding/color` to it: an unlayered (or wrongly-ordered) reset **beats**
+  `@layer utilities` — layers sort before specificity — silently blanking `bg-*`/`text-*`/`px-*`.
+  Turbopack also **drops bare `@layer a,b,c;` order statements**, so you can't reliably force a
+  `base` layer below `utilities`. Instead, **each button variant owns its border/bg/padding via
+  utilities** (that's why `Button` base carries `border-0`). Same rule for any new `<button>`-based
+  primitive: give it explicit `border-0`/bg utilities, don't lean on a global reset.
+- **Restart dev server after CSS edits if HMR looks stale** — `tailwind.css` changes sometimes
+  don't recompile in-place (kill by PID/port, `rm -rf .next/cache .next/dev`, restart). Verify the
+  served CSS (`_next/static/chunks/*tailwind*.css`), not just the class strings.
 - **Never touch v1** (`/`, MUI) — re-check `/` returns 200 + renders after any change.
 - `corepack npm` (apt npm broken). `npm run lint` fails on a known upstream ESLint circular-JSON
   bug — not ours, ignore.

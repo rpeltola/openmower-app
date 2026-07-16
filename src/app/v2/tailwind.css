@@ -6,7 +6,13 @@
  * classes are only ever *used* inside /v2 — see component-library.md §2/§3.
  */
 @import 'tailwindcss/theme.css' layer(theme);
-@import 'tailwindcss/utilities.css' layer(utilities);
+/* Utilities imported UNLAYERED (no `layer(utilities)`). v1's globals.css ships an unlayered
+   `* { margin:0; padding:0 }` reset that leaks into /v2, and in the cascade an unlayered rule
+   beats a layered one regardless of specificity — so layered utilities would lose every
+   padding/margin to that `*` reset (gap survives, which masked the bug). Unlayered, `.p-4`
+   (0,1,0) beats `*` (0,0,0) on specificity and wins. Only loaded on /v2, only matches v2
+   classes, so v1/MUI are unaffected. */
+@import 'tailwindcss/utilities.css';
 
 /* ---- Design tokens (design-language.md §2 + the concept's exact palette) ---- */
 
@@ -34,6 +40,8 @@
   --mowed: #b9e3ce;
   --bed: #d2c6ae;
   --dock: #3e72ae;
+  --shadow-s: 0 1px 2px rgba(20, 32, 26, 0.05), 0 2px 8px rgba(20, 32, 26, 0.05);
+  --shadow-m: 0 4px 14px rgba(20, 32, 26, 0.09), 0 18px 40px rgba(20, 32, 26, 0.08);
   --radius-card: 16px;
   --radius-control: 14px;
 }
@@ -63,6 +71,8 @@
     --mowed: #1e5b41;
     --bed: #3a3324;
     --dock: #82b2e0;
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-m: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
 }
 
@@ -92,6 +102,8 @@
   --mowed: #1e5b41;
   --bed: #3a3324;
   --dock: #82b2e0;
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-m: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
 :root[data-theme='light'] {
@@ -118,6 +130,8 @@
   --mowed: #b9e3ce;
   --bed: #d2c6ae;
   --dock: #3e72ae;
+  --shadow-s: 0 1px 2px rgba(20, 32, 26, 0.05), 0 2px 8px rgba(20, 32, 26, 0.05);
+  --shadow-m: 0 4px 14px rgba(20, 32, 26, 0.09), 0 18px 40px rgba(20, 32, 26, 0.08);
 }
 
 /* ---- Wire the tokens into the Tailwind theme (bg-accent, text-ink, border-border, …) ---- */
@@ -158,10 +172,22 @@
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
-.v2-root :where(button) {
-  font: inherit;
-  color: inherit;
+/* Preflight-omitted button reset. Utilities are imported UNLAYERED, so this reset only needs
+   LOWER SPECIFICITY than a utility to lose to it: `:where(.v2-root button)` is (0,0,0); a single
+   utility class is (0,1,0). So this strips native <button> chrome (border, background, padding,
+   appearance) as a DEFAULT, and any `bg-*`/`border-*`/`p-*` utility on the button overrides it.
+   Net effect = Tailwind preflight for buttons, without importing preflight (which would clobber
+   v1's MUI). Because of this, authored buttons no longer need per-instance `border-0`/
+   `bg-transparent` — but keep using the <Button> component in app code regardless (raw <button>
+   belongs only in the ui/ kit). */
+:where(.v2-root button) {
+  font-family: inherit;
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
 }
 
 /* ---- MowingHero animation (Home) — ported 1:1 from the concept's .mowhero/.mowscene

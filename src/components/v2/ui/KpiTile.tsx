@@ -30,7 +30,7 @@ export function KpiTile({value, unit, label, accent, className}: KpiTileProps) {
         {value}
         {unit ? <span className="text-xs font-semibold text-ink-soft md:text-[.8rem]">{unit}</span> : null}
       </div>
-      <div className="mt-[.42rem] font-mono text-[.66rem] font-semibold uppercase tracking-wide text-ink-faint md:mt-2 md:text-[.68rem]">
+      <div className="mt-[.42rem] font-mono text-[.66rem] font-semibold uppercase tracking-[.06em] text-ink-faint md:mt-2 md:text-[.68rem]">
         {label}
       </div>
     </div>

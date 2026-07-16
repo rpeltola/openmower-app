@@ -19,7 +19,7 @@ export function MowingHero({className, overlayTop, progress}: MowingHeroProps) {
 
   return (
     <div
-      className={cn('relative flex-none overflow-hidden rounded-[var(--radius-card)] border border-border', className)}
+      className={cn('relative flex-none overflow-hidden rounded-[18px] border border-border', className)}
       style={{background: 'linear-gradient(165deg, var(--accent-wash), var(--surface) 72%)'}}
     >
       <svg

@@ -117,7 +117,9 @@ export function AppShell({children}: AppShellProps) {
       </aside>
 
       {/* ---- Content + mobile bottom tab bar ---- */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* Mobile screens sit on the white surface (concept `.screen{background:var(--surface)}`)
+          so surface-2 tiles/cards read; desktop keeps the tinted `--bg` canvas. */}
+      <div className="flex min-h-dvh min-w-0 flex-1 flex-col bg-surface md:min-h-0 md:bg-transparent">
         <main className="min-h-0 flex-1 overflow-y-auto pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-0">
           {children}
         </main>
