@@ -4,7 +4,24 @@
 // the OpenMower local ENU frame (x east, y north); datum = the Finland garden.
 import type {Footprint, Origin, Pose} from '@/lib/v2/geo/projection';
 
-export type ZoneType = 'mow' | 'nav' | 'obstacle';
+// 'nav' displays as "Pathway" and 'obstacle' as "No-go zone" in the UI (MAP_SCREEN_SPEC S3) — the
+// internal type strings stay as-is (existing data model / firmware-facing semantics), only the
+// user-facing labels changed. 'spot' is net-new: a one-off mow patch, not part of a larger area.
+export type ZoneType = 'mow' | 'nav' | 'obstacle' | 'spot';
+
+export const ZONE_TYPE_LABELS: Record<ZoneType, string> = {
+  mow: 'Mowing area',
+  nav: 'Pathway',
+  obstacle: 'No-go zone',
+  spot: 'Spot-mow region',
+};
+
+/** 'mow' and 'spot' are both areas the robot actually mows (a spot region is just a smaller,
+ *  standalone one) — used wherever mow-only behavior (settings, coverage preview, net-mowable,
+ *  orphan-obstacle containment) should also apply to spot regions. */
+export function isMowableType(type: ZoneType): boolean {
+  return type === 'mow' || type === 'spot';
+}
 
 // Per-area mowing/navigation overrides (mow zones only) — synthesis of v1's "mowing settings
 // overrides", the v2 concept's area-settings screen, and Yarbo/competitor per-area settings
@@ -125,4 +142,5 @@ export const ZONE_STYLE: Record<ZoneType, {stroke: string; fill: string}> = {
   mow: {stroke: '#2fd58a', fill: '#2fd58a'},
   obstacle: {stroke: '#ff6b5e', fill: '#ff6b5e'},
   nav: {stroke: '#5aa9ff', fill: '#5aa9ff'},
+  spot: {stroke: '#fbbf24', fill: '#fbbf24'},
 };

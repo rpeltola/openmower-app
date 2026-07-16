@@ -3,7 +3,7 @@
 // obstacles) over our zone/dock model. Pure — no map/DOM access; Map.tsx uses each issue's `point`
 // to pan/zoom and select the zone when the issue is clicked.
 import {centroid, distance, isPointInsidePolygon, segmentsIntersect} from '@/components/v2/map/geometry';
-import type {Dock, Zone} from '@/components/v2/map/mockMap';
+import {isMowableType, type Dock, type Zone} from '@/components/v2/map/mockMap';
 import type {Meters} from '@/lib/v2/geo/projection';
 
 export type IssueSeverity = 'error' | 'warning';
@@ -86,7 +86,7 @@ export function validateMap(zones: Zone[], dock: Dock): MapIssue[] {
     }
   }
 
-  const mowZones = zones.filter((z) => z.type === 'mow' && z.outline.length >= 3);
+  const mowZones = zones.filter((z) => isMowableType(z.type) && z.outline.length >= 3);
   for (const zone of zones) {
     if (zone.type !== 'obstacle' || zone.outline.length < 3) continue;
     const center = centroid(zone.outline);

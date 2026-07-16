@@ -12,10 +12,11 @@ import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {coverageLines, outlineLaps} from '@/components/v2/map/coverage';
 import {principalAngleDeg} from '@/components/v2/map/geometry';
 import {measureZone} from '@/components/v2/map/measurements';
-import {MOCK_DOCK, MOCK_ORIGIN, MOCK_ZONES, type ZoneType} from '@/components/v2/map/mockMap';
+import {isMowableType, MOCK_DOCK, MOCK_ORIGIN, MOCK_ZONES, ZONE_TYPE_LABELS, type ZoneType} from '@/components/v2/map/mockMap';
 import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool} from '@/components/v2/map/useMapEditor';
 import {validateMap, type MapIssue} from '@/components/v2/map/validation';
 import {Button} from '@/components/v2/ui/Button';
+import {Card} from '@/components/v2/ui/Card';
 import {CommandPalette, type CommandPaletteAction} from '@/components/v2/ui/CommandPalette';
 import {Fab} from '@/components/v2/ui/Fab';
 import {FormField} from '@/components/v2/ui/FormField';
@@ -33,6 +34,7 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Ban,
   Check,
   Circle as CircleIcon,
   CirclePlus,
@@ -41,6 +43,7 @@ import {
   Eraser,
   Expand,
   HelpCircle,
+  Home,
   Layers,
   Locate,
   MapPin,
@@ -59,11 +62,13 @@ import {
   RotateCcw,
   RotateCw,
   Shrink,
+  Signpost,
   Sliders,
   Spline,
   Square,
   SquareDashedMousePointer,
   SquarePlus,
+  Target,
   Trash2,
   Undo2,
   Waypoints,
@@ -123,6 +128,16 @@ const TOOL_KEY_LABEL: Partial<Record<EditTool, string>> = Object.fromEntries(
   Object.entries(TOOL_SHORTCUT_KEYS).map(([key, tool]) => [tool, key.toUpperCase()]),
 );
 
+// "Add to map" create-object menu (MAP_SCREEN_SPEC S3) — every object type the concept lists.
+// 'dock' isn't a Zone type (there's exactly one physical dock); picking it arms click-to-place.
+const ADD_TO_MAP_ITEMS: {type: ZoneType | 'dock'; label: string; sub: string; icon: ReactNode; sizeM?: number}[] = [
+  {type: 'mow', label: ZONE_TYPE_LABELS.mow, sub: 'An area the mower covers', icon: <SquarePlus size={18} />, sizeM: 6},
+  {type: 'obstacle', label: ZONE_TYPE_LABELS.obstacle, sub: 'Excluded from mowing', icon: <Ban size={18} />, sizeM: 3},
+  {type: 'dock', label: 'Docking station', sub: 'Move the charging dock', icon: <Home size={18} />},
+  {type: 'spot', label: ZONE_TYPE_LABELS.spot, sub: 'A one-off mow patch', icon: <Target size={18} />, sizeM: 2},
+  {type: 'nav', label: ZONE_TYPE_LABELS.nav, sub: 'A route between areas, not mowed', icon: <Signpost size={18} />, sizeM: 6},
+];
+
 const SHORTCUTS: {keys: string; desc: string}[] = [
   {keys: 'V', desc: 'Select / drag tool'},
   {keys: 'A', desc: 'Add point tool'},
@@ -157,10 +172,15 @@ export function Map() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
   const [coverageSheetOpen, setCoverageSheetOpen] = useState(false);
+  const [addObjectSheetOpen, setAddObjectSheetOpen] = useState(false);
   const [coverage, setCoverage] = useState(DEFAULT_COVERAGE_SETTINGS);
   // S5 — mock pause/resume for the live-view stat card (a real "hold position" toggle, distinct
   // from S6's involuntary RTK-lost block).
   const [mockPaused, setMockPaused] = useState(false);
+  // S4 — which mowable zone the live view treats as "currently mowing" (the per-area Mow button
+  // in the desktop Areas panel changes this). MOW.coverage/timeLeftMin stay fixed mock numbers
+  // regardless of which area is active — a deliberate simplification, not real per-area progress.
+  const [activeMowZoneId, setActiveMowZoneId] = useState(() => MOCK_ZONES.find((z) => z.name === MOW.area)?.id ?? null);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
   useEffect(() => {
@@ -210,13 +230,26 @@ export function Map() {
     setBasemapSheetOpen(false);
   };
 
+  // Toggling edit mode off closes every edit-only sheet too — otherwise one left open (e.g. area
+  // settings) would still render its persistent desktop panel over the live view, at the same
+  // spot the new S4 "Areas" live-view panel occupies.
+  const toggleEditing = () => {
+    const next = !editor.editing;
+    editor.setEditing(next);
+    if (!next) {
+      setAreaSettingsOpen(false);
+      setTransformSheetOpen(false);
+      setCoverageSheetOpen(false);
+      setZoneSheetOpen(false);
+      setIssuesSheetOpen(false);
+      setAddObjectSheetOpen(false);
+    }
+  };
+
   const selectedZone = editor.zones.find((z) => z.id === editor.selectedZoneId);
   const selectedZoneIndex = editor.zones.findIndex((z) => z.id === editor.selectedZoneId);
-
-  const addZoneAtCenter = () => {
-    const center = mapRef.current ? latLngToMeters(mapRef.current.getCenter(), MOCK_ORIGIN) : {x: 0, y: 0};
-    editor.addZone(center);
-  };
+  const activeMowZone = editor.zones.find((z) => z.id === activeMowZoneId);
+  const mowAreaName = activeMowZone?.name ?? MOW.area;
 
   // Selecting a zone (zone-list picker, or tapping it on the map) opens the settings editor for
   // it — the zone-list Sheet itself stays around as a quick way to switch which zone that is.
@@ -224,6 +257,21 @@ export function Map() {
     editor.selectZone(id);
     setZoneSheetOpen(false);
     setAreaSettingsOpen(true);
+  };
+
+  // Create-object menu (MAP_SCREEN_SPEC S3): every polygon object type is a square at the current
+  // map center (rect/circle draw tools are still there for a drawn shape instead); "drops into
+  // editing it" per the spec means opening the settings editor for the brand-new zone right away.
+  const addObjectAtCenter = (type: ZoneType, sizeM?: number) => {
+    const center = mapRef.current ? latLngToMeters(mapRef.current.getCenter(), MOCK_ORIGIN) : {x: 0, y: 0};
+    const id = editor.addZone(center, type, sizeM);
+    openZoneSettings(id);
+    setAddObjectSheetOpen(false);
+  };
+
+  const addDockStation = () => {
+    setPlacingDock(true);
+    setAddObjectSheetOpen(false);
   };
 
   // Live measurements for the selected zone — recomputed from `editor.zones` on every render, so
@@ -240,7 +288,7 @@ export function Map() {
   // carve holes in the fill (matches how the robot would actually treat them, not just ones inside
   // this particular zone's bounds).
   const coveragePreviewData = useMemo(() => {
-    if (!coverage.enabled || !selectedZone || selectedZone.type !== 'mow') return null;
+    if (!coverage.enabled || !selectedZone || !isMowableType(selectedZone.type)) return null;
     const obstacles = editor.zones.filter((z) => z.type === 'obstacle' && z.outline.length >= 3).map((z) => z.outline);
     const baseAngle = coverage.angleIsAbsolute
       ? coverage.angleOffsetDeg
@@ -257,13 +305,11 @@ export function Map() {
   // and shows only the leading MOW.coverage% of lines so it visually matches the existing "62%
   // mowed" stat in the live-view card.
   const mowedLanesData = useMemo(() => {
-    if (editor.editing) return null;
-    const mowingZone = editor.zones.find((z) => z.name === MOW.area && z.type === 'mow');
-    if (!mowingZone) return null;
+    if (editor.editing || !activeMowZone) return null;
     const obstacles = editor.zones.filter((z) => z.type === 'obstacle' && z.outline.length >= 3).map((z) => z.outline);
-    const lines = coverageLines(mowingZone.outline, obstacles, MOWED_LANE_SPACING_M, principalAngleDeg(mowingZone.outline));
+    const lines = coverageLines(activeMowZone.outline, obstacles, MOWED_LANE_SPACING_M, principalAngleDeg(activeMowZone.outline));
     return lines.slice(0, Math.round((lines.length * MOW.coverage) / 100));
-  }, [editor.editing, editor.zones]);
+  }, [editor.editing, editor.zones, activeMowZone]);
 
   const goToIssue = (issue: MapIssue) => {
     // Select (not open settings for) the zone so the tool dock reflects it without stacking a
@@ -280,7 +326,7 @@ export function Map() {
     {
       id: 'toggle-edit',
       label: editor.editing ? 'Exit edit mode' : 'Edit map',
-      onRun: () => editor.setEditing(!editor.editing),
+      onRun: toggleEditing,
     },
     ...TOOLS.map((t) => ({
       id: `tool-${t.value}`,
@@ -299,7 +345,7 @@ export function Map() {
       disabled: editor.tool === 'multi' ? editor.multiSelected.size === 0 : !editor.selectedVertex,
       onRun: editor.deleteSelection,
     },
-    {id: 'add-zone', label: 'Add zone', disabled: !editor.editing, onRun: addZoneAtCenter},
+    {id: 'add-to-map', label: 'Add to map…', disabled: !editor.editing, onRun: () => setAddObjectSheetOpen(true)},
     {id: 'place-dock', label: 'Place dock', disabled: !editor.editing, onRun: () => setPlacingDock(true)},
     {
       id: 'duplicate-zone',
@@ -379,7 +425,7 @@ export function Map() {
           <OverlayChip>
             <span className={mockPaused ? 'text-warn' : 'text-accent'}>●</span> {mockPaused ? 'Paused' : 'Mowing'}
           </OverlayChip>
-          <OverlayChip>{MOW.area}</OverlayChip>
+          <OverlayChip>{mowAreaName}</OverlayChip>
           <OverlayChip className="ml-auto">
             <span className="text-accent">●</span> RTK fixed
           </OverlayChip>
@@ -391,7 +437,7 @@ export function Map() {
         <Fab
           aria-label={editor.editing ? 'Exit edit mode' : 'Edit map'}
           icon={editor.editing ? <X size={18} /> : <Pencil size={18} />}
-          onClick={() => editor.setEditing(!editor.editing)}
+          onClick={toggleEditing}
         />
         {!editor.editing && (
           <Fab aria-label="Recenter on robot" icon={<Locate size={18} />} onClick={() => mapRef.current?.setZoom(19)} />
@@ -431,7 +477,7 @@ export function Map() {
               className="py-1.5"
               icon={<MapPinned size={16} className="text-ink-faint" />}
               title={selectedZone?.name ?? 'Choose a zone'}
-              sub={selectedZone?.type}
+              sub={selectedZone ? ZONE_TYPE_LABELS[selectedZone.type] : undefined}
               onClick={() => setZoneSheetOpen(true)}
             />
 
@@ -505,8 +551,8 @@ export function Map() {
             )}
 
             <div className="mt-2.5 flex items-center gap-2">
-              <Button variant="soft" size="sm" className="flex-1" onClick={addZoneAtCenter}>
-                <SquarePlus size={14} /> Add zone
+              <Button variant="soft" size="sm" className="flex-1" onClick={() => setAddObjectSheetOpen(true)}>
+                <SquarePlus size={14} /> Add to map
               </Button>
               <Button
                 variant={placingDock ? 'primary' : 'soft'}
@@ -547,34 +593,73 @@ export function Map() {
           </div>
         </div>
       ) : (
-        /* floating stat card (live view) */
-        <StatCard className="absolute inset-x-3 bottom-3 z-[500] md:left-3 md:right-auto md:w-[320px]">
-          <div className="flex items-center gap-2.5">
-            <div className="flex-1 leading-tight">
-              <div className="text-[.92rem] font-semibold text-ink">
-                {mockPaused ? 'Paused' : 'Mowing'} {MOW.area}
-              </div>
-              <div className="text-[.76rem] text-ink-soft">
-                {MOW.coverage}% · {mockPaused ? 'holding position' : `${MOW.timeLeftMin} min left`}
+        <>
+          {/* floating stat card (live view, mobile — desktop gets the Areas panel below too) */}
+          <StatCard className="absolute inset-x-3 bottom-3 z-[500] md:left-3 md:right-auto md:w-[320px]">
+            <div className="flex items-center gap-2.5">
+              <div className="flex-1 leading-tight">
+                <div className="text-[.92rem] font-semibold text-ink">
+                  {mockPaused ? 'Paused' : 'Mowing'} {mowAreaName}
+                </div>
+                <div className="text-[.76rem] text-ink-soft">
+                  {MOW.coverage}% · {mockPaused ? 'holding position' : `${MOW.timeLeftMin} min left`}
+                </div>
               </div>
             </div>
-          </div>
-          <ProgressBar value={MOW.coverage} className="mt-2.5" />
-          <div className="mt-2.5 flex items-center gap-2">
-            {mockPaused ? (
-              <Button variant="primary" className="flex-1 justify-center" onClick={() => setMockPaused(false)}>
-                <Play size={13} fill="currentColor" /> Resume
+            <ProgressBar value={MOW.coverage} className="mt-2.5" />
+            <div className="mt-2.5 flex items-center gap-2">
+              {mockPaused ? (
+                <Button variant="primary" className="flex-1 justify-center" onClick={() => setMockPaused(false)}>
+                  <Play size={13} fill="currentColor" /> Resume
+                </Button>
+              ) : (
+                <Button variant="ghost" className="flex-1 justify-center" onClick={() => setMockPaused(true)}>
+                  <Pause size={13} fill="currentColor" /> Pause
+                </Button>
+              )}
+              <Button variant="danger" className="flex-1 justify-center">
+                <Square size={13} fill="currentColor" /> Stop
               </Button>
-            ) : (
-              <Button variant="ghost" className="flex-1 justify-center" onClick={() => setMockPaused(true)}>
-                <Pause size={13} fill="currentColor" /> Pause
+            </div>
+          </StatCard>
+
+          {/* S4 — desktop-only "Areas" right rail (live view). Mobile keeps the stat card above. */}
+          <Card className="absolute right-3 top-16 bottom-3 z-[500] hidden w-[300px] flex-col overflow-hidden p-0 md:flex">
+            <div className="border-b border-border px-3.5 py-3 text-[.85rem] font-semibold text-ink">Areas</div>
+            <div className="flex-1 space-y-1 overflow-y-auto p-2">
+              {editor.zones
+                .filter((z) => isMowableType(z.type))
+                .map((z) => {
+                  const isActive = z.id === activeMowZoneId;
+                  const areaM2 = measureZone(z, editor.zones).areaM2;
+                  const status = isActive ? `Mowing · ${MOW.coverage}%` : z.active === false ? 'Inactive' : 'Queued';
+                  return (
+                    <div key={z.id} className="flex items-center gap-2.5 rounded-[10px] px-1.5 py-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[.85rem] font-semibold text-ink">{z.name}</div>
+                        <div className="text-[.72rem] text-ink-soft">
+                          {areaM2.toFixed(0)} m² · {status}
+                        </div>
+                      </div>
+                      <Button
+                        variant={isActive ? 'primary' : 'soft'}
+                        size="sm"
+                        disabled={isActive || z.active === false}
+                        onClick={() => setActiveMowZoneId(z.id)}
+                      >
+                        Mow
+                      </Button>
+                    </div>
+                  );
+                })}
+            </div>
+            <div className="border-t border-border p-2.5">
+              <Button variant="primary" className="w-full justify-center">
+                <Play size={13} fill="currentColor" /> Mow all now
               </Button>
-            )}
-            <Button variant="danger" className="flex-1 justify-center">
-              <Square size={13} fill="currentColor" /> Stop
-            </Button>
-          </div>
-        </StatCard>
+            </div>
+          </Card>
+        </>
       )}
 
       <Sheet open={basemapSheetOpen} onClose={() => setBasemapSheetOpen(false)} title="Base map">
@@ -593,9 +678,21 @@ export function Map() {
           <ListRow
             key={z.id}
             title={z.name}
-            sub={z.type}
+            sub={ZONE_TYPE_LABELS[z.type]}
             onClick={() => openZoneSettings(z.id)}
             trailing={z.id === editor.selectedZoneId ? <Check size={17} className="text-accent" /> : undefined}
+          />
+        ))}
+      </Sheet>
+
+      <Sheet open={addObjectSheetOpen} onClose={() => setAddObjectSheetOpen(false)} title="Add to map">
+        {ADD_TO_MAP_ITEMS.map((item) => (
+          <ListRow
+            key={item.type}
+            icon={item.icon}
+            title={item.label}
+            sub={item.sub}
+            onClick={() => (item.type === 'dock' ? addDockStation() : addObjectAtCenter(item.type, item.sizeM))}
           />
         ))}
       </Sheet>
@@ -769,12 +866,14 @@ export function Map() {
           <FormField label="Show preview">
             <div className="flex items-center justify-between">
               <span className="text-[.78rem] text-ink-soft">
-                {selectedZone?.type === 'mow' ? 'Visual only — never written to the map.' : 'Select a mowing area first.'}
+                {selectedZone && isMowableType(selectedZone.type)
+                  ? 'Visual only — never written to the map.'
+                  : 'Select a mowing area first.'}
               </span>
               <Switch
                 checked={coverage.enabled}
                 onCheckedChange={(v) => updateCoverage({enabled: v})}
-                disabled={selectedZone?.type !== 'mow'}
+                disabled={!selectedZone || !isMowableType(selectedZone.type)}
                 aria-label="Show coverage preview"
               />
             </div>

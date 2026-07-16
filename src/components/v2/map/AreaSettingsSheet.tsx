@@ -6,7 +6,14 @@
 // desktop (md+) — same content component either way. All data is MOCK/local; edits commit through
 // useMapEditor (so they ride the same undo/redo as geometry edits) and nothing is sent over RPC yet.
 import {boundingBox, polygonArea} from '@/components/v2/map/geometry';
-import {GLOBAL_DEFAULTS, type AreaSettings, type Zone, type ZoneType} from '@/components/v2/map/mockMap';
+import {
+  GLOBAL_DEFAULTS,
+  isMowableType,
+  ZONE_TYPE_LABELS,
+  type AreaSettings,
+  type Zone,
+  type ZoneType,
+} from '@/components/v2/map/mockMap';
 import {Button} from '@/components/v2/ui/Button';
 import {FormField} from '@/components/v2/ui/FormField';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
@@ -17,11 +24,9 @@ import {Switch} from '@/components/v2/ui/Switch';
 import {AlertTriangle, ChevronDown, ChevronRight, Eye, Minus, Plus, RotateCcw, X} from 'lucide-react';
 import {useEffect, useState, type ReactNode} from 'react';
 
-const ZONE_TYPE_OPTIONS: {value: ZoneType; label: string}[] = [
-  {value: 'mow', label: 'Mowing'},
-  {value: 'nav', label: 'Navigation'},
-  {value: 'obstacle', label: 'Obstacle'},
-];
+const ZONE_TYPE_OPTIONS: {value: ZoneType; label: string}[] = (
+  ['mow', 'spot', 'nav', 'obstacle'] as const
+).map((value) => ({value, label: ZONE_TYPE_LABELS[value]}));
 
 const ROUTE_PATTERN_OPTIONS: {value: NonNullable<AreaSettings['route_pattern']>; label: string}[] = [
   {value: 'parallel', label: 'Parallel'},
@@ -158,7 +163,7 @@ function AreaSettingsContent({
     <div className="space-y-3.5">
       <Button variant="ghost" size="sm" className="w-full justify-between" onClick={onSwitchZone}>
         <span className="font-normal text-ink-soft">
-          {zone.type} · {areaM2.toFixed(0)} m²
+          {ZONE_TYPE_LABELS[zone.type]} · {areaM2.toFixed(0)} m²
         </span>
         <span>Change zone ›</span>
       </Button>
@@ -187,11 +192,12 @@ function AreaSettingsContent({
         </div>
       </FormField>
 
-      {zone.type === 'mow' && (
+      {isMowableType(zone.type) && (
         <>
           <div className="h-px bg-border" />
 
-          {/* Primary mowing settings. */}
+          {/* Primary mowing settings — also shown for 'spot' (a one-off mow patch is still a mow
+              operation with its own angle/speed/etc). */}
           <FormField label="Route pattern">
             <SegmentedToggle
               options={ROUTE_PATTERN_OPTIONS}

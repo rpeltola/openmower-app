@@ -2,13 +2,13 @@
 // business rule (net mowable = mow area minus CONTAINED obstacle areas), built on the pure
 // geometry.ts primitives — same split as validation.ts.
 import {centroid, isPointInsidePolygon, polygonArea, polygonPerimeter} from '@/components/v2/map/geometry';
-import type {Zone} from '@/components/v2/map/mockMap';
+import {isMowableType, type Zone} from '@/components/v2/map/mockMap';
 
 export interface ZoneMeasurements {
   areaM2: number;
   perimeterM: number;
-  /** Only meaningful for type 'mow' (null otherwise) — the zone's own area minus the area of any
-   *  obstacle zone whose centroid falls inside it. */
+  /** Only meaningful for mow-like types (null otherwise) — the zone's own area minus the area of
+   *  any obstacle zone whose centroid falls inside it. */
   netMowableM2: number | null;
 }
 
@@ -17,7 +17,7 @@ export function measureZone(zone: Zone, allZones: Zone[]): ZoneMeasurements {
   const perimeterM = polygonPerimeter(zone.outline);
 
   let netMowableM2: number | null = null;
-  if (zone.type === 'mow') {
+  if (isMowableType(zone.type)) {
     const containedObstacleArea = allZones
       .filter((z) => z.type === 'obstacle' && z.outline.length >= 3)
       .filter((z) => {

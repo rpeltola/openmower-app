@@ -15,7 +15,14 @@ import {
   snapEvenly,
   translatePoints,
 } from '@/components/v2/map/geometry';
-import type {AreaSettings, Dock, Zone, ZoneType} from '@/components/v2/map/mockMap';
+import {
+  isMowableType,
+  ZONE_TYPE_LABELS,
+  type AreaSettings,
+  type Dock,
+  type Zone,
+  type ZoneType,
+} from '@/components/v2/map/mockMap';
 
 export type EditTool = 'select' | 'add' | 'delete' | 'snap' | 'brush' | 'multi' | 'rect' | 'circle' | 'move';
 
@@ -89,11 +96,12 @@ export interface MapEditor {
   pickSnapVertex: (vertex: SelectedVertex) => void;
   toggleMultiVertex: (index: number) => void;
   setMultiSelected: (indices: number[]) => void;
-  /** Create a new zone (type 'mow') from a ready-made outline — rect/circle draw tools call this
-   *  with their finished shape; the new zone becomes selected. */
-  createZone: (outline: Zone['outline']) => void;
-  /** Add zone (a square centered on `center`, side `sizeM` meters, type 'mow'). */
-  addZone: (center: Zone['outline'][number], sizeM?: number) => void;
+  /** Create a new zone from a ready-made outline (default type 'mow') — rect/circle draw tools
+   *  call this with their finished shape; the new zone becomes selected. Returns the new id. */
+  createZone: (outline: Zone['outline'], type?: ZoneType) => string;
+  /** Add zone (a square centered on `center`, side `sizeM` meters, default type 'mow'). Returns
+   *  the new id. */
+  addZone: (center: Zone['outline'][number], type?: ZoneType, sizeM?: number) => string;
   duplicateZone: (id: string) => void;
   deleteZone: (id: string) => void;
   renameZone: (id: string, name: string) => void;
@@ -236,24 +244,28 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
   }, []);
 
   const createZone = useCallback(
-    (outline: Zone['outline']) => {
+    (outline: Zone['outline'], type: ZoneType = 'mow') => {
       const id = makeZoneId();
-      const newZone: Zone = {id, name: `New area ${zones.length + 1}`, type: 'mow', outline};
+      const newZone: Zone = {id, name: `New ${ZONE_TYPE_LABELS[type].toLowerCase()} ${zones.length + 1}`, type, outline};
       commitZones([...zones, newZone]);
       setSelectedZoneId(id);
+      return id;
     },
     [zones, commitZones],
   );
 
   const addZone = useCallback(
-    (center: Zone['outline'][number], sizeM = 6) => {
+    (center: Zone['outline'][number], type: ZoneType = 'mow', sizeM = 6) => {
       const half = sizeM / 2;
-      createZone([
-        {x: center.x - half, y: center.y - half},
-        {x: center.x + half, y: center.y - half},
-        {x: center.x + half, y: center.y + half},
-        {x: center.x - half, y: center.y + half},
-      ]);
+      return createZone(
+        [
+          {x: center.x - half, y: center.y - half},
+          {x: center.x + half, y: center.y - half},
+          {x: center.x + half, y: center.y + half},
+          {x: center.x - half, y: center.y + half},
+        ],
+        type,
+      );
     },
     [createZone],
   );
@@ -294,8 +306,8 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
 
   const setZoneType = useCallback(
     (id: string, type: ZoneType) => {
-      // v1 rule: the mowing overrides block only applies to type 'mow' — switching away clears it.
-      commitZones(zones.map((z) => (z.id === id ? {...z, type, settings: type === 'mow' ? z.settings : undefined} : z)));
+      // v1 rule: the mowing overrides block only applies to mow-like types — switching away clears it.
+      commitZones(zones.map((z) => (z.id === id ? {...z, type, settings: isMowableType(type) ? z.settings : undefined} : z)));
     },
     [zones, commitZones],
   );
