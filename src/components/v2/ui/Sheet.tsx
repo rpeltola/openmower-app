@@ -33,7 +33,7 @@ export function Sheet({open, onClose, title, children, className}: SheetProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-[1000]">
       <div
         aria-hidden
         onClick={onClose}

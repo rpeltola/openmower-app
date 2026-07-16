@@ -5,13 +5,10 @@
 // loads it with next/dynamic { ssr:false } so Leaflet never runs during SSR.
 import {footprintPolygon, headingNose, metersToLatLng, type Footprint, type Origin, type Pose} from '@/lib/v2/geo/projection';
 import {MOCK_DOCK, MOCK_FOOTPRINT, MOCK_ORIGIN, MOCK_POSE, MOCK_ZONES, ZONE_STYLE, type Zone} from '@/components/v2/map/mockMap';
+import {DEFAULT_BASEMAP_ID, resolveBasemap} from '@/components/v2/map/basemaps';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {useEffect, useRef} from 'react';
-
-const ESRI_SAT =
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-const ESRI_ATTR = 'Tiles © Esri, Maxar, Earthstar Geographics';
 
 export interface MapCanvasProps {
   origin?: Origin;
@@ -20,6 +17,8 @@ export interface MapCanvasProps {
   pose?: Pose;
   footprint?: Footprint;
   className?: string;
+  /** Basemap registry id (see map/basemaps.ts). Defaults to Esri World Imagery. */
+  basemapId?: string;
   /** Called once with the Leaflet map so the screen can wire its own controls (zoom/locate FABs). */
   onReady?: (map: L.Map) => void;
 }
@@ -31,10 +30,12 @@ export function MapCanvas({
   pose = MOCK_POSE,
   footprint = MOCK_FOOTPRINT,
   className,
+  basemapId = DEFAULT_BASEMAP_ID,
   onReady,
 }: MapCanvasProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
 
   useEffect(() => {
     if (!elRef.current || mapRef.current) return;
@@ -44,7 +45,6 @@ export function MapCanvas({
     );
     mapRef.current = map;
     map.attributionControl.setPrefix(false);
-    L.tileLayer(ESRI_SAT, {attribution: ESRI_ATTR, maxZoom: 22, maxNativeZoom: 19}).addTo(map);
 
     const geo = L.featureGroup().addTo(map);
 
@@ -88,6 +88,20 @@ export function MapCanvas({
       mapRef.current = null;
     };
   }, [origin, zones, dock, pose, footprint]);
+
+  // Swap the tile layer in place when the basemap changes, without recreating the map
+  // (keeps zoom/pan/overlays intact).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const basemap = resolveBasemap(basemapId);
+    tileLayerRef.current?.remove();
+    tileLayerRef.current = L.tileLayer(basemap.url, {
+      attribution: basemap.attribution,
+      maxZoom: 22,
+      maxNativeZoom: basemap.maxNativeZoom ?? 19,
+    }).addTo(map);
+  }, [basemapId]);
 
   return <div ref={elRef} className={className} aria-label="Garden map" />;
 }
