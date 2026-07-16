@@ -12,7 +12,7 @@ import {MiniMap} from '@/components/v2/ui/MiniMap';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Stepper} from '@/components/v2/ui/Stepper';
 import {Toast} from '@/components/v2/ui/Toast';
-import {gamepadButtonLabels, type GamepadBrand, useGamepad} from '@/lib/v2/useGamepad';
+import {gamepadButtonLabels, type GamepadButtonLabels, useGamepad} from '@/lib/v2/useGamepad';
 import {Bluetooth, Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 
@@ -60,6 +60,9 @@ export function ManualControl() {
   const [toast, setToast] = useState<string | null>(null);
 
   const gamepad = useGamepad();
+  // Brand-correct glyphs for the badges on the buttons a gamepad actually maps to — null
+  // (no controller) hides every badge.
+  const gamepadLabels = gamepad.connected ? gamepadButtonLabels(gamepad.brand) : null;
   // Touch and gamepad both feed this one piece of state — the shared "drive command" a
   // real MQTT wire-up would consume. Touch takes priority if both happen to be active.
   const [touchDirection, setTouchDirection] = useState<Direction | null>(null);
@@ -200,7 +203,7 @@ export function ManualControl() {
             />
 
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <SegmentedSpeedColumn speed={speed} onStep={stepSpeed} />
+              <SegmentedSpeedColumn speed={speed} onStep={stepSpeed} gamepadLabels={gamepadLabels} />
               <DriveInput
                 size={140}
                 mode={inputMode}
@@ -226,10 +229,9 @@ export function ManualControl() {
               onToggleBlade={handleToggleBlade}
               onDock={handleDock}
               onStop={handleStop}
+              gamepadLabels={gamepadLabels}
               className="mt-1 justify-around"
             />
-
-            {gamepad.connected ? <GamepadHints brand={gamepad.brand} /> : null}
           </div>
 
           {/* Desktop console: one card holding press-and-hold unlock, joystick + blade
@@ -269,9 +271,15 @@ export function ManualControl() {
               />
             </div>
 
-            <SegmentedToggle label="Speed" options={SPEED_OPTIONS} value={speed} onChange={setSpeed} />
-
-            {gamepad.connected ? <GamepadHints brand={gamepad.brand} /> : null}
+            <div>
+              <SegmentedToggle label="Speed" options={SPEED_OPTIONS} value={speed} onChange={setSpeed} />
+              {gamepadLabels ? (
+                <div className="mt-1 flex justify-between px-1 text-[.6rem] font-semibold text-ink-faint">
+                  <span>{gamepadLabels.lb} slower</span>
+                  <span>{gamepadLabels.rb} faster</span>
+                </div>
+              ) : null}
+            </div>
 
             <ActionRow
               hasError={hasError}
@@ -280,6 +288,7 @@ export function ManualControl() {
               onToggleBlade={handleToggleBlade}
               onDock={handleDock}
               onStop={handleStop}
+              gamepadLabels={gamepadLabels}
               className="justify-center gap-4"
             />
           </Card>
@@ -289,15 +298,17 @@ export function ManualControl() {
   );
 }
 
-// Brand-correct legend for the gamepad button mapping (see the rising-edge effect above:
-// A/✕ = Stop, B/○ = Dock, X/□ = Blade, LB·RB / L1·R1 = Speed) — shown only while a
-// controller is connected, using that controller's own glyphs.
-function GamepadHints({brand}: {brand: GamepadBrand}) {
-  const l = gamepadButtonLabels(brand);
+// A small brand-glyph pill pinned to the corner of the button it's hinting at — see the
+// rising-edge effect above for the actual mapping (A/✕ = Stop, B/○ = Dock, X/□ = Blade,
+// LB·RB / L1·R1 = Speed). Only ever rendered while a controller is connected.
+function GamepadBadge({label, className}: {label: string; className?: string}) {
   return (
-    <p className="text-center text-[.68rem] text-ink-faint">
-      {l.a} Stop · {l.b} Dock · {l.x} Blade · {l.lb}/{l.rb} Speed
-    </p>
+    <span
+      aria-hidden
+      className={`pointer-events-none absolute z-10 flex h-4 min-w-4 items-center justify-center rounded-full border border-border bg-surface px-1 text-[.6rem] font-bold leading-none text-ink-soft shadow-[var(--shadow-s)] ${className ?? ''}`}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -333,30 +344,44 @@ function DriveInput({
   );
 }
 
-function SegmentedSpeedColumn({speed, onStep}: {speed: string; onStep: (dir: 1 | -1) => void}) {
+function SegmentedSpeedColumn({
+  speed,
+  onStep,
+  gamepadLabels,
+}: {
+  speed: string;
+  onStep: (dir: 1 | -1) => void;
+  gamepadLabels: GamepadButtonLabels | null;
+}) {
   const idx = SPEED_OPTIONS.findIndex((o) => o.value === speed);
   return (
     <div className="flex flex-col items-center gap-1.5">
       <span className="text-[.6rem] font-semibold uppercase tracking-wide text-ink-faint">Speed</span>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => onStep(-1)}
-        aria-label="Slower"
-        className="h-8 w-8 text-base leading-none"
-      >
-        −
-      </Button>
+      <div className="relative">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onStep(-1)}
+          aria-label="Slower"
+          className="h-8 w-8 text-base leading-none"
+        >
+          −
+        </Button>
+        {gamepadLabels ? <GamepadBadge label={gamepadLabels.lb} className="-right-1 -top-1" /> : null}
+      </div>
       <span className="text-sm font-semibold text-accent">{SPEED_OPTIONS[idx].label}</span>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => onStep(1)}
-        aria-label="Faster"
-        className="h-8 w-8 text-base leading-none"
-      >
-        +
-      </Button>
+      <div className="relative">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onStep(1)}
+          aria-label="Faster"
+          className="h-8 w-8 text-base leading-none"
+        >
+          +
+        </Button>
+        {gamepadLabels ? <GamepadBadge label={gamepadLabels.rb} className="-right-1 -top-1" /> : null}
+      </div>
     </div>
   );
 }
@@ -408,6 +433,7 @@ function ActionRow({
   onToggleBlade,
   onDock,
   onStop,
+  gamepadLabels,
   className,
 }: {
   hasError: boolean;
@@ -416,16 +442,23 @@ function ActionRow({
   onToggleBlade: () => void;
   onDock: () => void;
   onStop: () => void;
+  gamepadLabels: GamepadButtonLabels | null;
   className?: string;
 }) {
   return (
     <div className={`flex ${className ?? ''}`}>
-      <ActionItem icon={<Home size={17} strokeWidth={2.2} />} label="Dock" onClick={onDock} />
+      <ActionItem
+        icon={<Home size={17} strokeWidth={2.2} />}
+        label="Dock"
+        onClick={onDock}
+        badge={gamepadLabels?.b}
+      />
       <ActionItem
         icon={<Square size={15} fill="currentColor" />}
         label="Stop"
         variant="danger"
         onClick={onStop}
+        badge={gamepadLabels?.a}
       />
       <ActionItem
         icon={<RotateCcw size={17} strokeWidth={2.2} />}
@@ -438,6 +471,7 @@ function ActionRow({
         disabled={bladeDisabled}
         active={bladeOn}
         onClick={onToggleBlade}
+        badge={gamepadLabels?.x}
       />
     </div>
   );
@@ -450,6 +484,7 @@ function ActionItem({
   disabled,
   active,
   onClick,
+  badge,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -457,19 +492,23 @@ function ActionItem({
   disabled?: boolean;
   active?: boolean;
   onClick?: () => void;
+  badge?: string;
 }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <Button
-        variant={variant === 'danger' ? 'danger' : 'ghost'}
-        size="icon-lg"
-        disabled={disabled}
-        onClick={onClick}
-        aria-label={label}
-        className={active ? 'border-accent bg-accent-wash text-accent' : undefined}
-      >
-        {icon}
-      </Button>
+      <div className="relative">
+        <Button
+          variant={variant === 'danger' ? 'danger' : 'ghost'}
+          size="icon-lg"
+          disabled={disabled}
+          onClick={onClick}
+          aria-label={label}
+          className={active ? 'border-accent bg-accent-wash text-accent' : undefined}
+        >
+          {icon}
+        </Button>
+        {badge ? <GamepadBadge label={badge} className="-right-1 -top-1" /> : null}
+      </div>
       <span
         className={`text-[.7rem] font-semibold ${
           variant === 'danger' ? 'text-danger' : disabled ? 'text-ink-faint' : 'text-ink-soft'
