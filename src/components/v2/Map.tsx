@@ -659,8 +659,10 @@ export function Map() {
         </div>
       )}
 
-      {/* map FABs */}
-      <div className="absolute right-3 top-16 z-[500] flex flex-col gap-2">
+      {/* map FABs — in live view the desktop S4 "Areas" panel occupies the same right-3/top-16
+          corner and would intercept these clicks (incl. Edit), so shift the column left of the
+          300px panel on md+ when not editing; in edit mode the panel is gone, keep it at the edge. */}
+      <div className={`absolute right-3 top-16 z-[520] flex flex-col gap-2 ${editor.editing ? '' : 'md:right-[336px]'}`}>
         <Fab
           aria-label={editor.editing ? 'Exit edit mode' : 'Edit map'}
           icon={editor.editing ? <X size={18} /> : <Pencil size={18} />}
