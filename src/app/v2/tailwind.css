@@ -1,0 +1,160 @@
+/* Tailwind v4 entry point for the /v2 design system.
+ *
+ * Coexistence: preflight is intentionally NOT imported (only theme.css + utilities.css).
+ * v1's MUI CssBaseline already resets the whole document; Tailwind's own reset would fight
+ * it globally. This file is only ever imported from src/app/v2/layout.tsx, so its utility
+ * classes are only ever *used* inside /v2 — see component-library.md §2/§3.
+ */
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* ---- Design tokens (design-language.md §2 + the concept's exact palette) ---- */
+
+:root {
+  --bg: #f3f6f2;
+  --surface: #ffffff;
+  --surface-2: #edf1eb;
+  --raised: #ffffff;
+  --ink: #14201a;
+  --ink-soft: #586961;
+  --ink-faint: #8a9990;
+  --border: #e2e8e0;
+  --accent: #12855a;
+  --accent-bright: #25b074;
+  --accent-ink: #0b5c3d;
+  --accent-wash: #e4f1ea;
+  --warn: #b7791a;
+  --warn-wash: #f6ebd5;
+  --danger: #c0433a;
+  --danger-wash: #f6e0dd;
+  --info: #3e72ae;
+  --info-wash: #e1ebf5;
+  --map: #e6ede4;
+  --map-line: #d3ddcf;
+  --mowed: #b9e3ce;
+  --dock: #3e72ae;
+  --radius-card: 16px;
+  --radius-control: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c1310;
+    --surface: #151d18;
+    --surface-2: #1c2621;
+    --raised: #1b241f;
+    --ink: #e9eeea;
+    --ink-soft: #9db0a6;
+    --ink-faint: #6e7f76;
+    --border: #26312b;
+    --accent: #3bc384;
+    --accent-bright: #4fd996;
+    --accent-ink: #b7ecd2;
+    --accent-wash: #12271e;
+    --warn: #e1b15e;
+    --warn-wash: #2c2411;
+    --danger: #e88a7d;
+    --danger-wash: #2e1613;
+    --info: #82b2e0;
+    --info-wash: #12212e;
+    --map: #0f1b15;
+    --map-line: #1b2a22;
+    --mowed: #1e5b41;
+    --dock: #82b2e0;
+  }
+}
+
+/* The app already stamps data-theme on <html> (see the blocking script in the root
+   layout) — reuse that single source of truth for both v1 (MUI) and v2 (these vars). */
+:root[data-theme='dark'] {
+  --bg: #0c1310;
+  --surface: #151d18;
+  --surface-2: #1c2621;
+  --raised: #1b241f;
+  --ink: #e9eeea;
+  --ink-soft: #9db0a6;
+  --ink-faint: #6e7f76;
+  --border: #26312b;
+  --accent: #3bc384;
+  --accent-bright: #4fd996;
+  --accent-ink: #b7ecd2;
+  --accent-wash: #12271e;
+  --warn: #e1b15e;
+  --warn-wash: #2c2411;
+  --danger: #e88a7d;
+  --danger-wash: #2e1613;
+  --info: #82b2e0;
+  --info-wash: #12212e;
+  --map: #0f1b15;
+  --map-line: #1b2a22;
+  --mowed: #1e5b41;
+  --dock: #82b2e0;
+}
+
+:root[data-theme='light'] {
+  --bg: #f3f6f2;
+  --surface: #ffffff;
+  --surface-2: #edf1eb;
+  --raised: #ffffff;
+  --ink: #14201a;
+  --ink-soft: #586961;
+  --ink-faint: #8a9990;
+  --border: #e2e8e0;
+  --accent: #12855a;
+  --accent-bright: #25b074;
+  --accent-ink: #0b5c3d;
+  --accent-wash: #e4f1ea;
+  --warn: #b7791a;
+  --warn-wash: #f6ebd5;
+  --danger: #c0433a;
+  --danger-wash: #f6e0dd;
+  --info: #3e72ae;
+  --info-wash: #e1ebf5;
+  --map: #e6ede4;
+  --map-line: #d3ddcf;
+  --mowed: #b9e3ce;
+  --dock: #3e72ae;
+}
+
+/* ---- Wire the tokens into the Tailwind theme (bg-accent, text-ink, border-border, …) ---- */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-wash: var(--accent-wash);
+  --color-warn: var(--warn);
+  --color-warn-wash: var(--warn-wash);
+  --color-danger: var(--danger);
+  --color-danger-wash: var(--danger-wash);
+  --color-info: var(--info);
+  --color-info-wash: var(--info-wash);
+  --color-map: var(--map);
+  --color-map-line: var(--map-line);
+  --color-mowed: var(--mowed);
+  --color-dock: var(--dock);
+
+  --radius-card: var(--radius-card);
+  --radius-control: var(--radius-control);
+}
+
+.v2-root {
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100dvh;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.v2-root :where(button) {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
