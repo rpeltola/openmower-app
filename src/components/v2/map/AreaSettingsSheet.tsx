@@ -5,7 +5,8 @@
 // settings research. Renders as a bottom Sheet on mobile and a persistent right-hand panel on
 // desktop (md+) — same content component either way. All data is MOCK/local; edits commit through
 // useMapEditor (so they ride the same undo/redo as geometry edits) and nothing is sent over RPC yet.
-import {boundingBox, polygonArea} from '@/components/v2/map/geometry';
+import {polygonArea} from '@/components/v2/map/geometry';
+import {estimateMowPreview, type PreviewEstimate} from '@/components/v2/map/measurements';
 import {
   GLOBAL_DEFAULTS,
   isMowableType,
@@ -72,8 +73,6 @@ const ADVANCED_KEYS: (keyof AreaSettings)[] = [
   'mow_ngz_edges',
 ];
 
-const TOOL_WIDTH_M = 0.3; // mock assumed cutting width, for the Preview estimate only
-
 function degToRad(deg: number): number {
   return (deg * Math.PI) / 180;
 }
@@ -82,23 +81,6 @@ function radToDeg(rad: number): number {
 }
 function clampAngleDeg(deg: number): number {
   return Math.max(-180, Math.min(180, deg));
-}
-
-interface PreviewEstimate {
-  areaM2: number;
-  minutes: number;
-  passes: number;
-}
-
-/** MOCK time/passes estimate from the zone's real polygon area — local only, never sent to ROS. */
-function estimatePreview(zone: Zone): PreviewEstimate {
-  const areaM2 = polygonArea(zone.outline);
-  const speedMps = zone.settings?.mow_speed === 'fast' ? 0.35 : zone.settings?.mow_speed === 'slow' ? 0.15 : 0.25;
-  const bbox = boundingBox(zone.outline);
-  const passes = bbox ? Math.max(1, Math.round(Math.max(bbox.width, bbox.height) / TOOL_WIDTH_M)) : 1;
-  const pathLengthM = areaM2 / TOOL_WIDTH_M;
-  const minutes = Math.max(1, Math.round(pathLengthM / speedMps / 60));
-  return {areaM2, minutes, passes};
 }
 
 export interface AreaSettingsSheetProps {
@@ -111,6 +93,9 @@ export interface AreaSettingsSheetProps {
   onSetActive: (active: boolean) => void;
   onUpdateSettings: (patch: Partial<AreaSettings>) => void;
   onResetSettings: () => void;
+  /** Opens the full animated plan-preview over the map (MAP_SCREEN_SPEC S7) — fired alongside the
+   *  inline estimate below, not instead of it, so there's still instant feedback in the sheet. */
+  onPreviewPlan?: (zone: Zone) => void;
 }
 
 export function AreaSettingsSheet(props: AreaSettingsSheetProps) {
@@ -149,6 +134,7 @@ function AreaSettingsContent({
   onSetActive,
   onUpdateSettings,
   onResetSettings,
+  onPreviewPlan,
 }: AreaSettingsSheetProps & {zone: Zone}) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewEstimate | null>(null);
@@ -354,7 +340,15 @@ function AreaSettingsContent({
             <Button variant="ghost" size="sm" className="flex-1" onClick={onResetSettings}>
               <RotateCcw size={14} /> Restore defaults
             </Button>
-            <Button variant="primary" size="sm" className="flex-1" onClick={() => setPreview(estimatePreview(zone))}>
+            <Button
+              variant="primary"
+              size="sm"
+              className="flex-1"
+              onClick={() => {
+                setPreview(estimateMowPreview(zone));
+                onPreviewPlan?.(zone);
+              }}
+            >
               <Eye size={14} /> Preview
             </Button>
           </div>

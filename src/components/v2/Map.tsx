@@ -11,8 +11,17 @@ import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {coverageLines, outlineLaps} from '@/components/v2/map/coverage';
 import {principalAngleDeg} from '@/components/v2/map/geometry';
-import {measureZone} from '@/components/v2/map/measurements';
-import {isMowableType, MOCK_DOCK, MOCK_ORIGIN, MOCK_ZONES, ZONE_TYPE_LABELS, type ZoneType} from '@/components/v2/map/mockMap';
+import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements';
+import {
+  GLOBAL_DEFAULTS,
+  isMowableType,
+  MOCK_DOCK,
+  MOCK_ORIGIN,
+  MOCK_ZONES,
+  ZONE_TYPE_LABELS,
+  type Zone,
+  type ZoneType,
+} from '@/components/v2/map/mockMap';
 import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool} from '@/components/v2/map/useMapEditor';
 import {validateMap, type MapIssue} from '@/components/v2/map/validation';
 import {Button} from '@/components/v2/ui/Button';
@@ -21,6 +30,7 @@ import {Chip} from '@/components/v2/ui/Chip';
 import {CommandPalette, type CommandPaletteAction} from '@/components/v2/ui/CommandPalette';
 import {Fab} from '@/components/v2/ui/Fab';
 import {FormField} from '@/components/v2/ui/FormField';
+import {KpiTile} from '@/components/v2/ui/KpiTile';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
@@ -236,20 +246,22 @@ export function Map() {
     setBasemapSheetOpen(false);
   };
 
-  // Toggling edit mode off closes every edit-only sheet too — otherwise one left open (e.g. area
-  // settings) would still render its persistent desktop panel over the live view, at the same
-  // spot the new S4 "Areas" live-view panel occupies.
+  // Shared by toggleEditing (exiting edit mode) and onPreviewPlan (S7 jumps straight to the live
+  // map to show the plan) — otherwise one left open (e.g. area settings) would still render its
+  // persistent desktop panel over the live view, at the same spot the S4 "Areas" panel occupies.
+  const closeAllEditSheets = () => {
+    setAreaSettingsOpen(false);
+    setTransformSheetOpen(false);
+    setCoverageSheetOpen(false);
+    setZoneSheetOpen(false);
+    setIssuesSheetOpen(false);
+    setAddObjectSheetOpen(false);
+  };
+
   const toggleEditing = () => {
     const next = !editor.editing;
     editor.setEditing(next);
-    if (!next) {
-      setAreaSettingsOpen(false);
-      setTransformSheetOpen(false);
-      setCoverageSheetOpen(false);
-      setZoneSheetOpen(false);
-      setIssuesSheetOpen(false);
-      setAddObjectSheetOpen(false);
-    }
+    if (!next) closeAllEditSheets();
   };
 
   const selectedZone = editor.zones.find((z) => z.id === editor.selectedZoneId);
@@ -304,6 +316,70 @@ export function Map() {
       fillSegments: coverageLines(selectedZone.outline, obstacles, coverage.toolWidthM, baseAngle),
     };
   }, [coverage, selectedZone, editor.zones]);
+
+  // S7 — plan preview: the full animated coverage route for a zone, entered from the area-
+  // settings "Preview" button. Its own lifecycle, separate from the edit-mode coverage-preview
+  // above (that one's tied to the localStorage-remembered `coverage` settings) — reuses the same
+  // route generator and the same MapCanvas `coveragePreview` prop, just fed a progressively larger
+  // slice for the "draw-on" animation.
+  const [planPreviewZoneId, setPlanPreviewZoneId] = useState<string | null>(null);
+  const [planPreviewProgress, setPlanPreviewProgress] = useState(0);
+  const planPreviewZone = editor.zones.find((z) => z.id === planPreviewZoneId);
+
+  const onPreviewPlan = (zone: Zone) => {
+    editor.setEditing(false);
+    closeAllEditSheets();
+    setPlanPreviewZoneId(zone.id);
+  };
+
+  const closePlanPreview = () => setPlanPreviewZoneId(null);
+
+  const startThisPlan = () => {
+    if (planPreviewZoneId) setActiveMowZoneId(planPreviewZoneId);
+    closePlanPreview();
+  };
+
+  useEffect(() => {
+    if (!planPreviewZoneId) return;
+    setPlanPreviewProgress(0);
+    const durationMs = 1400;
+    const startedAt = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startedAt) / durationMs);
+      setPlanPreviewProgress(t);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [planPreviewZoneId]);
+
+  const planPreviewFull = useMemo(() => {
+    if (!planPreviewZone) return null;
+    const obstacles = editor.zones.filter((z) => z.type === 'obstacle' && z.outline.length >= 3).map((z) => z.outline);
+    const angleDeg =
+      planPreviewZone.settings?.angle !== undefined
+        ? (planPreviewZone.settings.angle * 180) / Math.PI
+        : principalAngleDeg(planPreviewZone.outline);
+    const outlineCount = planPreviewZone.settings?.outline_count ?? GLOBAL_DEFAULTS.outline_count;
+    return {
+      outlineLaps: outlineLaps(planPreviewZone.outline, outlineCount, MOWED_LANE_SPACING_M),
+      fillSegments: coverageLines(planPreviewZone.outline, obstacles, MOWED_LANE_SPACING_M, angleDeg),
+    };
+  }, [planPreviewZone, editor.zones]);
+
+  // The "draw-on" reveal: a growing prefix of laps/segments, animated by planPreviewProgress above.
+  const planPreviewRevealed = useMemo(() => {
+    if (!planPreviewFull) return null;
+    const lapCount = Math.ceil(planPreviewFull.outlineLaps.length * planPreviewProgress);
+    const segCount = Math.round(planPreviewFull.fillSegments.length * planPreviewProgress);
+    return {
+      outlineLaps: planPreviewFull.outlineLaps.slice(0, lapCount),
+      fillSegments: planPreviewFull.fillSegments.slice(0, segCount),
+    };
+  }, [planPreviewFull, planPreviewProgress]);
+
+  const planPreviewEstimate = planPreviewZone ? estimateMowPreview(planPreviewZone) : null;
 
   // Mowed-so-far lanes (MAP_SCREEN_SPEC S1) — mock progress painting for the live view (hidden
   // while editing, same as the real robot wouldn't repaint the map mid-edit). Reuses the coverage-
@@ -421,7 +497,7 @@ export function Map() {
           editor.commitDock(next);
           setPlacingDock(false);
         }}
-        coveragePreview={coveragePreviewData}
+        coveragePreview={planPreviewZoneId ? planPreviewRevealed : coveragePreviewData}
         mowedLanes={mowedLanesData}
         robotAccuracyM={mockBlocked ? 1.4 : 0.35}
         robotBlocked={mockBlocked}
@@ -712,6 +788,38 @@ export function Map() {
         </>
       )}
 
+      {/* S7 — plan preview: the route draws on over ~1.4s (planPreviewProgress), then holds. Sits
+          above the normal chrome (z-900) since it takes over the screen; the tool dock/stat card
+          underneath are already hidden (onPreviewPlan exits edit mode + closes every sheet). */}
+      {planPreviewZone && planPreviewEstimate && (
+        <>
+          <div className="absolute inset-x-3 top-3 z-[900] flex items-center gap-2">
+            <OverlayChip>
+              <Route size={12} className="text-accent" /> Plan preview · {planPreviewZone.name}
+            </OverlayChip>
+            <Button
+              variant="soft"
+              size="icon"
+              className="ml-auto h-9 w-9"
+              aria-label="Close preview"
+              onClick={closePlanPreview}
+            >
+              <X size={16} />
+            </Button>
+          </div>
+          <StatCard className="absolute inset-x-3 bottom-3 z-[900] md:left-3 md:right-auto md:w-[320px]">
+            <div className="grid grid-cols-3 gap-2">
+              <KpiTile value={planPreviewEstimate.minutes} unit=" min" label="Est. time" />
+              <KpiTile value={planPreviewEstimate.areaM2.toFixed(0)} unit=" m²" label="Area" />
+              <KpiTile value={planPreviewEstimate.passes} label="Passes" />
+            </div>
+            <Button variant="primary" className="mt-2.5 w-full justify-center" onClick={startThisPlan}>
+              <Play size={14} fill="currentColor" /> Start this plan
+            </Button>
+          </StatCard>
+        </>
+      )}
+
       <Sheet open={basemapSheetOpen} onClose={() => setBasemapSheetOpen(false)} title="Base map">
         {BASEMAPS.map((b) => (
           <ListRow
@@ -757,6 +865,7 @@ export function Map() {
         onSetActive={(active) => selectedZone && editor.setZoneActive(selectedZone.id, active)}
         onUpdateSettings={(patch) => selectedZone && editor.updateZoneSettings(selectedZone.id, patch)}
         onResetSettings={() => selectedZone && editor.resetZoneSettings(selectedZone.id)}
+        onPreviewPlan={onPreviewPlan}
       />
 
       {/* Zone create/transform — placeholder home for this until the area-settings batch folds
