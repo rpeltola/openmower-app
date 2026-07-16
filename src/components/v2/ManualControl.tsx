@@ -1,5 +1,6 @@
 'use client';
 
+import {AnalogStick, type StickVector} from '@/components/v2/ui/AnalogStick';
 import {Button} from '@/components/v2/ui/Button';
 import {CameraSlot} from '@/components/v2/ui/CameraSlot';
 import {Card} from '@/components/v2/ui/Card';
@@ -20,6 +21,17 @@ const SPEED_OPTIONS = [
   {value: 'normal', label: 'Normal'},
   {value: 'fast', label: 'Fast'},
 ];
+
+type InputMode = 'dpad' | 'joystick';
+
+const INPUT_MODE_OPTIONS = [
+  {value: 'dpad', label: 'D-pad'},
+  {value: 'joystick', label: 'Joystick'},
+];
+
+const INPUT_MODE_STORAGE_KEY = 'v2.control.inputMode';
+
+const ZERO_VECTOR: StickVector = {x: 0, y: 0};
 
 // Left-stick analog → the same discrete up/down/left/right vocabulary the touch d-pad
 // speaks (Joystick is a clickpad, not analog) — dominant-axis reading, already deadzoned
@@ -53,6 +65,21 @@ export function ManualControl() {
   const [touchDirection, setTouchDirection] = useState<Direction | null>(null);
   const gamepadDirection = unlocked ? axesToDirection(gamepad.axes.lx, gamepad.axes.ly) : null;
   const driveDirection = touchDirection ?? gamepadDirection;
+
+  // Analog alternative to the d-pad — same left-stick source, just fed through unrounded.
+  const [touchVector, setTouchVector] = useState<StickVector>(ZERO_VECTOR);
+  const gamepadVector: StickVector | null = unlocked ? {x: gamepad.axes.lx, y: gamepad.axes.ly} : null;
+  const driveVector = touchVector.x !== 0 || touchVector.y !== 0 ? touchVector : gamepadVector;
+
+  const [inputMode, setInputModeState] = useState<InputMode>('dpad');
+  useEffect(() => {
+    const stored = localStorage.getItem(INPUT_MODE_STORAGE_KEY);
+    if (stored === 'dpad' || stored === 'joystick') setInputModeState(stored);
+  }, []);
+  const setInputMode = (mode: InputMode) => {
+    setInputModeState(mode);
+    localStorage.setItem(INPUT_MODE_STORAGE_KEY, mode);
+  };
 
   const stepSpeed = (dir: 1 | -1) => {
     setSpeed((current) => {
@@ -165,13 +192,23 @@ export function ManualControl() {
           <div className="flex flex-col gap-3 md:hidden">
             <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
 
+            <SegmentedToggle
+              label="Input"
+              options={INPUT_MODE_OPTIONS}
+              value={inputMode}
+              onChange={(v) => setInputMode(v as InputMode)}
+            />
+
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
               <SegmentedSpeedColumn speed={speed} onStep={stepSpeed} />
-              <Joystick
+              <DriveInput
                 size={140}
+                mode={inputMode}
                 disabled={!unlocked}
                 onDirectionChange={setTouchDirection}
-                activeOverride={driveDirection}
+                directionOverride={driveDirection}
+                onVectorChange={setTouchVector}
+                vectorOverride={driveVector}
               />
               <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
             </div>
@@ -199,12 +236,23 @@ export function ManualControl() {
           <Card className="hidden flex-1 flex-col justify-center gap-4 p-4 md:flex">
             <HoldToUnlock unlocked={unlocked} onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
 
+            <SegmentedToggle
+              label="Input"
+              options={INPUT_MODE_OPTIONS}
+              value={inputMode}
+              onChange={(v) => setInputMode(v as InputMode)}
+              className="mx-auto max-w-[220px]"
+            />
+
             <div className="flex items-center justify-center gap-6">
-              <Joystick
+              <DriveInput
                 size={144}
+                mode={inputMode}
                 disabled={!unlocked}
                 onDirectionChange={setTouchDirection}
-                activeOverride={driveDirection}
+                directionOverride={driveDirection}
+                onVectorChange={setTouchVector}
+                vectorOverride={driveVector}
               />
               <Stepper
                 label="Blade"
@@ -234,6 +282,38 @@ export function ManualControl() {
         </aside>
       </main>
     </div>
+  );
+}
+
+// Swaps between the d-pad clickpad and the analog stick per the "Input" toggle — both
+// share the same Speed control and the same gamepad-left-stick source, just read through
+// each control's own vocabulary (discrete direction vs. continuous vector).
+function DriveInput({
+  size,
+  mode,
+  disabled,
+  onDirectionChange,
+  directionOverride,
+  onVectorChange,
+  vectorOverride,
+}: {
+  size: number;
+  mode: InputMode;
+  disabled: boolean;
+  onDirectionChange: (d: Direction | null) => void;
+  directionOverride: Direction | null;
+  onVectorChange: (v: StickVector) => void;
+  vectorOverride: StickVector | null;
+}) {
+  return mode === 'dpad' ? (
+    <Joystick
+      size={size}
+      disabled={disabled}
+      onDirectionChange={onDirectionChange}
+      activeOverride={directionOverride}
+    />
+  ) : (
+    <AnalogStick size={size} disabled={disabled} onChange={onVectorChange} activeOverride={vectorOverride} />
   );
 }
 

@@ -132,6 +132,13 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
   and dispatched a synthetic `gamepadconnected` event to confirm the wiring (chip/toast/tip
   swap, direction highlight, Stop/Dock/blade/speed edge-triggering) but can't exercise a real
   pad.
+- **`ui/AnalogStick.tsx`** — a true analog thumbstick alternative to the `Joystick` d-pad
+  (which is a 4-direction clickpad, not analog): draggable thumb reports proportional
+  `{x,y}` in [-1,1], snaps to center on release, pointer-based (mouse/touch). An "Input"
+  `SegmentedToggle` (D-pad/Joystick) on the control page switches between the two,
+  remembered in `localStorage` (`v2.control.inputMode`); both modes share the same Speed
+  control. The gamepad left stick drives whichever mode is active (`DriveInput` in
+  `ManualControl.tsx` picks the control + feeds it the right shape).
 
 ## Build order (checklist)
 - [x] Scaffold Tailwind + tokens + kit
