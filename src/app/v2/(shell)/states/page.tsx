@@ -7,6 +7,15 @@ import {BootingScreen} from '@/components/v2/states/BootingScreen';
 import {HeightConfirmScreen} from '@/components/v2/states/HeightConfirmScreen';
 import {OnboardingScreen} from '@/components/v2/states/OnboardingScreen';
 import {PausedBlockerScreen} from '@/components/v2/states/PausedBlockerScreen';
+import {Button} from '@/components/v2/ui/Button';
+import {simulateConnectionStatus, type ConnectionStatus} from '@/lib/v2/useConnectionStatus';
+
+const CONNECTION_STATES: {status: ConnectionStatus; label: string}[] = [
+  {status: 'connected', label: 'Connected (hide banner)'},
+  {status: 'reconnecting', label: 'Reconnecting'},
+  {status: 'disconnected', label: 'Disconnected'},
+  {status: 'offline', label: 'Offline'},
+];
 
 function StateSlot({title, sub, children}: {title: string; sub: string; children: React.ReactNode}) {
   return (
@@ -55,6 +64,31 @@ export default function StatesPage() {
       <StateSlot title="Onboarding" sub="A strict order, live connection status, a single primary action at a time.">
         <OnboardingScreen />
       </StateSlot>
+
+      <section className="flex flex-col gap-3">
+        <div>
+          <h2 className="font-mono text-[.7rem] font-semibold uppercase tracking-[.1em] text-ink-faint">
+            Connection banner
+          </h2>
+          <p className="mt-0.5 text-[.82rem] text-ink-soft">
+            Demo trigger for the global AppShell banner (no live MQTT to fail on purpose) — jump to any
+            other /v2 screen after picking one to see it. Same effect as <code>?conn=disconnected</code>{' '}
+            on any /v2 URL.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {CONNECTION_STATES.map((s) => (
+            <Button
+              key={s.status}
+              variant="ghost"
+              size="sm"
+              onClick={() => simulateConnectionStatus(s.status)}
+            >
+              {s.label}
+            </Button>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

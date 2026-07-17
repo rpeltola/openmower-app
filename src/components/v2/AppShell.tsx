@@ -2,7 +2,9 @@
 
 import {MowerSelector} from '@/components/v2/MowerSelector';
 import {cn} from '@/components/v2/lib/cn';
+import {ConnectionBanner} from '@/components/v2/ui/ConnectionBanner';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
+import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
 import {
   Activity,
   Calendar,
@@ -63,6 +65,7 @@ export interface AppShellProps {
 export function AppShell({children}: AppShellProps) {
   const pathname = usePathname() ?? '/v2';
   const [mowerSelectorOpen, setMowerSelectorOpen] = useState(false);
+  const {status: connectionStatus, reconnect} = useConnectionStatus();
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] md:h-dvh">
@@ -127,6 +130,8 @@ export function AppShell({children}: AppShellProps) {
       {/* Mobile screens sit on the white surface (concept `.screen{background:var(--surface)}`)
           so surface-2 tiles/cards read; desktop keeps the tinted `--bg` canvas. */}
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col bg-surface md:min-h-0 md:bg-transparent">
+        <ConnectionBanner status={connectionStatus} onReconnect={reconnect} />
+
         <main className="min-h-0 flex-1 overflow-y-auto pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-0">
           {children}
         </main>
