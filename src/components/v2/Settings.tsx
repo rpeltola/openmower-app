@@ -8,12 +8,9 @@ import {
   APP_VERSION,
   BASEMAP,
   CATEGORY_LABELS,
-  CONNECTION,
   DESKTOP_CATEGORIES,
-  DOCKING,
-  MAINTENANCE,
+  gpsFixLabel,
   NOTIFICATION_CATEGORIES,
-  POSITIONING,
   UNITS,
   type SafetyToggles,
 } from '@/components/v2/settings/settingsData';
@@ -21,6 +18,8 @@ import {SettingsGroup} from '@/components/v2/settings/SettingsGroup';
 import {Button} from '@/components/v2/ui/Button';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
+import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
+import {useSelectedMower, type Mower} from '@/stores/mowersStore';
 import {
   Bell,
   ChevronLeft,
@@ -62,14 +61,24 @@ export function Settings() {
   const [units, setUnits] = useState<'metric' | 'imperial'>('metric');
   const [basemapChoice, setBasemapChoice] = useState(BASEMAP);
   const [safetyToggles, setSafetyToggles] = useState<SafetyToggles>({geofence: true, tiltLift: true});
-  const [bladeWearHours, setBladeWearHours] = useState(MAINTENANCE.bladeWearHours);
-  const [lastBladeChange, setLastBladeChange] = useState(MAINTENANCE.lastBladeChange);
+  const mower = useSelectedMower<Mower | undefined>();
+  // Rounded to 1 decimal for display -- `total_hours` accumulates as a raw float on the wire.
+  const bladeWearHours = Math.round((mower?.stats?.blade.total_hours ?? 0) * 10) / 10;
+  // No "blade changed on <date>" field exists on the wire (BladeStatus only reports hours
+  // since the last change) -- this just records when the user tapped "Changed blades" in
+  // this UI, not a fabricated device timestamp.
+  const [lastBladeChange, setLastBladeChange] = useState<string | null>(null);
   // Mobile-only: which pane the grouped list has drilled into (desktop always shows rail + pane).
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
   const [mowerSelectorOpen, setMowerSelectorOpen] = useState(false);
 
+  const {status: connectionStatus} = useConnectionStatus();
+  const connected = connectionStatus === 'connected';
+  const gps = mower?.state.sensors?.gps;
+  const dockingConfigured = (mower?.map.docking_stations.length ?? 0) > 0;
+
   function logBladeChange() {
-    setBladeWearHours(0);
+    mower?.publishBladeReset();
     setLastBladeChange(new Date().toISOString().slice(0, 10));
   }
 
@@ -154,12 +163,9 @@ export function Settings() {
                 onClick={() => openCategory('connection')}
                 trailing={
                   <span className="flex items-center gap-[.4rem]">
-                    <span className="font-mono text-[.68rem] tabular-nums text-ink-soft">{CONNECTION.url}</span>
+                    <span className="font-mono text-[.68rem] tabular-nums text-ink-soft">{mower?.mqttUrl ?? '—'}</span>
                     <span
-                      className={cn(
-                        'h-[7px] w-[7px] flex-none rounded-full',
-                        CONNECTION.connected ? 'bg-accent' : 'bg-danger',
-                      )}
+                      className={cn('h-[7px] w-[7px] flex-none rounded-full', connected ? 'bg-accent' : 'bg-danger')}
                     />
                     <DrillChevron />
                   </span>
@@ -169,13 +175,13 @@ export function Settings() {
                 icon={<Navigation size={15} strokeWidth={2} className="text-ink-soft" />}
                 title="Positioning / RTK"
                 onClick={() => openCategory('positioning')}
-                trailing={<DrillValue value={POSITIONING} />}
+                trailing={<DrillValue value={gpsFixLabel(gps)} />}
               />
               <ListRow
                 icon={<Zap size={15} strokeWidth={2} className="text-ink-soft" />}
                 title="Docking station"
                 onClick={() => openCategory('docking')}
-                trailing={<DrillValue value={DOCKING} />}
+                trailing={<DrillValue value={dockingConfigured ? 'Configured' : 'Not configured'} />}
               />
             </SettingsGroup>
 
@@ -247,7 +253,14 @@ export function Settings() {
         <SettingsCategoryRail
           categories={DESKTOP_CATEGORIES.map((c) =>
             c.id === 'connection'
-              ? {...c, indicator: <span className="h-[7px] w-[7px] flex-none rounded-full bg-accent" />}
+              ? {
+                  ...c,
+                  indicator: (
+                    <span
+                      className={cn('h-[7px] w-[7px] flex-none rounded-full', connected ? 'bg-accent' : 'bg-danger')}
+                    />
+                  ),
+                }
               : c,
           )}
           selected={category}

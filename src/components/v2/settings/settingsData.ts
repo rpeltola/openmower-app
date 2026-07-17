@@ -1,12 +1,14 @@
+import type {ChipProps} from '@/components/v2/ui/Chip';
+import type {Sensors} from '@/stores/schemas';
+
 // Canonical mock world (design-language.md "Cross-platform contract"): Kotipiha, YardForce.
-// Mock settings only — no MQTT/persistence wiring yet. Values match docs/concept/
-// openmower-app-concept.html ("More · settings" + "More · notifications") and
-// openmower-desktop-concept.html ("Settings · notifications") exactly. Shared by Settings.tsx
-// (mobile grouped list + desktop rail) and SettingsCategoryDetail.tsx (the detail body both
-// breakpoints render), so the mock data has one source.
-export const CONNECTION = {url: 'ws://…:9001', connected: true};
-export const POSITIONING = 'Fixed';
-export const DOCKING = 'Configured';
+// Values match docs/concept/openmower-app-concept.html ("More · settings" + "More ·
+// notifications") and openmower-desktop-concept.html ("Settings · notifications") exactly.
+// Shared by Settings.tsx (mobile grouped list + desktop rail) and SettingsCategoryDetail.tsx
+// (the detail body both breakpoints render). Connection, Positioning/RTK, Docking station and
+// Maintenance's blade-wear figures now read the real store (mowersStore via useSelectedMower)
+// from those two files instead of mock constants — only Units/Basemap/Notifications/Safety/
+// General stay app-only here (no backend concept of them yet).
 export const UNITS = 'Metric';
 export const BASEMAP = 'Satellite · Esri';
 export const APP_VERSION = '2026.7';
@@ -18,15 +20,33 @@ export const UNITS_OPTIONS = [
 
 export const BASEMAP_OPTIONS = ['Satellite · Esri', 'Satellite · MML (Finland)', 'Terrain', 'Street'];
 
-// Blade-wear + service readouts, moved here from the Activity · Stats tab (that's a
-// statistic surface, not a maintenance one) — now the Settings · Maintenance category.
+// Blade-wear capacity readout: `interval_hours` on the mower's own `stats/json` (see
+// BladeStatus in stores/schemas.ts) is the real per-mower service interval once telemetry
+// has ticked at least once; this is only the fallback shown before that first message.
 export const MAINTENANCE = {
-  bladeWearHours: 38,
   bladeCapacityHours: 100,
-  lastBladeChange: '2026-05-02',
-  totalRuntimeHours: 214,
-  nextService: '2026-09-01',
 };
+
+export type GpsSensor = NonNullable<Sensors['gps']>;
+
+/** Fix-status copy for the Positioning/RTK category — shared by Settings.tsx's list-row
+ *  preview and SettingsCategoryDetail's full chip so the two breakpoints never drift. */
+export function gpsFixLabel(gps: GpsSensor | undefined): string {
+  if (!gps) return 'No fix';
+  if (gps.rtk_fixed) return 'RTK fixed';
+  if (gps.rtk_float) return 'RTK float';
+  if (gps.dead_reckoning) return 'Dead reckoning';
+  if (gps.rtk) return 'RTK converging';
+  return 'No fix';
+}
+
+export function gpsFixVariant(gps: GpsSensor | undefined): NonNullable<ChipProps['variant']> {
+  if (!gps) return 'neutral';
+  if (gps.rtk_fixed) return 'ok';
+  if (gps.rtk_float || gps.dead_reckoning) return 'warn';
+  if (gps.rtk) return 'info';
+  return 'neutral';
+}
 
 export interface NotificationCategory {
   key: string;

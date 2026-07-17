@@ -5,8 +5,8 @@ import {SettingsGroup} from '@/components/v2/settings/SettingsGroup';
 import {
   APP_VERSION,
   BASEMAP_OPTIONS,
-  CONNECTION,
-  DOCKING,
+  gpsFixLabel,
+  gpsFixVariant,
   MAINTENANCE,
   NOTIFICATION_CATEGORIES,
   UNITS_OPTIONS,
@@ -20,6 +20,8 @@ import {ListRow} from '@/components/v2/ui/ListRow';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Switch} from '@/components/v2/ui/Switch';
 import {hapticStrong, setHapticsEnabled, useHapticsEnabled} from '@/lib/v2/haptics';
+import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
+import {useSelectedMower} from '@/stores/mowersStore';
 import {Bell, Check, Info, Navigation, Shield, Wifi, Wrench, Zap} from 'lucide-react';
 
 export interface SettingsCategoryDetailProps {
@@ -33,7 +35,7 @@ export interface SettingsCategoryDetailProps {
   notifications: Record<string, boolean>;
   onNotificationChange: (key: string, checked: boolean) => void;
   bladeWearHours: number;
-  lastBladeChange: string;
+  lastBladeChange: string | null;
   onLogBladeChange: () => void;
   className?: string;
 }
@@ -57,6 +59,22 @@ export function SettingsCategoryDetail({
   className,
 }: SettingsCategoryDetailProps) {
   const hapticsEnabled = useHapticsEnabled();
+
+  const mqttUrl = useSelectedMower((m) => m?.mqttUrl);
+  const clientId = useSelectedMower((m) => m?.mqttClient.options.clientId);
+  const {status: connectionStatus} = useConnectionStatus();
+  const connected = connectionStatus === 'connected';
+  const tls = mqttUrl?.startsWith('wss:') ?? false;
+
+  const gps = useSelectedMower((m) => m?.state.sensors?.gps);
+  const gpsAccuracyCm = gps?.position_accuracy != null ? gps.position_accuracy * 100 : null;
+  const datum = useSelectedMower((m) => m?.map.datum);
+
+  const dockingStation = useSelectedMower((m) => m?.map.docking_stations[0]);
+
+  const bladeCapacityHours = useSelectedMower((m) => m?.stats?.blade.interval_hours) ?? MAINTENANCE.bladeCapacityHours;
+  const totalRuntimeHours = useSelectedMower((m) => m?.stats?.mowed_hours);
+
   return (
     <div className={cn('flex flex-col gap-3.5', className)}>
       {category === 'connection' ? (
@@ -67,19 +85,20 @@ export function SettingsCategoryDetail({
             </span>
             <div className="min-w-0 flex-1">
               <div className="text-[.9rem] font-[640] text-ink">Broker</div>
-              <div className="font-mono text-[.78rem] text-ink-soft">{CONNECTION.url}</div>
+              <div className="font-mono text-[.78rem] text-ink-soft">{mqttUrl ?? '—'}</div>
             </div>
-            <Chip variant={CONNECTION.connected ? 'ok' : 'danger'}>
-              {CONNECTION.connected ? 'Connected' : 'Disconnected'}
-            </Chip>
+            <Chip variant={connected ? 'ok' : 'danger'}>{connected ? 'Connected' : 'Disconnected'}</Chip>
           </Card>
 
           <SettingsGroup>
             <ListRow
               title="Client ID"
-              trailing={<span className="font-mono text-[.72rem] text-ink-soft">yardforce-kotipiha</span>}
+              trailing={<span className="font-mono text-[.72rem] text-ink-soft">{clientId ?? '—'}</span>}
             />
-            <ListRow title="TLS" trailing={<Chip variant="ok">Enabled</Chip>} />
+            <ListRow
+              title="TLS"
+              trailing={<Chip variant={tls ? 'ok' : 'neutral'}>{tls ? 'Enabled' : 'Disabled'}</Chip>}
+            />
           </SettingsGroup>
         </>
       ) : null}
@@ -89,17 +108,24 @@ export function SettingsCategoryDetail({
           <ListRow
             icon={<Navigation size={15} strokeWidth={2} className="text-ink-soft" />}
             title="Fix status"
-            trailing={<Chip variant="ok">RTK fixed</Chip>}
+            trailing={<Chip variant={gpsFixVariant(gps)}>{gpsFixLabel(gps)}</Chip>}
           />
           <ListRow
             title="Datum"
-            trailing={<span className="font-mono text-[.72rem] text-ink-soft">ETRS89 / TM35FIN</span>}
+            trailing={
+              <span className="font-mono text-[.72rem] text-ink-soft">
+                {datum ? `${datum.lat.toFixed(6)}, ${datum.long.toFixed(6)}` : '—'}
+              </span>
+            }
           />
           <ListRow
             title="Horizontal accuracy"
-            trailing={<span className="font-mono text-[.72rem] text-ink-soft">1.8 cm</span>}
+            trailing={
+              <span className="font-mono text-[.72rem] text-ink-soft">
+                {gpsAccuracyCm != null ? `${gpsAccuracyCm.toFixed(1)} cm` : '—'}
+              </span>
+            }
           />
-          <ListRow title="Satellites" trailing={<span className="font-mono text-[.72rem] text-ink-soft">21</span>} />
         </SettingsGroup>
       ) : null}
 
@@ -108,15 +134,27 @@ export function SettingsCategoryDetail({
           <ListRow
             icon={<Zap size={15} strokeWidth={2} className="text-ink-soft" />}
             title="Status"
-            trailing={<Chip variant="ok">{DOCKING}</Chip>}
+            trailing={
+              <Chip variant={dockingStation ? 'ok' : 'neutral'}>
+                {dockingStation ? 'Configured' : 'Not configured'}
+              </Chip>
+            }
           />
           <ListRow
-            title="Position"
-            trailing={<span className="text-[.72rem] text-ink-soft">Kotipiha · NW corner</span>}
+            title="Name"
+            trailing={
+              <span className="text-[.72rem] text-ink-soft">
+                {dockingStation?.properties.name ?? '—'}
+              </span>
+            }
           />
           <ListRow
-            title="Last calibrated"
-            trailing={<span className="font-mono text-[.72rem] text-ink-soft">2026-06-02</span>}
+            title="Approach distance"
+            trailing={
+              <span className="font-mono text-[.72rem] text-ink-soft">
+                {dockingStation ? `${dockingStation.approach_distance.toFixed(1)} m` : '—'}
+              </span>
+            }
           />
         </SettingsGroup>
       ) : null}
@@ -203,8 +241,8 @@ export function SettingsCategoryDetail({
         <>
           <ActivityWearMeter
             hours={bladeWearHours}
-            capacityHours={MAINTENANCE.bladeCapacityHours}
-            detail={`Replace around ${MAINTENANCE.bladeCapacityHours} h · ~${MAINTENANCE.bladeCapacityHours - bladeWearHours} h remaining`}
+            capacityHours={bladeCapacityHours}
+            detail={`Replace around ${bladeCapacityHours} h · ~${Math.max(0, bladeCapacityHours - bladeWearHours)} h remaining`}
             onChangedBlades={onLogBladeChange}
           />
 
@@ -212,15 +250,15 @@ export function SettingsCategoryDetail({
             <ListRow
               icon={<Wrench size={15} strokeWidth={2} className="text-ink-soft" />}
               title="Last blade change"
-              trailing={<span className="font-mono text-[.72rem] text-ink-soft">{lastBladeChange}</span>}
+              trailing={<span className="font-mono text-[.72rem] text-ink-soft">{lastBladeChange ?? '—'}</span>}
             />
             <ListRow
               title="Total runtime"
-              trailing={<span className="font-mono text-[.72rem] text-ink-soft">{MAINTENANCE.totalRuntimeHours} h</span>}
-            />
-            <ListRow
-              title="Next service"
-              trailing={<span className="font-mono text-[.72rem] text-ink-soft">{MAINTENANCE.nextService}</span>}
+              trailing={
+                <span className="font-mono text-[.72rem] text-ink-soft">
+                  {totalRuntimeHours != null ? `${totalRuntimeHours.toFixed(1)} h` : '—'}
+                </span>
+              }
             />
           </SettingsGroup>
         </>

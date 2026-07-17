@@ -1,10 +1,9 @@
 'use client';
 
+import {useMowersStore} from '@/stores/mowersStore';
 import {useCallback, useEffect, useState} from 'react';
 
-// Mirrors mowersStore's MqttStatus (src/stores/mowersStore.ts) exactly, so this hook can be
-// swapped later for one that reads `useMowersStore`'s `mqttStatuses`/`reconnectNow` without
-// touching any call site (ConnectionBanner only ever sees `{status, reconnect}`).
+// Mirrors mowersStore's MqttStatus (src/stores/mowersStore.ts) exactly.
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'offline';
 
 const STATUSES: ConnectionStatus[] = ['connecting', 'connected', 'reconnecting', 'disconnected', 'offline'];
@@ -18,37 +17,46 @@ function isConnectionStatus(value: string | null): value is ConnectionStatus {
 // path into this hook.
 const SIMULATE_EVENT = 'v2:simulate-connection';
 
-/** Demo affordance: force the mock connection status, e.g. from the console —
+/** Demo affordance: force the connection status shown by the banner, e.g. from the console —
  *  `window.dispatchEvent(new CustomEvent('v2:simulate-connection', {detail: 'disconnected'}))`
  *  — or import and call `simulateConnectionStatus('disconnected')` from anywhere (the
- *  `/v2/states` showcase has a toggle wired to this). */
+ *  `/v2/states` showcase has a toggle wired to this). Overrides the real status until the user
+ *  taps Reconnect (or navigates away and the hook remounts). */
 export function simulateConnectionStatus(status: ConnectionStatus) {
   window.dispatchEvent(new CustomEvent<ConnectionStatus>(SIMULATE_EVENT, {detail: status}));
 }
 
 /**
- * MOCK hook shaped exactly like the real thing will be — `{status, reconnect}` — so v2 has
- * something to surface a connection banner from before the store is actually wired (v2 is
- * still all-mock; see V2_STATUS.md's "Wire REAL data" TODO). Local state defaults to
- * 'connected'; `navigator.onLine` always wins over the mock status, same as the real
- * `offline` MqttStatus should.
+ * Real connection status for the selected mower — `{status, reconnect}`, read from
+ * `useMowersStore`'s `mqttStatuses`/`reconnectNow` (see mowersStore.ts's `client.on(...)`
+ * handlers, which set 'connecting'/'connected'/'reconnecting'/'disconnected'/'offline' per
+ * mower id). `navigator.onLine === false` always wins, same as the store's own intent for the
+ * 'offline' status. No mower selected yet (still booting/loading config) reads as 'connecting'.
  *
- * Simulate a disconnect for a demo three ways:
+ * A demo override can still force the displayed status (for `/v2/states` and manual testing)
+ * without touching the real MQTT connection:
  *  - a `?conn=disconnected|reconnecting|offline|connecting` query param on any /v2 URL,
  *    read once on mount;
  *  - `simulateConnectionStatus(status)` (above);
  *  - the toggle on `/v2/states`.
+ * The override is cleared by `reconnect()` so a real reconnect always shows the real status.
  */
 export function useConnectionStatus(): {status: ConnectionStatus; reconnect: () => void} {
-  const [mockStatus, setMockStatus] = useState<ConnectionStatus>('connected');
+  const realStatus = useMowersStore((s) => {
+    const mower = s.mowers[s.selected];
+    return mower ? s.mqttStatuses[mower.id] : undefined;
+  });
+  const reconnectNow = useMowersStore((s) => s.reconnectNow);
+
   const [browserOnline, setBrowserOnline] = useState(true);
+  const [simulated, setSimulated] = useState<ConnectionStatus | null>(null);
 
   useEffect(() => {
     setBrowserOnline(navigator.onLine);
 
     const fromQuery = new URLSearchParams(window.location.search).get('conn');
     if (isConnectionStatus(fromQuery)) {
-      setMockStatus(fromQuery);
+      setSimulated(fromQuery);
     }
 
     const onOnline = () => setBrowserOnline(true);
@@ -58,7 +66,7 @@ export function useConnectionStatus(): {status: ConnectionStatus; reconnect: () 
 
     const onSimulate = (e: Event) => {
       const detail = (e as CustomEvent<ConnectionStatus>).detail;
-      if (isConnectionStatus(detail)) setMockStatus(detail);
+      if (isConnectionStatus(detail)) setSimulated(detail);
     };
     window.addEventListener(SIMULATE_EVENT, onSimulate);
 
@@ -69,15 +77,16 @@ export function useConnectionStatus(): {status: ConnectionStatus; reconnect: () 
     };
   }, []);
 
-  // Mirrors mowersStore's own reconnectNow() -> a 'reconnecting' event fires immediately,
-  // then 'connect' shortly after (see mqttClient.on('reconnect'/'connect') handlers).
+  // A real reconnect is an explicit "show me the truth" action, so it drops any demo override
+  // in addition to kicking the mower's MQTT client(s) (mirrors mowersStore's own reconnectNow()
+  // -> a 'reconnecting' event fires immediately, then 'connect' shortly after).
   const reconnect = useCallback(() => {
-    setMockStatus('reconnecting');
-    window.setTimeout(() => setMockStatus('connected'), 900);
-  }, []);
+    setSimulated(null);
+    reconnectNow();
+  }, [reconnectNow]);
 
   return {
-    status: browserOnline ? mockStatus : 'offline',
+    status: !browserOnline ? 'offline' : (simulated ?? realStatus ?? 'connecting'),
     reconnect,
   };
 }

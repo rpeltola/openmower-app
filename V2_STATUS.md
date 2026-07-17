@@ -27,15 +27,26 @@ Playwright screenshots — the mower was **DOCKED/charging**, which the app now 
   (measured at the datum: z13-18 real, z19+ the 2521-byte "no data" tile); capped
   `maxNativeZoom:18` so Leaflet overzooms REAL imagery. Confirmed live: real satellite now renders.
 
+**READ-ONLY wiring is now COMPLETE (`6229a45`)** — Activity Events (list+map pins) + Stats
+(`useStatsRange`+blade, live-confirmed 13.9 h/895 m²/28 mows/17.7-of-40 h), Home recent-activity
+feed + the mini-map tile (draws the REAL garden now), connection status (`mqttStatuses`/`reconnectNow`),
+and Settings read displays (broker/RTK-datum/docking/blade; genuinely-absent fields removed not faked).
+New `lib/v2/events.ts` (shared MowerEvent→display adapter). **Live-test caught a real bug + fix:** the
+events feed hung on "Loading" — this deployed gateway returns **"Method not found" for `events.history`**
+(probed the mower's `rpc.methods`), so historical events can't be fetched; gated loading on an
+"attempted" flag → degrades to "No events yet" (live events still stream via `events/json`).
+
 Every increment tsc+build clean, opus-validator/live-verified. Commits on `feature/v2-data-wiring`:
 `b7ae131` (diag+activity) · `515b4a0` (map display) · `96fcbb2` (map plan+heatmap) · `5a8696c`
-(global state + Esri).
+(global state + Esri) · `6229a45` (read-only domains: events/stats/home-feed/mini-map/connection/settings).
 
 **Track A remaining:** map **edit→save + versioning** (the one risky piece — the V2 editor's phantom
 per-area settings + `spot` type + single-dock diverge from the server, needs field-by-field
-reconciliation, ties to the plan's D7 L3-flag decision); Activity **Events/Stats**; Home **mini-map
-preview tile + recent-activity feed** (still mock components); **Manual teleop**. **Untested live:**
-the *mowing*-state path (coverage %, mowing hero) — robot is docked, renders only when it mows.
+reconciliation, ties to the plan's D7 L3-flag decision); **Manual teleop** (app-only but *commands*
+the robot). **Untested live:** the *mowing*-state path (coverage %, mowing hero) — robot is docked,
+renders only when it mows; and the Settings *detail pane* (tsc-clean, not visually confirmed).
+**Backend-gap surfaced:** `events.history` RPC absent on the deployed gateway (older than OMN main) —
+event *history* needs it; candidate for the L3 "not-yet-supported" flag or a gateway update.
 **Deferred to W9:** command ack/nack + PLANNING_MISSION progress (backend work).
 
 ## ✅ SESSION 3 (2026-07-17) — audit + gap-close + robot-state model. Head: **`4efa68d`** (clean, tsc+build green)
