@@ -345,3 +345,29 @@
     transform: scaleX(0.71);
   }
 }
+
+/* ---- MowingHero PLANNING_MISSION busy overlay (Home) — a soft info-toned band sweeping
+   across the frozen idle scene, layered over MowerBody. ---- */
+.v2-root .mh-scan {
+  animation: mh-scan-sweep 2.2s ease-in-out infinite;
+}
+@keyframes mh-scan-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  15%,
+  85% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(440px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v2-root .mh-scan {
+    animation: none;
+    opacity: 0.3;
+  }
+}

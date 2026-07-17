@@ -13,6 +13,10 @@ export interface MowingHeroProps {
   /** Which scene to render — aligns with StatePill's tone vocabulary (accent/warn/info).
    *  Defaults to 'mowing'. */
   state?: MowerHeroState;
+  /** PLANNING_MISSION busy treatment — layers a scanning sweep over the (frozen) idle scene so
+   *  "planning" reads as visibly busy rather than plain idle. Additive only: every other scene
+   *  is unaffected when this is false/absent. */
+  planning?: boolean;
 }
 
 // 'mowing'/'paused'/'idle' render the mower on the lawn (GroundLayer); 'charging'/'docked'
@@ -135,6 +139,17 @@ function DockLayer({charging}: {charging: boolean}) {
   );
 }
 
+/** PLANNING_MISSION busy treatment — a soft info-toned band sweeping across the frozen scene,
+ *  reading as "working something out" rather than plain idle. `mh-scan` is disabled under
+ *  prefers-reduced-motion (tailwind.css), same as every other MowingHero animation. */
+function PlanningSweep({gradientId}: {gradientId: string}) {
+  return (
+    <g className="mh-scan">
+      <rect x="-70" y="0" width="70" height="150" fill={`url(#${gradientId})`} />
+    </g>
+  );
+}
+
 /** The mower vector itself — identical art across every state; only whether it drives
  *  (bob + wheel/blade spin) changes. */
 function MowerBody({gradientId, driving}: {gradientId: string; driving: boolean}) {
@@ -176,10 +191,11 @@ function MowerBody({gradientId, driving}: {gradientId: string; driving: boolean}
  *  dock; paused/idle freeze the lawn scene. Bob/wheel-spin/blade-spin/ground-scroll/charge
  *  keyframes live in tailwind.css, scoped under `.v2-root` and disabled under
  *  prefers-reduced-motion (design-language.md §3). */
-export function MowingHero({className, overlayTop, progress, state = 'mowing'}: MowingHeroProps) {
+export function MowingHero({className, overlayTop, progress, state = 'mowing', planning}: MowingHeroProps) {
   const gradientId = useId();
   const aheadClipId = useId();
   const behindClipId = useId();
+  const scanGradientId = useId();
 
   const scene = SCENE[state];
   const driving = state === 'mowing';
@@ -207,6 +223,13 @@ export function MowingHero({className, overlayTop, progress, state = 'mowing'}: 
               </clipPath>
             </>
           ) : null}
+          {planning ? (
+            <linearGradient id={scanGradientId} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stopColor="var(--info)" stopOpacity="0" />
+              <stop offset=".5" stopColor="var(--info)" stopOpacity=".35" />
+              <stop offset="1" stopColor="var(--info)" stopOpacity="0" />
+            </linearGradient>
+          ) : null}
         </defs>
 
         {scene === 'ground' ? (
@@ -216,6 +239,8 @@ export function MowingHero({className, overlayTop, progress, state = 'mowing'}: 
         )}
 
         <MowerBody gradientId={gradientId} driving={driving} />
+
+        {planning ? <PlanningSweep gradientId={scanGradientId} /> : null}
       </svg>
 
       {overlayTop ? <div className="absolute inset-x-2.5 top-2.5 flex items-center gap-1.5">{overlayTop}</div> : null}
