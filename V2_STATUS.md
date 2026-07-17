@@ -2,6 +2,44 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 2 (2026-07-17) — real-device / native-feel / PWA hardening pass. Head: **`d0cfe34`** (pushed)
+Driven by live on-device testing (user on an Android phone + a USB PS5 controller). Full production
+build clean at `d0cfe34`. All parallel Sonnet builders, disjoint file-sets. Landed this session:
+- **Gamepad control** (`useGamepad` hook, PS5/Xbox brand detect, drive on left stick, A/B/X/LB/RB→Stop/
+  Dock/Blade/Speed, brand glyph badges ON the buttons, auto-switch to analog stick on connect) —
+  **confirmed working on a real PS5 pad over USB.**
+- **Analog thumbstick** input option (D-pad ↔ Joystick toggle, shared Speed); **orientation-aware
+  landscape cockpit**; **fullscreen** = a corner button on the video feed (auto-fullscreen was removed —
+  too aggressive); **HTTPS dev server** (`corepack npm run dev:https`, self-signed).
+- **Hardware capabilities gating** (`lib/v2/capabilities.ts`, mock now, shaped for the gateway): blade-
+  HEIGHT control hidden (YardForce has no motorized deck), **per-camera** `cameras:{front,…}` gates the
+  **DJI-style map⇄camera viewport** (front-only shows front FPV + map PiP, tap-to-swap).
+- **Haptics** (Android `navigator.vibrate` + iOS switch-trick fallback + Settings→General toggle + Test) —
+  **confirmed working on Android**; **pull-to-refresh disabled**; **round buttons no longer flash square**.
+- **Draggable bottom sheets** + **sheet is now a stable frame w/ scrolling body** (accordions expand IN
+  place, no grow-up); **wheel time picker** (Schedule); **Schedule Areas accordion animated**.
+- **Disconnected banner + reconnect** (mock, shaped to `mowersStore`); **state-driven Home hero**
+  (charging/docked/paused scenes + real driving+cutting mowing anim) + **Home quick-actions row**.
+- **Settings → Maintenance** area (blade wear moved out of Stats); **History cards clickable**;
+  **Events-on-map** (Roborock-style: Events List/Map toggle, pins per event, tap→detail w/ mini-map).
+- **PWA/SW**: the SW now registers on v2 too (was v1-only, `V2PwaRegister`) but PRODUCTION-ONLY (dev
+  disables it + self-signed cert = SSL error). Manifest already `display:standalone`.
+
+**HUMAN passes owed** (headless can't drive these): all pointer/touch **drag** gestures (map vertex/brush/
+box-select/rect-circle/move/dock, recording sim, plan-preview draw-on, replay scrubber, **sheet drag**,
+**time-picker wheel scroll**), gamepad **feel/deadzone**, and general on-device visual QA.
+
+**Roadmap (researched, KB docs, NOT built — user deferred):** trusted TLS cert on the mower
+(`openmower-lan-https-cert.md`, the enabler for install/offline/gamepad/push on a phone) · Web Push
+(`v2-app-push-notifications.md`) · cloud-vs-mower-served hosting decision
+(`v2-app-hosting-cloud-vs-mower-served.md` — cloud hosting solves app-serving but mixed-content means the
+mower STILL needs a per-device cert for the data socket; + version-skew via capability negotiation).
+
+**Preview:** verify worktree (`.claude/worktrees/verify`, `node_modules` symlinked) → `corepack npm run
+dev:https` on **:3020** (`https://192.168.1.132:3020` for the phone; accept the self-signed warning).
+**Shared-worktree hazard for future parallel agents:** `git add <specific files>` + `git show --stat`
+before/after every commit — concurrent commits can race (dropped one this session, recovered).
+
 ## ✅ DONE (2026-07-16) — feature-completeness push vs the mockups (parallelized, validated)
 Filled every gap the concept mockups promised, via parallel agents on disjoint file-sets (one
 dedicated agent owned all `map/**` + `Map.tsx`; four others took non-map screens). Head: **`ee0568e`**.
