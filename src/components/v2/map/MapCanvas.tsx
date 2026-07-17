@@ -326,7 +326,16 @@ export function MapCanvas({
   // ---- one-time map + layer-group creation -----------------------------------------------------
   useEffect(() => {
     if (!elRef.current || mapRef.current) return;
-    const map = L.map(elRef.current, {zoomControl: false, attributionControl: true}).setView(
+    // renderer padding 2 (default 0.1): Leaflet's SVG renderer only draws paths within
+    // padding*viewport of the visible area, so large garden polygons get CLIPPED at the edge and
+    // their clipped borders twitch as the clip region shifts during a zoom animation (the smaller
+    // driven-track polyline sits inside the viewport and rides the zoom smoothly, which is why
+    // only the area borders jitter). A generous padding keeps whole polygons rendered → no twitch.
+    const map = L.map(elRef.current, {
+      zoomControl: false,
+      attributionControl: true,
+      renderer: L.svg({padding: 2}),
+    }).setView(
       metersToLatLng({x: 0, y: 0}, origin),
       19,
     );
@@ -601,7 +610,17 @@ export function MapCanvas({
     handleLayer.clearLayers();
     const polyByZone = new Map<string, L.Polygon>();
 
-    for (const z of zones) {
+    // Paint order = hit-test order in Leaflet's SVG renderer, so a mow area drawn after an
+    // obstacle nested inside it would cover the obstacle and steal its clicks. Render by type
+    // priority — mow/spot (large, bottom) → nav → obstacle (small, top) — so nested zones stay
+    // selectable regardless of the order the backend sends them in. Stable within a type.
+    const ZONE_Z: Record<string, number> = {mow: 0, spot: 1, nav: 2, obstacle: 3};
+    const orderedZones = zones
+      .map((z, i) => ({z, i}))
+      .sort((a, b) => (ZONE_Z[a.z.type] ?? 0) - (ZONE_Z[b.z.type] ?? 0) || a.i - b.i)
+      .map((e) => e.z);
+
+    for (const z of orderedZones) {
       const style = ZONE_STYLE[z.type];
       const isSelected = editing && z.id === selectedZoneId;
       const polygon = L.polygon(

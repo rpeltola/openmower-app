@@ -1,6 +1,5 @@
 'use client';
 
-import {ActivityWearMeter} from '@/components/v2/activity/ActivityWearMeter';
 import {EventMap} from '@/components/v2/activity/EventMap';
 import {EventTimeline, type TimelineGroup} from '@/components/v2/activity/EventTimeline';
 import {RunCard, type RunMetric} from '@/components/v2/activity/RunCard';
@@ -21,7 +20,7 @@ import {useStatsRange} from '@/hooks/useStatsRange';
 import {mowerEventsToActivityEvents} from '@/lib/v2/events';
 import {getTodayDateKey} from '@/stores/mowerEvents';
 import {useMowersStore, useSelectedMower} from '@/stores/mowersStore';
-import type {BladeStatus, MowJob, MowJobStatus, StatsPerDay} from '@/stores/schemas';
+import type {MowJob, MowJobStatus, StatsPerDay} from '@/stores/schemas';
 import {formatDuration} from '@/utils/area-utils';
 import {ChevronLeft, Inbox, Loader2} from 'lucide-react';
 import {useEffect, useMemo, useState} from 'react';
@@ -182,13 +181,6 @@ function toWeekBars(entries: {date: Date; minutes: number}[], maxPx: number): We
   }));
 }
 
-/** ActivityWearMeter's detail line -- mirrors BladeWearCard's (components/stats) copy. */
-function bladeWearDetail(blade: BladeStatus): string {
-  if (blade.due) return 'Change interval reached';
-  const remaining = Math.max(0, blade.interval_hours - blade.total_hours);
-  return `Replace around ${Math.round(blade.interval_hours)} h · ~${remaining.toFixed(1)} h remaining`;
-}
-
 export function Activity() {
   const [tab, setTab] = useState('events');
   const [range, setRange] = useState('all');
@@ -273,8 +265,6 @@ export function Activity() {
   const fortnightBars = useMemo(() => toWeekBars(chartDays, 120), [chartDays]);
   const avgMinutesPerDay = chartStats ? Math.round(chartDays.reduce((sum, d) => sum + d.minutes, 0) / chartDays.length) : null;
 
-  const mower = useSelectedMower((m) => m);
-  const bladeStatus = useSelectedMower((m) => m?.stats?.blade ?? null);
 
   function openRunDetail(id: string) {
     setSelectedRunId(id);
@@ -434,7 +424,7 @@ export function Activity() {
             <KpiTile value={rangeStats ? `${rangeStats.mow_count}` : '—'} label="Mows" />
           </div>
 
-          {/* ===== Mobile: week bar chart + blade wear ===== */}
+          {/* ===== Mobile: week bar chart (blade wear lives in Settings › Maintenance) ===== */}
           <div className="flex flex-1 flex-col gap-3 md:hidden">
             <Card className="p-[.85rem]">
               <div className="flex items-center justify-between">
@@ -443,19 +433,9 @@ export function Activity() {
               </div>
               <WeekBarChart bars={weekBars} className="mt-[.6rem]" />
             </Card>
-            {bladeStatus && bladeStatus.interval_hours > 0 ? (
-              <ActivityWearMeter
-                hours={Math.round(bladeStatus.total_hours * 10) / 10}
-                capacityHours={bladeStatus.interval_hours}
-                detail={bladeWearDetail(bladeStatus)}
-                onChangedBlades={() => mower?.publishBladeReset()}
-              />
-            ) : (
-              <Card className="p-[.85rem] text-[.82rem] text-ink-faint">No blade data yet.</Card>
-            )}
           </div>
 
-          {/* ===== Desktop: fortnight trend + blade wear ===== */}
+          {/* ===== Desktop: fortnight trend (blade wear lives in Settings › Maintenance) ===== */}
           <div className="hidden min-h-0 flex-1 gap-4 md:flex">
             <Card className="flex flex-1 flex-col p-4">
               <div className="mb-3.5 flex items-baseline justify-between">
@@ -468,17 +448,6 @@ export function Activity() {
               </div>
               <WeekBarChart bars={fortnightBars} chartHeightPx={130} className="flex-1" />
             </Card>
-            {bladeStatus && bladeStatus.interval_hours > 0 ? (
-              <ActivityWearMeter
-                hours={Math.round(bladeStatus.total_hours * 10) / 10}
-                capacityHours={bladeStatus.interval_hours}
-                detail={bladeWearDetail(bladeStatus)}
-                onChangedBlades={() => mower?.publishBladeReset()}
-                className="w-[240px] flex-none"
-              />
-            ) : (
-              <Card className="w-[240px] flex-none p-4 text-[.82rem] text-ink-faint">No blade data yet.</Card>
-            )}
           </div>
         </>
       ) : null}

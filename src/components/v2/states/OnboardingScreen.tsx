@@ -1,3 +1,5 @@
+'use client';
+
 import {cn} from '@/components/v2/lib/cn';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
