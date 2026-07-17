@@ -12,6 +12,7 @@ import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {coverageLines, outlineLaps} from '@/components/v2/map/coverage';
 import {polygonArea, polygonPerimeter, principalAngleDeg} from '@/components/v2/map/geometry';
 import type {TrackPolyline} from '@/components/v2/map/MapCanvas';
+import {SaveMapSheet, VersionHistorySheet} from '@/components/v2/map/MapVersioning';
 import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements';
 import {mapDataToDock, mapDataToZones} from '@/components/v2/map/realData';
 import {RecordBriefingSheet} from '@/components/v2/map/record/RecordBriefingSheet';
@@ -72,6 +73,7 @@ import {
   Flame,
   Footprints,
   HelpCircle,
+  History,
   Home,
   Layers,
   Locate,
@@ -90,6 +92,7 @@ import {
   Route,
   RotateCcw,
   RotateCw,
+  Save,
   ScissorsLineDashed,
   Shrink,
   Signpost,
@@ -249,6 +252,11 @@ export function Map() {
   const [heatmapSheetOpen, setHeatmapSheetOpen] = useState(false);
   const [heatmap, setHeatmap] = useState(DEFAULT_HEATMAP_SETTINGS);
   const [addObjectSheetOpen, setAddObjectSheetOpen] = useState(false);
+  // Map saving + version history (UNWIRED PLACEHOLDER — see MapVersioning.tsx). saveSheetOpen is
+  // edit-mode-only chrome (closed by closeAllEditSheets below); versionsSheetOpen is reachable from
+  // both live and edit view, like the basemap/heatmap sheets, so it's deliberately NOT in there.
+  const [saveSheetOpen, setSaveSheetOpen] = useState(false);
+  const [versionsSheetOpen, setVersionsSheetOpen] = useState(false);
   // S4 — mobile counterpart to the desktop Areas rail (md:flex only); opens a Sheet with the
   // same per-area rows + Mow all now so live-view area switching isn't a desktop-only feature.
   const [areasSheetOpen, setAreasSheetOpen] = useState(false);
@@ -462,12 +470,22 @@ export function Map() {
     setMergePickerOpen(false);
     setSubtractPickerOpen(false);
     setCutLinePoints([]);
+    setSaveSheetOpen(false);
   };
 
   const toggleEditing = () => {
     const next = !editor.editing;
     editor.setEditing(next);
     if (!next) closeAllEditSheets();
+  };
+
+  // "Discard changes" (unsaved-edits affordance, edit mode) — PLACEHOLDER. Winding the undo stack
+  // back to baseline would need looping `editor.undo()` while `editor.canUndo`, but `canUndo` is a
+  // value captured at render time: it can't flip mid-loop before React re-renders, so that loop
+  // never terminates. Rather than risk that, this stays an honest no-op pointing at the (working)
+  // Undo button in the edit dock, like the Save flow in MapVersioning.tsx.
+  const discardChanges = () => {
+    setToastMessage("Discarding changes isn't wired up yet — use Undo in the tool dock to step back.");
   };
 
   // --- Boolean area operations (MAP_BOOLEAN_OPS_SPEC.md) --------------------------------------
@@ -852,6 +870,14 @@ export function Map() {
     },
     {id: 'choose-zone', label: 'Choose zone…', onRun: () => setZoneSheetOpen(true)},
     {id: 'validation', label: `Validation issues (${issues.length})`, onRun: () => setIssuesSheetOpen(true)},
+    {
+      id: 'save-map',
+      label: 'Save map…',
+      icon: <Save size={15} />,
+      disabled: !editor.editing,
+      onRun: () => setSaveSheetOpen(true),
+    },
+    {id: 'version-history', label: 'Version history…', icon: <History size={15} />, onRun: () => setVersionsSheetOpen(true)},
     {id: 'basemap', label: 'Base map…', onRun: () => setBasemapSheetOpen(true)},
     {id: 'zoom-in', label: 'Zoom in', onRun: () => mapRef.current?.zoomIn()},
     {id: 'zoom-out', label: 'Zoom out', onRun: () => mapRef.current?.zoomOut()},
@@ -966,10 +992,24 @@ export function Map() {
 
       {/* top status pills (live view) / editing indicator (edit mode) */}
       {editor.editing ? (
-        <div className="absolute inset-x-3 top-3 z-[500] flex items-center gap-2">
+        <div className="absolute inset-x-3 top-3 z-[500] flex flex-wrap items-center gap-2">
           <OverlayChip>
             <Pencil size={12} className="text-accent" /> Editing map
           </OverlayChip>
+          {/* Unsaved-changes + save affordance — canUndo means the undo stack holds forward edits
+              past the seeded baseline. Both buttons here are placeholders (see MapVersioning.tsx /
+              discardChanges above); nothing is saved or discarded yet. */}
+          {editor.canUndo && (
+            <>
+              <OverlayChip>Unsaved changes</OverlayChip>
+              <Button variant="ghost" size="sm" className="ml-auto" onClick={discardChanges}>
+                Discard
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => setSaveSheetOpen(true)}>
+                <Save size={13} /> Save changes
+              </Button>
+            </>
+          )}
         </div>
       ) : mockBlocked ? (
         <div className="pointer-events-none absolute inset-x-3 top-3 z-[500] flex flex-wrap items-center gap-2">
@@ -1021,6 +1061,9 @@ export function Map() {
           icon={<Flame size={18} className={heatmap.enabled ? 'text-accent' : undefined} />}
           onClick={() => setHeatmapSheetOpen(true)}
         />
+        {/* Reachable in both live and edit view, like Base map/Coverage heatmap above — PLACEHOLDER,
+            see MapVersioning.tsx. */}
+        <Fab aria-label="Version history" icon={<History size={18} />} onClick={() => setVersionsSheetOpen(true)} />
         {editor.editing && (
           <div className="relative">
             <Fab aria-label="Validation issues" icon={<AlertTriangle size={18} />} onClick={() => setIssuesSheetOpen(true)} />
@@ -1804,6 +1847,10 @@ export function Map() {
         defaultName={`New ${ZONE_TYPE_LABELS[recordType].toLowerCase()}`}
         onSave={saveRecording}
       />
+
+      {/* Map saving + version history — UNWIRED PLACEHOLDER (see MapVersioning.tsx). */}
+      <SaveMapSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} zones={editor.zones} />
+      <VersionHistorySheet open={versionsSheetOpen} onClose={() => setVersionsSheetOpen(false)} />
 
       <CommandPalette
         open={commandPaletteOpen}
