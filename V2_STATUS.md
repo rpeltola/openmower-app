@@ -2,6 +2,31 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## 🔎 AUDIT (2026-07-17) — full state audit, no code changed. Head: **`4e14479`** (clean, tsc+build green)
+Three parallel audits (map editor / map screen+area settings / non-map screens) against every spec.
+Findings that CORRECT stale lines below — read this before trusting the checklist:
+- **Map editor §C–I are BUILT, not open.** The `[ ]` "next map-editor batches" line and §C–I items
+  further down are STALE — vertex tools, snap-to-line, smear brush, multi/box-select, all transforms
+  (rotate/scale/duplicate/buffer/simplify), measurements, validation (5 checks), boolean ops
+  (merge/split/subtract), command palette+shortcuts, coverage preview, atomic undo/redo are ALL wired
+  and non-stub. **~93% complete vs the build specs** (`MAP_EDITOR_SPEC` b2–6 + `MAP_BOOLEAN_OPS_SPEC`).
+- **vs the full KB wishlist (§A–J) it's ~70%**, because two phases were DELIBERATELY deferred (not missed):
+  **§I persistence/save = 0%** (no Save/versioning/backups/unsaved-guard — belongs to the data phase) and
+  **§H MQTT robot-state coloring = ~25%** (footprint/heading/ring done; 6-state color model is a binary mock).
+- **Small real editor gaps** (cosmetic/fidelity, capability present): rect/circle draw always makes a `mow`
+  zone (no in-flow type pick) · no type-aware dashed render of non-relevant zones while editing ·
+  net-mowable uses obstacle-CENTROID containment not true intersection · no custom XYZ/WMS basemap entry ·
+  type badge is text-only · zoom FABs top-right vs spec bottom-right · no mini-map inset in the editor.
+- **3 of 5 tracker-flagged non-map gaps are ALREADY FIXED (stale notes below):** desktop Settings now
+  renders real per-category content (not Notifications-only); ManualControl has 0 raw `<button>` left;
+  Activity replay scrubber is LIVE (not a disabled placeholder). Remove those debt notes on next pass.
+- **NEW actionable gaps found:** (1) desktop Settings rail OMITS the "Safety" category mobile has →
+  desktop has no path to geofence/tilt-lift toggles (real parity dead-end); (2) both Home "Stop" buttons
+  (desktop header + mobile) have NO `onClick` while sibling Pause/Mow/Dock are wired; (3) Settings→About
+  sub-rows are dead chevrons; (4) raw `<button>` outside `ui/**` in AppShell/MowerSelector/AreaPickerList;
+  (5) RunDetail "Export GPX" + onboarding/height CTAs unwired (mock-stage, low-pri).
+- **Still owed regardless:** the human real-browser DRAG QA pass (headless can't drive Leaflet pointer-drag).
+
 ## ✅ SESSION 2 (2026-07-17) — real-device / native-feel / PWA hardening pass. Head: **`d0cfe34`** (pushed)
 Driven by live on-device testing (user on an Android phone + a USB PS5 controller). Full production
 build clean at `d0cfe34`. All parallel Sonnet builders, disjoint file-sets. Landed this session:
