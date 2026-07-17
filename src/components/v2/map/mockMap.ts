@@ -125,10 +125,24 @@ export const MOCK_ZONES: Zone[] = [
 ];
 
 export interface Dock {
+  /** The real docking_station's id -- carried through unedited so a save doesn't mint a new
+   *  one on every version (see realData.ts's zonesToMapData). Absent for a purely-mock/never-
+   *  saved dock, in which case save mints a fresh id. */
+  id?: string;
   position: {x: number; y: number};
+  /** Docking approach heading, RADIANS (0 = east) -- the real dockingStationSchema always
+   *  carries this, but the v2 editor only edits `position` today (place-by-click/drag), so this
+   *  is carried through unchanged from the real map rather than dropped on save (the Dock
+   *  schema-skew flagged in the integration plan). Undefined -> 0 on save. */
+  heading?: number;
+  /** Staging distance (m) before the final docking approach -- same "carried through, not yet
+   *  editable" note as heading. Undefined -> 0 on save (dockingStationSchema's own default). */
+  approach_distance?: number;
+  name?: string;
+  active?: boolean;
 }
 
-export const MOCK_DOCK: Dock = {position: {x: -8, y: -5.5}};
+export const MOCK_DOCK: Dock = {position: {x: -8, y: -5.5}, heading: 0, approach_distance: 0};
 
 // Robot mid-mow, heading roughly north-east (radians CCW from +x/east).
 export const MOCK_POSE: Pose = {x: -1.5, y: 0.5, heading: 0.6};

@@ -12,8 +12,11 @@ import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Stepper} from '@/components/v2/ui/Stepper';
 import {Toast} from '@/components/v2/ui/Toast';
 import {useMediaQuery} from '@/components/v2/lib/useMediaQuery';
+import {useTeleop} from '@/hooks/useTeleop';
 import {useCapabilities} from '@/lib/v2/capabilities';
 import {gamepadButtonLabels, type GamepadButtonLabels, useGamepad} from '@/lib/v2/useGamepad';
+import {REJECT_COPY} from '@/lib/v2/robotState';
+import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
 import {Bluetooth, Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 
@@ -49,6 +52,42 @@ function controllerName(brand: string): string {
   if (brand === 'playstation') return 'PlayStation';
   if (brand === 'xbox') return 'Xbox';
   return 'Controller';
+}
+
+// Drive-command math (W9 A2b) — publishes over the SAME `teleop{vx,vz}` topic v1's map-screen
+// joystick uses (see hooks/useTeleop.ts / components/map/teleop/VirtualJoystick.tsx), just fed by
+// this page's own d-pad/analog-stick/gamepad input instead of a drag gesture. `MAX_LINEAR_MPS`/
+// `MAX_ANGULAR_RAD_S` match VirtualJoystick's proven real-world caps (0.35 m/s keeps turning
+// headroom below the ~0.5 m/s wheel max); the Speed segmented control scales both by the same
+// factor (APP-ONLY client-side math — no backend speed concept), capping out at "Fast" = exactly
+// VirtualJoystick's cap rather than exceeding it.
+const MAX_LINEAR_MPS = 0.35;
+const MAX_ANGULAR_RAD_S = 1.6;
+const SPEED_FACTOR: Record<string, number> = {slow: 0.4, normal: 0.7, fast: 1};
+
+// Exported for unit testing (ManualControl.test.tsx) — HoldToUnlock's gesture (press-and-hold on
+// desktop, slide on mobile) isn't practical to drive headlessly, so the vx/vz math is tested
+// directly rather than through the full unlock -> drive UI flow.
+export function directionToVelocity(dir: Direction | null, factor: number): {vx: number; vz: number} {
+  switch (dir) {
+    case 'up':
+      return {vx: MAX_LINEAR_MPS * factor, vz: 0};
+    case 'down':
+      return {vx: -MAX_LINEAR_MPS * factor, vz: 0};
+    case 'left':
+      return {vx: 0, vz: MAX_ANGULAR_RAD_S * factor};
+    case 'right':
+      return {vx: 0, vz: -MAX_ANGULAR_RAD_S * factor};
+    default:
+      return {vx: 0, vz: 0};
+  }
+}
+
+// StickVector.y is screen-space (down = positive, see AnalogStick.tsx), so "up"/forward is -y —
+// same sign convention VirtualJoystick's drag math uses.
+export function vectorToVelocity(vec: StickVector | null, factor: number): {vx: number; vz: number} {
+  if (!vec) return {vx: 0, vz: 0};
+  return {vx: -vec.y * MAX_LINEAR_MPS * factor, vz: -vec.x * MAX_ANGULAR_RAD_S * factor};
 }
 
 // Static mock state — this PoC proves the stack + responsive layering, not live MQTT
@@ -124,16 +163,46 @@ export function ManualControl() {
     });
   };
 
+  // Publishes over the real `teleop{vx,vz}` MQTT path (same store/hook v1's map joystick uses —
+  // see the module doc above) whenever the unlocked drive input changes. `useTeleop` owns the
+  // ~100ms publish interval and zeroing on unmount; this effect just feeds it the right vx/vz for
+  // whichever input mode is active.
+  const {setVelocity} = useTeleop();
+  useEffect(() => {
+    if (!unlocked) {
+      setVelocity(0, 0);
+      return;
+    }
+    const factor = SPEED_FACTOR[speed] ?? 1;
+    const {vx, vz} =
+      inputMode === 'dpad' ? directionToVelocity(driveDirection, factor) : vectorToVelocity(driveVector, factor);
+    setVelocity(vx, vz);
+  }, [unlocked, inputMode, driveDirection, driveVector, speed, setVelocity]);
+
+  // Dock/Stop go through the real `cmd/req`→`cmd/res` protocol (useCommand.ts, same client
+  // Home.tsx uses) -- NOT fire-and-forget: every press resolves to a known accept/reject, toasted
+  // either way (W9 A2b; see robotState.ts's REJECT_COPY for the nack copy table).
+  const {run, pending: pendingCmd} = useCommand();
+  const stopAvailability = useCommandAvailability('stop');
+  const dockAvailability = useCommandAvailability('dock');
+
   const handleStop = () => {
     setUnlocked(false);
-    setToast('Stopped');
+    void run('stop').then((result) => {
+      setToast(result.accepted ? 'Stopped' : (result.reason && REJECT_COPY[result.reason]?.label) || 'Stop rejected');
+    });
   };
 
   const handleDock = () => {
-    setToast('Docking…');
+    void run('dock').then((result) => {
+      setToast(result.accepted ? 'Heading to dock' : (result.reason && REJECT_COPY[result.reason]?.label) || 'Dock rejected');
+    });
   };
 
   const handleToggleBlade = () => setBladeOn((v) => !v);
+
+  const dockDisabled = pendingCmd === 'dock' || !dockAvailability.allowed;
+  const stopDisabled = pendingCmd === 'stop' || !stopAvailability.allowed;
 
   // Rising-edge detection so a held gamepad button fires an action once per press, not
   // once per animation frame — mirrors what a click/tap already does for the touch UI.
@@ -208,6 +277,8 @@ export function ManualControl() {
         onToggleBlade={handleToggleBlade}
         onDock={handleDock}
         onStop={handleStop}
+        dockDisabled={dockDisabled}
+        stopDisabled={stopDisabled}
         gamepadLabels={gamepadLabels}
         className="mt-1 justify-around"
       />
@@ -332,6 +403,8 @@ export function ManualControl() {
                   onToggleBlade={handleToggleBlade}
                   onDock={handleDock}
                   onStop={handleStop}
+                  dockDisabled={dockDisabled}
+                  stopDisabled={stopDisabled}
                   gamepadLabels={gamepadLabels}
                   className="gap-2"
                 />
@@ -383,6 +456,8 @@ export function ManualControl() {
                 onToggleBlade={handleToggleBlade}
                 onDock={handleDock}
                 onStop={handleStop}
+                dockDisabled={dockDisabled}
+                stopDisabled={stopDisabled}
                 gamepadLabels={gamepadLabels}
                 className="w-[112px] flex-wrap content-start gap-3"
               />
@@ -444,6 +519,8 @@ export function ManualControl() {
                 onToggleBlade={handleToggleBlade}
                 onDock={handleDock}
                 onStop={handleStop}
+                dockDisabled={dockDisabled}
+                stopDisabled={stopDisabled}
                 gamepadLabels={gamepadLabels}
                 className="justify-center gap-4"
               />
@@ -607,6 +684,8 @@ function ActionRow({
   onToggleBlade,
   onDock,
   onStop,
+  dockDisabled,
+  stopDisabled,
   gamepadLabels,
   className,
 }: {
@@ -616,6 +695,10 @@ function ActionRow({
   onToggleBlade: () => void;
   onDock: () => void;
   onStop: () => void;
+  /** Disabled while the command is in flight (`pending`) or the robot-state snapshot's
+   *  `commands` map says it's currently blocked (see useCommandAvailability). */
+  dockDisabled?: boolean;
+  stopDisabled?: boolean;
   gamepadLabels: GamepadButtonLabels | null;
   className?: string;
 }) {
@@ -625,6 +708,7 @@ function ActionRow({
         icon={<Home size={17} strokeWidth={2.2} />}
         label="Dock"
         onClick={onDock}
+        disabled={dockDisabled}
         badge={gamepadLabels?.b}
       />
       <ActionItem
@@ -632,6 +716,7 @@ function ActionRow({
         label="Stop"
         variant="danger"
         onClick={onStop}
+        disabled={stopDisabled}
         badge={gamepadLabels?.a}
       />
       <ActionItem

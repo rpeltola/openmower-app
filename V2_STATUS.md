@@ -2,6 +2,61 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 7 (2026-07-17) — W9 Lane A2b: app write-paths (manual teleop + map save/versioning)
+Branch **`feature/w9-app2`** (worktree, off `personal`). Completes what SESSION 6 deferred: the two
+domains that actually WRITE to the mower, not just display it.
+
+- **Manual teleop (`ManualControl.tsx`) reuses v1's `useTeleop`** — the d-pad, analog stick, and
+  gamepad left-stick all funnel through one `directionToVelocity`/`vectorToVelocity` conversion
+  (exported for unit testing) into `useTeleop().setVelocity(vx, vz)`, the SAME hook/store path
+  (`hooks/useTeleop.ts` → `Mower.publishTeleop` → `teleop` MQTT topic) v1's map joystick already
+  uses — no forked publish/interval logic, just a new input→velocity mapping for this page's
+  controls. Caps match v1's proven `VirtualJoystick` (`MAX_LINEAR_MPS=0.35`, `MAX_ANGULAR_RAD_S=1.6`);
+  the Speed segmented control scales both by a client-side factor (APP-ONLY, slow/normal/fast =
+  0.4/0.7/1×) capping out exactly at v1's max, never past it. **Dock/Stop now go through the real
+  `useCommand`/`useCommandAvailability` client** (same one Home/Map use) instead of a local mock —
+  every press resolves to an accept/reject, toasted either way via `REJECT_COPY`, and the two
+  buttons disable while pending or blocked. Didn't invent a "MANUAL_DRIVE" robot state — no state
+  display was added to this screen at all (out of scope; it still shows the same static
+  connection/battery chips as before).
+- **Map save (`MapVersioning.tsx`'s `SaveMapSheet`) now calls `rpc.map.replace`** (Map.tsx's
+  `saveMap`, guarded on the mower having a real `datum`) instead of being an honest no-op. The
+  editor's `Zone[]`/`Dock` → real `MapData` conversion (`realData.ts`'s new `zonesToMapData`) is
+  the risky part: it reconciles the **Dock schema-skew** the integration plan flagged (the real
+  dock carries `heading`+`approach_distance`, v2's editor only shows/moves `position`) by carrying
+  those two fields through unedited from the loaded map (`mockMap.ts`'s `Dock` type grew optional
+  `id`/`heading`/`approach_distance`/`name`/`active`; `Map.tsx`'s `onDockChange` now merges
+  `{...editor.dock, ...next}` instead of replacing the whole dock on a drag), and passes through
+  any **second/third real docking station** untouched (v2 only edits the first) so a save can
+  never silently delete one. The v2-only `'spot'` zone type (no backend equivalent) collapses to
+  `'mow'` on save — documented as lossy, not silently dropped. On success the editor's undo
+  history re-snapshots to the just-saved state (clears "Unsaved changes").
+- **Version history (`VersionHistorySheet`) now lists `query/mapversions`** (new `hooks/
+  useMapVersions.ts`, same request/parse pattern as `useHeatmap`'s current-version lookup) instead
+  of a 5-entry mock array. **Restore** fetches that version's `query/mapversion` geojson, converts
+  it back to `Zone[]`/`Dock` (new `realData.ts::versionFeaturesToZonesAndDock`, reusing
+  `area-converter.ts`'s `mapVersionToFeatures` + `featuresToDockingStations` — the same conversion
+  `HistoryMap.tsx` already trusts for the History page), and loads it into the editor as a single
+  atomic PENDING edit (new `useMapEditor.ts::commitZonesAndDock` — calling `commitZones` then
+  `commitDock` back to back would silently drop the zones, since `commitDock`'s closure captures
+  the pre-commit `zones`). Nothing reaches the mower until the user reviews it on the map and hits
+  Save — Restore is not an immediate overwrite.
+- **Test-first**: `realData.test.ts` (9 tests — the save payload shape, dock heading/
+  approach_distance round-trip through a load→save cycle with no edits, second-dock preservation,
+  the drag-only-changes-position path, spot→mow collapse, per-area override round-trip, and the
+  restore-side geojson→Zone[]/Dock conversion), `useMapVersions.test.ts` (4 tests — list parse,
+  schema-reject drop, query-error → empty list not fabricated, `refresh()`), `MapVersioning.
+  test.tsx` (6 tests — the Save/VersionHistory sheets' presentational contract: onSave/onRestore
+  firing, saving/loading/error states), `ManualControl.test.tsx` (6 tests — Stop/Dock hit the real
+  command client incl. nack copy, teleop zeroes out on unmount, the vx/vz math). Full suite: 80
+  tests passing (`npx vitest run`); `npx tsc --noEmit` and `npm run build` both clean.
+- **NOT this wave** (per the wave boundary, coordinated separately): area-boundary recording —
+  needs a backend gateway `record_area/status` bridge that doesn't exist yet.
+- **Couldn't verify without a live backend**: the actual `map.replace`/`query/mapversions`/
+  `query/mapversion` round trip against a real gateway (schemas match the documented wire contract
+  and the existing v1 hooks that already use these same RPCs, but this session's verification is
+  test-level, not live-device).
+
 ## ✅ SESSION 6 (2026-07-17) — W9 Lane A2a: display side wired to the real canonical state
 Branch **`feature/w9-app2`** (worktree, off `personal`). Completes what SESSION 5 left open: the
 DISPLAY of the real canonical state, not just command availability.
@@ -36,6 +91,8 @@ DISPLAY of the real canonical state, not just command availability.
   `Map.commands.test.tsx` (3, Pause/Resume call the real client, reason chip on disallow). Full
   suite: 55 tests passing (`npx vitest run`); `npx tsc --noEmit` and `npm run build` both clean.
 - **Deferred to A2b** (per the wave boundary): manual teleop, map save/versioning, area recording.
+  Manual teleop + map save/versioning are DONE — see SESSION 7 above. Area recording is still
+  deferred (needs a backend gateway bridge).
 
 ## ✅ SESSION 5 (2026-07-17) — W9 Lane A-core: first test suite + real robot-state/command binding
 Branch **`feature/w9-app`** (worktree, off `personal`). Implements openmower-app's app-side half
@@ -455,8 +512,12 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
       sheet).** Still audit: Schedule mobile lacks the full week-calendar (has the plan); fine-ish.
 - [~] Wire REAL data (MQTT store/hooks/schemas). Robot state/command binding is real (W9 Lanes
       A-core + A2a, SESSIONS 5-6): canonical state, command ack/nack, BOOTING/PAUSED/ERROR live
-      routing, Map's Pause/Resume/Stop/Dock. Remaining: manual teleop, map save/versioning, area
-      recording (A2b) — everything else on this screen-by-screen list is still mock data.
+      routing, Map's Pause/Resume/Stop/Dock. **Manual teleop + map save/versioning are now real too
+      (W9 Lane A2b, SESSION 7)**: ManualControl's drive input publishes real `teleop{vx,vz}` and its
+      Dock/Stop use the real command client; Map's Save sheet calls `rpc.map.replace`, Version
+      history lists/restores `query/mapversions`/`query/mapversion`. Remaining: area recording
+      (needs a backend gateway bridge) — everything else on this screen-by-screen list is still
+      mock data.
 - [ ] Cut over: v2 → `/`, delete v1 + MUI + the Tailwind-preflight workaround
 
 ## The rhythm (per screen)
