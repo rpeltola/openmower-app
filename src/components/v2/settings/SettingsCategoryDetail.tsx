@@ -15,6 +15,7 @@ import {FormField} from '@/components/v2/ui/FormField';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Switch} from '@/components/v2/ui/Switch';
+import {setHapticsEnabled, useHapticsEnabled} from '@/lib/v2/haptics';
 import {Bell, Check, ChevronRight, Info, Navigation, Shield, Wifi, Zap} from 'lucide-react';
 
 export interface SettingsCategoryDetailProps {
@@ -45,6 +46,7 @@ export function SettingsCategoryDetail({
   onNotificationChange,
   className,
 }: SettingsCategoryDetailProps) {
+  const hapticsEnabled = useHapticsEnabled();
   return (
     <div className={cn('flex flex-col gap-3.5', className)}>
       {category === 'connection' ? (
@@ -158,6 +160,22 @@ export function SettingsCategoryDetail({
                 checked={safetyToggles.tiltLift}
                 onCheckedChange={(checked) => onSafetyToggleChange('tiltLift', checked)}
                 aria-label="Tilt / lift stop"
+              />
+            }
+          />
+        </SettingsGroup>
+      ) : null}
+
+      {category === 'general' ? (
+        <SettingsGroup>
+          <ListRow
+            title="Haptic feedback"
+            sub="Vibrate on button presses (Android & modern iOS)"
+            trailing={
+              <Switch
+                checked={hapticsEnabled}
+                onCheckedChange={(checked) => setHapticsEnabled(checked)}
+                aria-label="Haptic feedback"
               />
             }
           />

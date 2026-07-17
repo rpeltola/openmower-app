@@ -30,6 +30,7 @@ import {
   Navigation,
   Shield,
   Sprout,
+  Vibrate,
   Wifi,
   Zap,
 } from 'lucide-react';
@@ -187,6 +188,12 @@ export function Settings() {
             </SettingsGroup>
 
             <SettingsGroup>
+              <ListRow
+                icon={<Vibrate size={15} strokeWidth={2} className="text-ink-soft" />}
+                title="General"
+                onClick={() => openCategory('general')}
+                trailing={<DrillChevron />}
+              />
               <ListRow
                 icon={<Bell size={15} strokeWidth={2} className="text-ink-soft" />}
                 title="Notifications"

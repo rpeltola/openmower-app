@@ -1,4 +1,5 @@
 import {cn} from '@/components/v2/lib/cn';
+import {hapticStrong, hapticTap} from '@/lib/v2/haptics';
 import {cva, type VariantProps} from 'class-variance-authority';
 import {type ButtonHTMLAttributes, forwardRef} from 'react';
 
@@ -36,11 +37,27 @@ export const buttonVariants = cva(
 
 export interface ButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {}
+    VariantProps<typeof buttonVariants> {
+  /** Escape hatch for the rare press that shouldn't buzz (e.g. one already wired to its own
+   *  feedback). Everything else gets tactile feedback for free via the kit primitive. */
+  noHaptic?: boolean;
+}
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({className, variant, size, ...props}, ref) => (
-    <button ref={ref} className={cn(buttonVariants({variant, size}), className)} {...props} />
+  ({className, variant, size, noHaptic, onPointerDown, disabled, ...props}, ref) => (
+    <button
+      ref={ref}
+      disabled={disabled}
+      className={cn(buttonVariants({variant, size}), className)}
+      onPointerDown={(e) => {
+        if (!disabled && !noHaptic) {
+          if (variant === 'danger' || variant === 'danger-solid') hapticStrong();
+          else hapticTap();
+        }
+        onPointerDown?.(e);
+      }}
+      {...props}
+    />
   ),
 );
 Button.displayName = 'Button';

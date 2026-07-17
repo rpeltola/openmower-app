@@ -42,6 +42,7 @@ export const DESKTOP_CATEGORIES = [
   {id: 'docking', label: 'Docking station'},
   {id: 'units', label: 'Units'},
   {id: 'basemap', label: 'Map basemap'},
+  {id: 'general', label: 'General'},
   {id: 'notifications', label: 'Notifications'},
   {id: 'about', label: 'About'},
 ];
@@ -55,6 +56,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   units: 'Units',
   basemap: 'Map basemap',
   safety: 'Safety',
+  general: 'General',
   notifications: 'Notifications',
   about: 'About',
 };
