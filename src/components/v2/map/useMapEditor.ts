@@ -155,6 +155,10 @@ export interface MapEditor {
   subtractZones: (targetId: string, otherIds: string[], keepOthers: boolean) => OpResult;
   undo: () => void;
   redo: () => void;
+  /** Replace the whole history with a single fresh snapshot, discarding undo/redo — used to
+   *  re-seed the editor once real map data arrives (see Map.tsx). Callers are responsible for
+   *  not calling this over in-progress user edits (guard on `canUndo`). */
+  reset: (zones: Zone[], dock: Dock) => void;
 }
 
 // History + pointer live in ONE state atom (not two useState calls) so a commit is a single
@@ -508,6 +512,14 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     setSelectedVertex(null);
   }, []);
 
+  const reset = useCallback((nextZones: Zone[], nextDock: Dock) => {
+    setHistoryState({history: [{zones: nextZones, dock: nextDock}], pointer: 0});
+    setSelectedZoneId(nextZones[0]?.id ?? null);
+    setSelectedVertex(null);
+    setSnapPick(null);
+    setMultiSelectedState(new Set());
+  }, []);
+
   // Keyboard: tool shortcuts (V/A/B/S/M/R/O/G), Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+D duplicate
   // zone, arrow-key vertex nudge (select tool, a vertex selected), and Delete/Backspace to remove
   // the current selection (single vertex, or the whole multi-select set). Ignored while focus is
@@ -622,5 +634,6 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     subtractZones,
     undo,
     redo,
+    reset,
   };
 }

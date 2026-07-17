@@ -6,12 +6,14 @@
 // (batches 1-3 of MAP_EDITOR_SPEC.md), plus the real per-area settings editor (AREA_SETTINGS_SPEC.md,
 // AreaSettingsSheet.tsx). The "Choose zone" Sheet below is just the quick zone switcher now —
 // selecting a zone (there, or by tapping it on the map) opens the settings editor.
-import {latLngToMeters, metersToLatLng, type Meters, type Pose} from '@/lib/v2/geo/projection';
+import {latLngToMeters, metersToLatLng, type Meters, type Origin, type Pose} from '@/lib/v2/geo/projection';
 import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {coverageLines, outlineLaps} from '@/components/v2/map/coverage';
 import {polygonArea, polygonPerimeter, principalAngleDeg} from '@/components/v2/map/geometry';
+import type {TrackPolyline} from '@/components/v2/map/MapCanvas';
 import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements';
+import {mapDataToDock, mapDataToZones} from '@/components/v2/map/realData';
 import {RecordBriefingSheet} from '@/components/v2/map/record/RecordBriefingSheet';
 import {RecordCloseSheet} from '@/components/v2/map/record/RecordCloseSheet';
 import {RecordDriveOverlay, type RecordSpeed} from '@/components/v2/map/record/RecordDriveOverlay';
@@ -27,6 +29,9 @@ import {
 } from '@/components/v2/map/mockMap';
 import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool, type OpResult} from '@/components/v2/map/useMapEditor';
 import {validateMap, type MapIssue} from '@/components/v2/map/validation';
+import {useSelectedMower} from '@/stores/mowersStore';
+import type {DiscoveredObstacle} from '@/stores/schemas';
+import type {TrackSegment} from '@/utils/track-pipeline';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
@@ -187,6 +192,14 @@ const SHORTCUTS: {keys: string; desc: string}[] = [
   {keys: '?', desc: 'This cheat sheet'},
 ];
 
+// Stable empty references for the real-data selectors below (see the "real store data" block in
+// Map()) — a fresh `?? []` on every selector call would be a new array each render, defeating
+// zustand's reference-equality check and re-rendering on every store tick even when there's
+// nothing selected.
+const EMPTY_TRACK_BUFFER: Meters[] = [];
+const EMPTY_TRACK_HISTORY: TrackSegment[] = [];
+const EMPTY_OBSTACLES: DiscoveredObstacle[] = [];
+
 export function Map() {
   const mapRef = useRef<LeafletMap | null>(null);
   const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
@@ -244,6 +257,72 @@ export function Map() {
   const [drawZoneType, setDrawZoneType] = useState<ZoneType>('mow');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
+
+  // --- real store data (data-wiring pass — display/read-only; see the module-level doc) --------
+  // The map's real GPS datum becomes the projection origin once the mower has reported one;
+  // MOCK_ORIGIN otherwise (no mower selected / no fix yet), so the /v2 preview still renders.
+  // projection.ts's equirectangular model (longitude scaled by cos(latitude), like this real
+  // datum) is a small approximation vs. coordinates.ts's full WGS84-ellipsoid LocalCartesian —
+  // ~0.1% (a few cm at a garden's edge, a small constant offset of the whole overlay vs. the
+  // basemap; every layer shares this projection so they stay mutually co-registered). Not worth
+  // threading the heavier model through here for a display-only map.
+  const realMap = useSelectedMower((s) => s?.map);
+  const realDatumLat = realMap?.datum?.lat;
+  const realDatumLng = realMap?.datum?.long;
+  const origin: Origin = useMemo(
+    () => (realDatumLat !== undefined && realDatumLng !== undefined ? {lat: realDatumLat, lng: realDatumLng} : MOCK_ORIGIN),
+    [realDatumLat, realDatumLng],
+  );
+
+  // Live robot pose + footprint — same composition as MowerMap.tsx: x/y prefer the driven-track
+  // position topic (falls back to the 5 Hz robot_state pose), heading always comes from the live
+  // robot_state pose so the marker keeps turning during an in-place spin (position/json only
+  // ticks after >=5cm of translation). Hidden (null) with no mower, no pose yet, or while docked —
+  // never drawn at a fabricated position.
+  const currentState = useSelectedMower((s) => s?.state.current_state);
+  const isCharging = useSelectedMower((s) => s?.state.is_charging ?? false);
+  const isDocked = currentState === 'DOCKED' || isCharging;
+  const robotPositionBase = useSelectedMower((s) => s?.position ?? s?.state.pose);
+  const robotLiveHeading = useSelectedMower((s) => (s?.state.pose?.heading_valid ? s.state.pose.heading : undefined));
+  const robotFootprint = useSelectedMower((s) => s?.state.footprint);
+  const robotPose: Pose | null = useMemo(
+    () =>
+      robotPositionBase && !isDocked
+        ? {x: robotPositionBase.x, y: robotPositionBase.y, heading: robotLiveHeading ?? robotPositionBase.heading}
+        : null,
+    [robotPositionBase, robotLiveHeading, isDocked],
+  );
+
+  // Driven track — one polyline per run of shared blade state: the compacted history segments,
+  // plus the live (uncompacted) buffer under the mower's current blade state. Built straight from
+  // the store's already-local (datum-relative) metres, skipping useTrackFeatures' absolute-lon/lat
+  // conversion since that needs a MapContext datum this v2 route doesn't have.
+  const trackBuffer = useSelectedMower((s) => s?.track.buffer ?? EMPTY_TRACK_BUFFER);
+  const trackHistorySegments = useSelectedMower((s) => s?.track.historySegments ?? EMPTY_TRACK_HISTORY);
+  const trackBladesOn = useSelectedMower((s) => s?.track.attributes.blades ?? false);
+  const trackPolylines: TrackPolyline[] = useMemo(() => {
+    const segments = trackHistorySegments
+      .filter((seg) => seg.points.length >= 2)
+      .map((seg) => ({points: seg.points, bladesOn: seg.attributes.blades}));
+    if (trackBuffer.length >= 2) segments.push({points: trackBuffer, bladesOn: trackBladesOn});
+    return segments;
+  }, [trackHistorySegments, trackBuffer, trackBladesOn]);
+
+  // Discovered obstacles (contact/sensing finds) — distinct from user-drawn `type: 'obstacle'` zones.
+  const discoveredObstacles = useSelectedMower((s) => s?.obstacles ?? EMPTY_OBSTACLES);
+
+  // Re-seed the editor from the real map once the mower has reported one (any real area or
+  // docking station) — but never over local edit history (canUndo = unsaved forward edits;
+  // canRedo = the user undid to baseline but still has a redo we must not clobber on the next
+  // map/json tick). So a live map update can't discard in-session edit state. Runs again whenever
+  // `realMap` gets a new reference (every map/json message); re-seeding with equivalent real data
+  // is harmless — it re-snapshots history to a single entry (see useMapEditor's `reset`).
+  useEffect(() => {
+    if (!realMap || editor.canUndo || editor.canRedo) return;
+    if (realMap.areas.length === 0 && realMap.docking_stations.length === 0) return;
+    editor.reset(mapDataToZones(realMap), mapDataToDock(realMap) ?? MOCK_DOCK);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realMap, editor.canUndo, editor.canRedo]);
 
   useEffect(() => {
     const stored = localStorage.getItem(BASEMAP_STORAGE_KEY);
@@ -479,7 +558,7 @@ export function Map() {
           if (recordDistSinceLastPointRef.current >= RECORD_STEP_M) {
             recordDistSinceLastPointRef.current = 0;
             setRecordPoints((pts) => [...pts, {x: next.x, y: next.y}]);
-            mapRef.current?.panTo(metersToLatLng(next, MOCK_ORIGIN), {animate: false});
+            mapRef.current?.panTo(metersToLatLng(next, origin), {animate: false});
           }
         }
       }
@@ -509,7 +588,7 @@ export function Map() {
   // map center (rect/circle draw tools are still there for a drawn shape instead); "drops into
   // editing it" per the spec means opening the settings editor for the brand-new zone right away.
   const addObjectAtCenter = (type: ZoneType, sizeM?: number) => {
-    const center = mapRef.current ? latLngToMeters(mapRef.current.getCenter(), MOCK_ORIGIN) : {x: 0, y: 0};
+    const center = mapRef.current ? latLngToMeters(mapRef.current.getCenter(), origin) : {x: 0, y: 0};
     const id = editor.addZone(center, type, sizeM);
     openZoneSettings(id);
     setAddObjectSheetOpen(false);
@@ -626,7 +705,7 @@ export function Map() {
     // second sheet on top of the one the user is browsing issues from.
     if (issue.zoneId) editor.selectZone(issue.zoneId);
     setIssuesSheetOpen(false);
-    mapRef.current?.setView(metersToLatLng(issue.point, MOCK_ORIGIN), 20);
+    mapRef.current?.setView(metersToLatLng(issue.point, origin), 20);
   };
 
   // Command palette (Ctrl/Cmd+K) — every action on this screen, filterable by name. Kept close to
@@ -748,8 +827,13 @@ export function Map() {
         className="absolute inset-0 h-full w-full"
         basemapId={basemapId}
         onReady={(m) => (mapRef.current = m)}
+        origin={origin}
         zones={editor.zones}
         dock={editor.dock}
+        pose={robotPose}
+        footprint={robotFootprint}
+        track={trackPolylines}
+        obstacles={discoveredObstacles}
         editing={editor.editing}
         selectedZoneId={editor.selectedZoneId}
         selectedVertex={editor.selectedVertex}
