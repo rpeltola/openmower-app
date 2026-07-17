@@ -1,6 +1,7 @@
 'use client';
 
 import {NotificationCenter} from '@/components/v2/NotificationCenter';
+import {cn} from '@/components/v2/lib/cn';
 import {ActivityFeedCard, type ActivityEvent} from '@/components/v2/ui/ActivityFeedCard';
 import {Button, buttonVariants} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
@@ -13,6 +14,7 @@ import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {PositionTrustCard} from '@/components/v2/ui/PositionTrustCard';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {StatePill} from '@/components/v2/ui/StatePill';
+import {Toast} from '@/components/v2/ui/Toast';
 import {Bell, BatteryCharging, CheckCircle2, Gamepad2, Home as HomeIcon, Pause, Sprout, Square} from 'lucide-react';
 import Link from 'next/link';
 import {type ReactNode, useState} from 'react';
@@ -24,8 +26,8 @@ const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24, remainingM2: 148, b
 
 // Presentation per mock mowerState — mirrors StatePill's tone vocabulary (accent/warn/info)
 // and drives the hero overlay/StatePill text so the mobile+desktop hero reads consistently
-// with whichever MowingHero scene is showing. Flip DEFAULT_MOWER_STATE below to preview
-// mowing/charging/docked/paused/idle.
+// with whichever MowingHero scene is showing. Flip DEFAULT_MOWER_STATE below (or tap a quick
+// action) to preview mowing/charging/docked/paused/idle.
 const HERO_META: Record<
   MowerHeroState,
   {label: string; dotClass: string; icon: ReactNode; tone: 'accent' | 'warn' | 'info' | 'neutral'; sub: string}
@@ -69,6 +71,39 @@ const HERO_META: Record<
 // "On the lawn" states — mid-job scenes where a coverage % and RTK trust chip make sense.
 const ON_LAWN_STATES: MowerHeroState[] = ['mowing', 'paused'];
 
+interface QuickActionDef {
+  key: string;
+  label: string;
+  icon: ReactNode;
+  onClick?: () => void;
+  href?: string;
+}
+
+/** One-tap Home quick action — a Link (Manual control, which navigates) or a Button (everything
+ *  else, mocked with a toast). Icon-over-label so a row of these reads as a compact tile strip
+ *  on both the mobile row and the desktop dashboard card. */
+function QuickActionButton({action}: {action: QuickActionDef}) {
+  const content = (
+    <>
+      {action.icon}
+      <span className="text-[.7rem] font-semibold">{action.label}</span>
+    </>
+  );
+  const className = 'h-auto flex-1 flex-col gap-1.5 py-3';
+  if (action.href) {
+    return (
+      <Link href={action.href} className={cn(buttonVariants({variant: 'soft'}), className)}>
+        {content}
+      </Link>
+    );
+  }
+  return (
+    <Button variant="soft" className={className} onClick={action.onClick}>
+      {content}
+    </Button>
+  );
+}
+
 const RECENT_EVENTS: ActivityEvent[] = [
   {
     icon: <CheckCircle2 size={14} strokeWidth={2.4} />,
@@ -94,8 +129,41 @@ const DEFAULT_MOWER_STATE: MowerHeroState = 'mowing';
 
 export function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [mowerState] = useState<MowerHeroState>(DEFAULT_MOWER_STATE);
+  const [mowerState, setMowerState] = useState<MowerHeroState>(DEFAULT_MOWER_STATE);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const onLawn = ON_LAWN_STATES.includes(mowerState);
+
+  const quickActions: QuickActionDef[] = [
+    mowerState === 'mowing'
+      ? {
+          key: 'pause',
+          label: 'Pause',
+          icon: <Pause size={18} strokeWidth={2.2} fill="currentColor" />,
+          onClick: () => {
+            setMowerState('paused');
+            setToastMessage('Mowing paused');
+          },
+        }
+      : {
+          key: 'mow',
+          label: 'Mow now',
+          icon: <Sprout size={18} strokeWidth={2.2} />,
+          onClick: () => {
+            setMowerState('mowing');
+            setToastMessage(`Mowing started · ${MOW.area}`);
+          },
+        },
+    {
+      key: 'dock',
+      label: 'Dock',
+      icon: <HomeIcon size={18} strokeWidth={2.2} />,
+      onClick: () => {
+        setMowerState('charging');
+        setToastMessage('Heading to dock');
+      },
+    },
+    {key: 'manual', label: 'Manual control', icon: <Gamepad2 size={18} strokeWidth={2.2} />, href: '/v2/control'},
+  ];
 
   return (
     <div className="relative flex min-h-full flex-col gap-4 p-4 md:h-full md:min-h-0 md:gap-5 md:p-6">
@@ -147,6 +215,12 @@ export function Home() {
           <KpiTile value={MOW.batteryPct} unit=" %" label="Battery" />
         </div>
 
+        <div className="flex gap-2">
+          {quickActions.map((action) => (
+            <QuickActionButton key={action.key} action={action} />
+          ))}
+        </div>
+
         <Button variant="danger" className="justify-center">
           <Square size={15} fill="currentColor" />
           Stop
@@ -177,6 +251,12 @@ export function Home() {
           <KpiTile value={MOW.batteryPct} unit=" %" label="Battery" />
           <KpiTile value={MOW.coverage} unit=" %" label="Coverage" />
 
+          <Card className="col-span-4 flex gap-2 p-2">
+            {quickActions.map((action) => (
+              <QuickActionButton key={action.key} action={action} />
+            ))}
+          </Card>
+
           <ActivityFeedCard events={RECENT_EVENTS} className="col-span-4" />
         </div>
 
@@ -187,6 +267,7 @@ export function Home() {
       </div>
 
       <NotificationCenter open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
+      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
     </div>
   );
 }
