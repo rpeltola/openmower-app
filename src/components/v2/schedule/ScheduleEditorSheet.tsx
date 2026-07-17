@@ -9,6 +9,7 @@ import {ListRow} from '@/components/v2/ui/ListRow';
 import {Sheet} from '@/components/v2/ui/Sheet';
 import {StatePill} from '@/components/v2/ui/StatePill';
 import {Switch} from '@/components/v2/ui/Switch';
+import {TimePicker} from '@/components/v2/ui/TimePicker';
 import {Battery, ChevronRight, Clock, CloudRain, Map as MapIcon, Moon} from 'lucide-react';
 import {useState} from 'react';
 
@@ -81,6 +82,7 @@ export function ScheduleEditorSheet({
     return named.length > 0 ? named : MOW_AREAS;
   });
   const [areaPickerOpen, setAreaPickerOpen] = useState(false);
+  const [timeField, setTimeField] = useState<'start' | 'end' | null>(null);
 
   function toggleArea(area: string) {
     setSelectedAreas((prev) => (prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]));
@@ -133,27 +135,42 @@ export function ScheduleEditorSheet({
       <div>
         <div className="text-[.82rem] font-semibold text-ink">Time window</div>
         <div className="mt-[.4rem] flex items-center gap-[.5rem]">
-          <label className="flex-1 rounded-[11px] border border-accent bg-accent-wash py-[.4rem] text-center">
+          <Button
+            variant="ghost"
+            aria-label={`Start time, ${start}`}
+            onClick={() => setTimeField('start')}
+            className="h-auto flex-1 flex-col items-stretch gap-0 rounded-[11px] border-accent bg-accent-wash px-0 py-[.4rem] text-center hover:border-accent hover:text-accent"
+          >
             <span className="block text-[.58rem] font-semibold uppercase tracking-[.08em] text-accent/70">Start</span>
-            <input
-              type="time"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              className="tabular-nums w-full bg-transparent text-center text-[.8rem] font-[680] text-accent outline-none [color-scheme:light] dark:[color-scheme:dark]"
-            />
-          </label>
+            <span className="tabular-nums text-[.8rem] font-[680] text-accent">{start}</span>
+          </Button>
           <span className="text-[.8rem] text-ink-faint">–</span>
-          <label className="flex-1 rounded-[11px] border border-accent bg-accent-wash py-[.4rem] text-center">
+          <Button
+            variant="ghost"
+            aria-label={`End time, ${end}`}
+            onClick={() => setTimeField('end')}
+            className="h-auto flex-1 flex-col items-stretch gap-0 rounded-[11px] border-accent bg-accent-wash px-0 py-[.4rem] text-center hover:border-accent hover:text-accent"
+          >
             <span className="block text-[.58rem] font-semibold uppercase tracking-[.08em] text-accent/70">End</span>
-            <input
-              type="time"
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              className="tabular-nums w-full bg-transparent text-center text-[.8rem] font-[680] text-accent outline-none [color-scheme:light] dark:[color-scheme:dark]"
-            />
-          </label>
+            <span className="tabular-nums text-[.8rem] font-[680] text-accent">{end}</span>
+          </Button>
         </div>
       </div>
+
+      <TimePicker
+        open={timeField === 'start'}
+        onClose={() => setTimeField(null)}
+        title="Start time"
+        value={start}
+        onChange={setStart}
+      />
+      <TimePicker
+        open={timeField === 'end'}
+        onClose={() => setTimeField(null)}
+        title="End time"
+        value={end}
+        onChange={setEnd}
+      />
 
       <Card className="px-[.6rem]">
         <ListRow
