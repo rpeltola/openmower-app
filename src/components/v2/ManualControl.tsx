@@ -42,11 +42,13 @@ function axesToDirection(lx: number, ly: number): Direction | null {
   return Math.abs(ly) >= Math.abs(lx) ? (ly < 0 ? 'up' : 'down') : lx < 0 ? 'left' : 'right';
 }
 
-// Strip the "(STANDARD GAMEPAD Vendor: ... Product: ...)" suffix browsers append to
-// `Gamepad.id` — just the human-readable controller name.
-function controllerName(id: string | null): string {
-  if (!id) return 'Controller';
-  return id.split(' (')[0];
+// A SHORT controller label for the chip/toast — the raw `Gamepad.id` (e.g. "Sony Interactive
+// Entertainment DualSense Wireless Controller") is far too long and wraps the landscape layout,
+// so use the detected brand instead.
+function controllerName(brand: string): string {
+  if (brand === 'playstation') return 'PlayStation';
+  if (brand === 'xbox') return 'Xbox';
+  return 'Controller';
 }
 
 // Static mock state — this PoC proves the stack + responsive layering, not live MQTT
@@ -154,7 +156,7 @@ export function ManualControl() {
   const prevConnectedRef = useRef(false);
   useEffect(() => {
     if (gamepad.connected && !prevConnectedRef.current) {
-      setToast(`Controller connected: ${controllerName(gamepad.id)}`);
+      setToast(`Controller connected: ${controllerName(gamepad.brand)}`);
       // A physical stick is analog — default to the Joystick input mode once per connect.
       // If the user then manually switches back to D-pad, this won't fire again (it's
       // edge-triggered, not enforced) until the pad disconnects and reconnects.
@@ -162,7 +164,7 @@ export function ManualControl() {
     }
     prevConnectedRef.current = gamepad.connected;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gamepad.connected, gamepad.id]);
+  }, [gamepad.connected, gamepad.brand]);
 
   // The portrait console — shared by the mobile-portrait layout (full width) and the
   // landscape-with-camera layout (narrow side column next to the viewport). Blade height
@@ -240,7 +242,7 @@ export function ManualControl() {
           {gamepad.connected ? (
             <Chip variant="ok">
               <Gamepad2 size={11} strokeWidth={2.4} />
-              {controllerName(gamepad.id)}
+              {controllerName(gamepad.brand)}
             </Chip>
           ) : null}
           <Chip variant="ok">🔋 71%</Chip>
