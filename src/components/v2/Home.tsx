@@ -1,8 +1,9 @@
 'use client';
 
+import {mapDataToDock, mapDataToZones} from '@/components/v2/map/realData';
 import {NotificationCenter} from '@/components/v2/NotificationCenter';
 import {cn} from '@/components/v2/lib/cn';
-import {ActivityFeedCard, type ActivityEvent} from '@/components/v2/ui/ActivityFeedCard';
+import {ActivityFeedCard} from '@/components/v2/ui/ActivityFeedCard';
 import {Button, buttonVariants} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
@@ -15,12 +16,19 @@ import {PositionTrustCard} from '@/components/v2/ui/PositionTrustCard';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {StatePill} from '@/components/v2/ui/StatePill';
 import {Toast} from '@/components/v2/ui/Toast';
+import {useSelectedMowerAvailableDates, useSelectedMowerEventsForDate, useSelectedMowerIsDateLoaded} from '@/hooks/useMowerEvents';
+import {mowerEventsToActivityEvents} from '@/lib/v2/events';
 import {STATE_COPY, type Tone} from '@/lib/v2/robotState';
 import {useRobotState} from '@/lib/v2/useRobotState';
-import {useSelectedMower, type Mower, type MowerCommand} from '@/stores/mowersStore';
-import {Bell, CheckCircle2, Gamepad2, Home as HomeIcon, Sprout, Square} from 'lucide-react';
+import {getTodayDateKey} from '@/stores/mowerEvents';
+import {useMowersStore, useSelectedMower, type Mower, type MowerCommand} from '@/stores/mowersStore';
+import {Bell, Gamepad2, Home as HomeIcon, Sprout, Square} from 'lucide-react';
 import Link from 'next/link';
-import {type ReactNode, useState} from 'react';
+import {type ReactNode, useEffect, useMemo, useState} from 'react';
+
+// "Show the most recent handful, not the whole log" — the desktop dashboard card is a glance
+// widget, not the full Activity feed (that's the Activity screen's job).
+const RECENT_ACTIVITY_LIMIT = 5;
 
 // Tailwind needs literal class names (not `text-${tone}` template strings) to keep them in the
 // build — a lookup table instead, same spirit as the old HERO_META's per-state `dotClass`.
@@ -72,29 +80,6 @@ function QuickActionButton({action}: {action: QuickActionDef}) {
   );
 }
 
-// Still a static demo feed — the Activity tab/mowerEvents store carries the real event log;
-// wiring it into this card is a separate pass from the state-display work done here.
-const RECENT_EVENTS: ActivityEvent[] = [
-  {
-    icon: <CheckCircle2 size={14} strokeWidth={2.4} />,
-    tone: 'accent' as const,
-    text: 'RTK fixed — position trusted',
-    time: '09:32',
-  },
-  {
-    icon: <Sprout size={14} strokeWidth={2.2} />,
-    tone: 'accent' as const,
-    text: 'Mowing started',
-    time: '09:30',
-  },
-  {
-    icon: <HomeIcon size={13} strokeWidth={2.2} />,
-    tone: 'info' as const,
-    text: 'Docked · charging complete',
-    time: 'Yst 18:10',
-  },
-];
-
 export function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -111,6 +96,68 @@ export function Home() {
 
   const docked = state === 'DOCKED' || state === 'DOCKED_CHARGING';
   const busy = state === 'DOCKING' || state === 'UNDOCKING' || state === 'AREA_RECORDING' || state === 'HEADING_CALIBRATION';
+
+  // Recent-activity feed (desktop dashboard card): today's events, falling back to the most
+  // recent available date when today is empty -- same event log the Activity screen reads, just
+  // the last handful. Both today and the fallback are fetched explicitly (see below).
+  const mowerId = useSelectedMower((s) => s?.id);
+  const today = getTodayDateKey();
+  const todayEvents = useSelectedMowerEventsForDate(today);
+  const todayLoaded = useSelectedMowerIsDateLoaded(today);
+  const availableDates = useSelectedMowerAvailableDates();
+  const fallbackDate = todayLoaded && todayEvents.length === 0 ? availableDates[0] : undefined;
+  const fallbackEvents = useSelectedMowerEventsForDate(fallbackDate ?? '');
+  const fallbackLoaded = useSelectedMowerIsDateLoaded(fallbackDate ?? '');
+  const fetchEventsForDate = useMowersStore((s) => s.fetchEventsForDate);
+
+  const [feedAttempted, setFeedAttempted] = useState(false);
+
+  // Fetch today explicitly (it is NOT auto-seeded — the events/json subscription only pushes NEW
+  // events, and the historical `events.history` RPC may be absent on an older gateway, in which
+  // case fetchEventsForDate swallows the error without marking the date loaded). Track our own
+  // "attempted" flag so the feed falls through to its empty state instead of hanging on "Loading".
+  useEffect(() => {
+    if (!mowerId) return;
+    let cancelled = false;
+    fetchEventsForDate(mowerId, today).finally(() => {
+      if (!cancelled) setFeedAttempted(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mowerId, today, fetchEventsForDate]);
+
+  // Fallback date fetch (only reachable once today loaded non-empty, i.e. history IS supported).
+  useEffect(() => {
+    if (!mowerId || !fallbackDate || fallbackLoaded) return;
+    void fetchEventsForDate(mowerId, fallbackDate);
+  }, [mowerId, fallbackDate, fallbackLoaded, fetchEventsForDate]);
+
+  const activityLoading = Boolean(mowerId) && !feedAttempted;
+  const rawRecentEvents = todayEvents.length > 0 ? todayEvents : fallbackEvents;
+  const recentEvents = useMemo(
+    () => mowerEventsToActivityEvents(rawRecentEvents).slice(0, RECENT_ACTIVITY_LIMIT),
+    [rawRecentEvents],
+  );
+
+  // Mini-map tile (desktop dashboard card): real area outlines + dock, fit to the tile, and a
+  // robot marker at the real pose -- same composition MowerMap.tsx uses (position/json falling
+  // back to the 5 Hz robot_state pose; heading only from robot_state, since position/json's
+  // heading freezes during an in-place spin). Hidden while docked, mirroring MapCanvas's
+  // `pose === null` convention, since a docked robot's pose is a stale pre-dock reading.
+  const mapData = useSelectedMower((s) => s?.map);
+  const mapZones = useMemo(() => (mapData ? mapDataToZones(mapData) : null), [mapData]);
+  const mapDock = useMemo(() => (mapData ? mapDataToDock(mapData) : undefined), [mapData]);
+  const mowerPositionBase = useSelectedMower((s) => s?.position ?? s?.state.pose);
+  const liveHeading = useSelectedMower((s) => (s?.state.pose?.heading_valid ? s.state.pose.heading : undefined));
+  const mapPose = useMemo(
+    () =>
+      mowerPositionBase && !docked
+        ? {x: mowerPositionBase.x, y: mowerPositionBase.y, heading: liveHeading ?? mowerPositionBase.heading}
+        : null,
+    [mowerPositionBase, liveHeading, docked],
+  );
+  const mapChipLabel = isMowing && areaName ? areaName : stateCopy.label;
 
   /** Publishes `cmd` on the shared `command` topic (Mower.sendCommand — see MowerControls.tsx)
    *  and shows a brief "sent" toast. There's no ack/nack round trip from the app side (that's
@@ -278,11 +325,15 @@ export function Home() {
             ))}
           </Card>
 
-          <ActivityFeedCard events={RECENT_EVENTS} className="col-span-4" />
+          <ActivityFeedCard
+            events={recentEvents}
+            emptyState={activityLoading ? 'Loading activity…' : 'No recent activity'}
+            className="col-span-4"
+          />
         </div>
 
         <div className="col-start-2 row-start-1 row-span-2 flex min-h-0 flex-col gap-4">
-          <MapCard className="flex-1" />
+          <MapCard className="flex-1" zones={mapZones} dock={mapDock} pose={mapPose} chipLabel={mapChipLabel} />
           <NextScheduledCard when="Wed 10:00 · All areas" detail="~1 h 40 min · rain-skip on" />
         </div>
       </div>

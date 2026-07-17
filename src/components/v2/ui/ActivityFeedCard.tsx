@@ -22,20 +22,28 @@ export interface ActivityFeedCardProps {
   title?: string;
   events: ActivityEvent[];
   className?: string;
+  /** Shown in place of the list when `events` is empty (a loading caption or an empty-state
+   *  message) -- omitted callers (e.g. RunDetail, which renders its own empty message below
+   *  the card) keep today's behavior of just rendering nothing. */
+  emptyState?: ReactNode;
 }
 
 /** Desktop "Recent activity" card: label + divided list of FeedRow events. */
-export function ActivityFeedCard({title = 'Recent activity', events, className}: ActivityFeedCardProps) {
+export function ActivityFeedCard({title = 'Recent activity', events, className, emptyState}: ActivityFeedCardProps) {
   return (
     <Card className={cn('p-4', className)}>
       <div className="mb-2.5 font-mono text-[.7rem] font-semibold uppercase tracking-wide text-ink-faint">
         {title}
       </div>
-      <div className="divide-y divide-border">
-        {events.map((event) => (
-          <FeedRow key={event.text} icon={event.icon} tone={event.tone} text={event.text} time={event.time} />
-        ))}
-      </div>
+      {events.length > 0 ? (
+        <div className="divide-y divide-border">
+          {events.map((event) => (
+            <FeedRow key={event.text} icon={event.icon} tone={event.tone} text={event.text} time={event.time} />
+          ))}
+        </div>
+      ) : (
+        emptyState ? <div className="py-3 text-center text-[.78rem] text-ink-faint">{emptyState}</div> : null
+      )}
     </Card>
   );
 }
