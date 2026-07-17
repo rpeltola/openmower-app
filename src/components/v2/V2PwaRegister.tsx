@@ -19,6 +19,10 @@ import {useEffect} from 'react';
 export function V2PwaRegister() {
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    // Only register in production. The SW is disabled in development (next.config serwist
+    // `disable`), and attempting to register over the dev server's self-signed cert fails the
+    // secure-context check with an SSL error — so skip it entirely in dev.
+    if (process.env.NODE_ENV !== 'production') return;
     const sw = new Serwist('/sw.js', {scope: '/'});
     // Reload only when a NEW worker takes control (an update), not on the first-ever install —
     // mirrors v1's PwaManager guard so first visits don't reload themselves.
@@ -29,7 +33,9 @@ export function V2PwaRegister() {
         window.location.reload();
       }
     });
-    void sw.register();
+    // Registration can still fail on an untrusted/misconfigured origin — swallow it rather than
+    // surfacing an unhandled rejection.
+    sw.register().catch(() => {});
   }, []);
   return null;
 }
