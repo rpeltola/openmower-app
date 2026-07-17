@@ -2,6 +2,7 @@
 
 import {SettingsGroup} from '@/components/v2/settings/SettingsGroup';
 import {Button} from '@/components/v2/ui/Button';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {AlertTriangle, Database, Download, Map as MapIcon, SlidersHorizontal, Upload} from 'lucide-react';
 import {useState} from 'react';
@@ -19,13 +20,17 @@ const BACKUP_CONTENTS = [
  *  Nothing here is wired: the app only talks to the mower over MQTT today, and bundling +
  *  applying these files requires a robot-side RPC that doesn't exist yet. Both buttons are
  *  honest no-ops that report exactly that, via inline status text (this is a shared leaf
- *  inside a scrolling pane, so it owns no page-root Toast). */
+ *  inside a scrolling pane, so it owns no page-root Toast).
+ *
+ *  Reference usage of the L3 `featureSupport` gate (STATE_COMMAND_MODEL.md §4): this whole
+ *  screen is the `backup` entry, so by default it's hidden entirely (an empty detail pane);
+ *  the Settings → General dev toggle reveals it greyed + tagged. */
 export function BackupRestore() {
   const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
 
   return (
-    <>
+    <FeatureGate feature="backup">
       <SettingsGroup title="Download a backup">
         <div className="py-2.5 text-[.8rem] leading-[1.5] text-ink-soft">
           A backup bundles everything needed to restore this mower exactly as configured:
@@ -77,6 +82,6 @@ export function BackupRestore() {
           {restoreStatus ? <p className="text-[.76rem] leading-[1.5] text-ink-soft">{restoreStatus}</p> : null}
         </div>
       </SettingsGroup>
-    </>
+    </FeatureGate>
   );
 }

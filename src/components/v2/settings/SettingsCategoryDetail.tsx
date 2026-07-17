@@ -19,6 +19,7 @@ import {FormField} from '@/components/v2/ui/FormField';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Switch} from '@/components/v2/ui/Switch';
+import {setShowUnsupportedFeatures, useShowUnsupportedFeatures} from '@/lib/v2/featureSupport';
 import {hapticStrong, setHapticsEnabled, useHapticsEnabled} from '@/lib/v2/haptics';
 import {THEME_OPTIONS, useTheme, type Theme} from '@/lib/v2/theme';
 import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
@@ -60,6 +61,7 @@ export function SettingsCategoryDetail({
   className,
 }: SettingsCategoryDetailProps) {
   const hapticsEnabled = useHapticsEnabled();
+  const showUnsupportedFeatures = useShowUnsupportedFeatures();
   const {theme, setTheme, systemIsDark} = useTheme();
 
   const mqttUrl = useSelectedMower((m) => m?.mqttUrl);
@@ -248,6 +250,20 @@ export function SettingsCategoryDetail({
                     aria-label="Haptic feedback"
                   />
                 </div>
+              }
+            />
+          </SettingsGroup>
+
+          <SettingsGroup title="Developer">
+            <ListRow
+              title="Show controls not yet supported by your mower"
+              sub="Reveal in-progress controls, greyed out and labelled, instead of hiding them"
+              trailing={
+                <Switch
+                  checked={showUnsupportedFeatures}
+                  onCheckedChange={(checked) => setShowUnsupportedFeatures(checked)}
+                  aria-label="Show controls not yet supported by your mower"
+                />
               }
             />
           </SettingsGroup>
