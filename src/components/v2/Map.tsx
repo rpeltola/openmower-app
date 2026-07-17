@@ -29,6 +29,9 @@ import {
 } from '@/components/v2/map/mockMap';
 import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool, type OpResult} from '@/components/v2/map/useMapEditor';
 import {validateMap, type MapIssue} from '@/components/v2/map/validation';
+import {useHeatmap} from '@/hooks/useHeatmap';
+import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
+import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
 import {useSelectedMower} from '@/stores/mowersStore';
 import type {DiscoveredObstacle} from '@/stores/schemas';
 import type {TrackSegment} from '@/utils/track-pipeline';
@@ -64,6 +67,7 @@ import {
   Copy,
   Eraser,
   Expand,
+  Flame,
   Footprints,
   HelpCircle,
   Home,
@@ -112,6 +116,7 @@ const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24};
 
 const BASEMAP_STORAGE_KEY = 'v2.basemap';
 const COVERAGE_STORAGE_KEY = 'v2.coveragePreview';
+const HEATMAP_STORAGE_KEY = 'v2.heatmap';
 
 // Coverage preview (§F) — visual only, remembered locally, never written to the map.
 interface CoveragePreviewSettings {
@@ -131,6 +136,17 @@ const DEFAULT_COVERAGE_SETTINGS: CoveragePreviewSettings = {
   angleOffsetDeg: 0,
   angleIsAbsolute: false,
 };
+
+// Coverage heatmap (data-wiring pass) — off by default, remembered locally like the coverage
+// preview above. `metricKey: null` means "no metric explicitly chosen yet" — the render below
+// falls back to the first metric useHeatmapMetrics() returns, without persisting that choice
+// until the user actually picks one.
+interface HeatmapSettings {
+  enabled: boolean;
+  metricKey: string | null;
+}
+
+const DEFAULT_HEATMAP_SETTINGS: HeatmapSettings = {enabled: false, metricKey: null};
 
 // Mowed-so-far lanes (S1) use a fixed lane spacing — separate from the user-adjustable coverage-
 // preview tool width above, since one is "what already happened" and the other is a what-if plan.
@@ -216,6 +232,8 @@ export function Map() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
   const [coverageSheetOpen, setCoverageSheetOpen] = useState(false);
+  const [heatmapSheetOpen, setHeatmapSheetOpen] = useState(false);
+  const [heatmap, setHeatmap] = useState(DEFAULT_HEATMAP_SETTINGS);
   const [addObjectSheetOpen, setAddObjectSheetOpen] = useState(false);
   // S4 — mobile counterpart to the desktop Areas rail (md:flex only); opens a Sheet with the
   // same per-area rows + Mow all now so live-view area switching isn't a desktop-only feature.
@@ -311,6 +329,24 @@ export function Map() {
   // Discovered obstacles (contact/sensing finds) — distinct from user-drawn `type: 'obstacle'` zones.
   const discoveredObstacles = useSelectedMower((s) => s?.obstacles ?? EMPTY_OBSTACLES);
 
+  // Real coverage-plan overlay (data-wiring pass, read-only) — the server's actual planned path,
+  // distinct from `coveragePreviewData`/`planPreviewFull` below (those are local what-if previews
+  // and never touch this hook). `useJobPlannedPath` falls back to the live job on its own when
+  // passed null — there's no "browse a past job" concept on /v2 yet, so null is exactly "whatever
+  // the mower is currently running, or nothing". Hidden while editing so it never doubles up with
+  // the edit-mode local coverage preview.
+  const {plannedPath: livePlannedPath} = useJobPlannedPath(null);
+  const plannedPathForMap = editor.editing ? null : (livePlannedPath?.paths ?? null);
+
+  // Coverage heatmap (data-wiring pass, read-only) — off by default; on/off + metric persist in
+  // localStorage like the coverage-preview prefs above. useHeatmap resolves to an empty cell list
+  // (nothing drawn) whenever the metric is off, unavailable, or the query errors — never a
+  // fabricated heatmap (R1).
+  const {metrics: heatmapMetrics} = useHeatmapMetrics();
+  const heatmapMetricKey = heatmap.enabled ? (heatmap.metricKey ?? heatmapMetrics[0]?.key ?? null) : null;
+  const {cellSize: heatmapCellSize, cells: heatmapCells, loading: heatmapLoading} = useHeatmap(heatmapMetricKey);
+  const heatmapMetricInfo = heatmapMetrics.find((m) => m.key === heatmapMetricKey);
+
   // Re-seed the editor from the real map once the mower has reported one (any real area or
   // docking station) — but never over local edit history (canUndo = unsaved forward edits;
   // canRedo = the user undid to baseline but still has a redo we must not clobber on the next
@@ -343,6 +379,24 @@ export function Map() {
     setCoverage((prev) => {
       const next = {...prev, ...patch};
       localStorage.setItem(COVERAGE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const stored = localStorage.getItem(HEATMAP_STORAGE_KEY);
+    if (!stored) return;
+    try {
+      setHeatmap({...DEFAULT_HEATMAP_SETTINGS, ...JSON.parse(stored)});
+    } catch {
+      // ignore malformed localStorage content — keep the defaults
+    }
+  }, []);
+
+  const updateHeatmap = (patch: Partial<HeatmapSettings>) => {
+    setHeatmap((prev) => {
+      const next = {...prev, ...patch};
+      localStorage.setItem(HEATMAP_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
   };
@@ -834,6 +888,10 @@ export function Map() {
         footprint={robotFootprint}
         track={trackPolylines}
         obstacles={discoveredObstacles}
+        plannedPath={plannedPathForMap}
+        heatmapCells={heatmapCells}
+        heatmapCellSize={heatmapCellSize}
+        heatmapHigherIsBetter={heatmapMetricInfo?.higher_is_better ?? false}
         editing={editor.editing}
         selectedZoneId={editor.selectedZoneId}
         selectedVertex={editor.selectedVertex}
@@ -916,6 +974,11 @@ export function Map() {
           <Fab aria-label="Recenter on robot" icon={<Locate size={18} />} onClick={() => mapRef.current?.setZoom(19)} />
         )}
         <Fab aria-label="Base map" icon={<Layers size={18} />} onClick={() => setBasemapSheetOpen(true)} />
+        <Fab
+          aria-label="Coverage heatmap"
+          icon={<Flame size={18} className={heatmap.enabled ? 'text-accent' : undefined} />}
+          onClick={() => setHeatmapSheetOpen(true)}
+        />
         {editor.editing && (
           <div className="relative">
             <Fab aria-label="Validation issues" icon={<AlertTriangle size={18} />} onClick={() => setIssuesSheetOpen(true)} />
@@ -1590,6 +1653,41 @@ export function Map() {
               />
             </div>
           </FormField>
+        </div>
+      </Sheet>
+
+      <Sheet open={heatmapSheetOpen} onClose={() => setHeatmapSheetOpen(false)} title="Coverage heatmap">
+        <div className="space-y-3.5">
+          <FormField label="Show heatmap">
+            <div className="flex items-center justify-between">
+              <span className="text-[.78rem] text-ink-soft">
+                {heatmapMetrics.length === 0 ? 'No heatmap data yet.' : 'Colors map cells by the selected metric.'}
+              </span>
+              <Switch
+                checked={heatmap.enabled}
+                onCheckedChange={(v) => updateHeatmap({enabled: v})}
+                disabled={heatmapMetrics.length === 0}
+                aria-label="Show coverage heatmap"
+              />
+            </div>
+          </FormField>
+
+          {heatmap.enabled && heatmapMetrics.length > 0 && (
+            <FormField label="Metric">
+              <SegmentedToggle
+                options={heatmapMetrics.map((m) => ({value: m.key, label: m.label}))}
+                value={heatmapMetricKey ?? heatmapMetrics[0].key}
+                onChange={(v) => updateHeatmap({metricKey: v})}
+              />
+            </FormField>
+          )}
+
+          {heatmap.enabled && heatmapLoading && (
+            <div className="text-center text-[.76rem] text-ink-faint">Loading heatmap…</div>
+          )}
+          {heatmap.enabled && !heatmapLoading && heatmapMetricKey && heatmapCells.length === 0 && (
+            <div className="text-center text-[.76rem] text-ink-faint">No heatmap data for this metric yet.</div>
+          )}
         </div>
       </Sheet>
 

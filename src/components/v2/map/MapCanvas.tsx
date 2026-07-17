@@ -31,7 +31,7 @@ import {
 } from '@/components/v2/map/mockMap';
 import {DEFAULT_BASEMAP_ID, resolveBasemap} from '@/components/v2/map/basemaps';
 import type {EditTool, SelectedVertex} from '@/components/v2/map/useMapEditor';
-import type {DiscoveredObstacle} from '@/stores/schemas';
+import type {DiscoveredObstacle, HeatmapCell, PlannedPathEntry} from '@/stores/schemas';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {useEffect, useRef} from 'react';
@@ -117,6 +117,19 @@ export interface MapCanvasProps {
   /** Discovered obstacles (data-wiring pass, read-only) — the mower's own contact/sensing finds,
    *  distinct from user-drawn `type: 'obstacle'` zones. Absent/null/empty hides the layer. */
   obstacles?: DiscoveredObstacle[] | null;
+
+  /** Real coverage-plan overlay (data-wiring pass, read-only) — the server's actual slic3r-planned
+   *  path for whichever job is shown, fetched via useJobPlannedPath. Distinct from `coveragePreview`
+   *  (that's a local what-if preview and never touches this prop). Absent/null/empty hides it. */
+  plannedPath?: PlannedPathEntry[] | null;
+  /** Coverage-heatmap cells (data-wiring pass, read-only) — one entry per `heatmapCellSize`-metre
+   *  grid cell (x/y are grid indices, not metres). Absent/null/empty hides the layer. */
+  heatmapCells?: HeatmapCell[] | null;
+  /** Grid cell size in metres (query/heatmap's cell_size, default 0.25). */
+  heatmapCellSize?: number;
+  /** true = a HIGH mean reading is the "good" end for this metric — inverts the color ramp so the
+   *  alarming (low) readings render dark instead of the high ones. */
+  heatmapHigherIsBetter?: boolean;
 }
 
 // Vertex-handle colors are fixed (not theme-dependent), same rule as the zone colors — they must
@@ -152,6 +165,25 @@ const OBSTACLE_POLICY_COLOR: Record<string, string> = {
   no_touch: '#E53935',
 };
 const OBSTACLE_FALLBACK_COLOR = '#9E9E9E';
+
+// Real coverage-plan colors — muted grey, matching the real map's PlannedPathLayer.tsx, so the
+// plan underlay reads as "reference" rather than competing with the amber driven track or the
+// green/cyan local coverage preview.
+const PLANNED_PATH_OUTLINE_COLOR = '#aaaaaa';
+const PLANNED_PATH_FILL_COLOR = '#888888';
+
+// Heatmap ramp endpoints — matches the real map's HeatmapLayer.tsx single-hue sequential ramp
+// (light -> dark; a dataviz convention for a magnitude metric, never a rainbow).
+const HEATMAP_LOW_COLOR = {r: 0xdb, g: 0xee, b: 0xff};
+const HEATMAP_HIGH_COLOR = {r: 0x0b, g: 0x3d, b: 0x91};
+
+function heatmapColor(t: number): string {
+  const clamped = Math.min(1, Math.max(0, t));
+  const r = Math.round(HEATMAP_LOW_COLOR.r + (HEATMAP_HIGH_COLOR.r - HEATMAP_LOW_COLOR.r) * clamped);
+  const g = Math.round(HEATMAP_LOW_COLOR.g + (HEATMAP_HIGH_COLOR.g - HEATMAP_LOW_COLOR.g) * clamped);
+  const b = Math.round(HEATMAP_LOW_COLOR.b + (HEATMAP_HIGH_COLOR.b - HEATMAP_LOW_COLOR.b) * clamped);
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 // Vertex-handle icon. Kept out of the marker-creation effect's deps so changing which vertex is
 // selected/picked only restyles handles (setIcon) instead of recreating them — recreating mid-drag
@@ -227,6 +259,10 @@ export function MapCanvas({
   onAddCutLinePoint,
   track = null,
   obstacles = null,
+  plannedPath = null,
+  heatmapCells = null,
+  heatmapCellSize = 0.25,
+  heatmapHigherIsBetter = false,
 }: MapCanvasProps) {
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -235,6 +271,8 @@ export function MapCanvas({
   const obstaclesLayerRef = useRef<L.LayerGroup | null>(null);
   const mowedLayerRef = useRef<L.LayerGroup | null>(null);
   const trackLayerRef = useRef<L.LayerGroup | null>(null);
+  const plannedPathLayerRef = useRef<L.LayerGroup | null>(null);
+  const heatmapLayerRef = useRef<L.LayerGroup | null>(null);
   const coverageLayerRef = useRef<L.LayerGroup | null>(null);
   const recordingLayerRef = useRef<L.LayerGroup | null>(null);
   const cutLineLayerRef = useRef<L.LayerGroup | null>(null);
@@ -295,7 +333,9 @@ export function MapCanvas({
     mapRef.current = map;
     map.attributionControl.setPrefix(false);
 
+    heatmapLayerRef.current = L.layerGroup().addTo(map);
     zoneLayerRef.current = L.featureGroup().addTo(map);
+    plannedPathLayerRef.current = L.layerGroup().addTo(map);
     obstaclesLayerRef.current = L.layerGroup().addTo(map);
     mowedLayerRef.current = L.layerGroup().addTo(map);
     trackLayerRef.current = L.layerGroup().addTo(map);
@@ -843,6 +883,56 @@ export function MapCanvas({
       }).addTo(layer);
     });
   }, [obstacles, origin]);
+
+  // ---- real coverage-plan overlay (data-wiring pass, read-only) — the server's actual planned
+  // path, one polyline per pass; outline (perimeter) passes lighter/dashed, fill passes solid ------
+  useEffect(() => {
+    const layer = plannedPathLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    if (!plannedPath) return;
+    plannedPath.forEach(({is_outline, points}) => {
+      if (points.length < 2) return;
+      L.polyline(
+        points.map(([x, y]) => metersToLatLng({x, y}, origin)),
+        {
+          color: is_outline ? PLANNED_PATH_OUTLINE_COLOR : PLANNED_PATH_FILL_COLOR,
+          weight: 1.5,
+          opacity: is_outline ? 0.6 : 0.75,
+          dashArray: is_outline ? '2,4' : undefined,
+          interactive: false,
+        },
+      ).addTo(layer);
+    });
+  }, [plannedPath, origin]);
+
+  // ---- coverage heatmap (data-wiring pass, read-only) — one rectangle per grid cell, colored by
+  // `mean` normalized across the currently-visible cells' range (inverted when higher_is_better) ---
+  useEffect(() => {
+    const layer = heatmapLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+    if (!heatmapCells || heatmapCells.length === 0) return;
+    const values = heatmapCells.map((cell) => cell.mean);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    heatmapCells.forEach((cell) => {
+      const corner1 = metersToLatLng({x: cell.x * heatmapCellSize, y: cell.y * heatmapCellSize}, origin);
+      const corner2 = metersToLatLng(
+        {x: (cell.x + 1) * heatmapCellSize, y: (cell.y + 1) * heatmapCellSize},
+        origin,
+      );
+      const normalized = (cell.mean - min) / range;
+      const t = heatmapHigherIsBetter ? 1 - normalized : normalized;
+      L.rectangle([corner1, corner2], {
+        stroke: false,
+        fillColor: heatmapColor(t),
+        fillOpacity: 0.55,
+        interactive: false,
+      }).addTo(layer);
+    });
+  }, [heatmapCells, heatmapCellSize, heatmapHigherIsBetter, origin]);
 
   // ---- boundary-recording trace (MAP_SCREEN_SPEC S8 — R2 "drive the edge" hero) -----------------
   useEffect(() => {
