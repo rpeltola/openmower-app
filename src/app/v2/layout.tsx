@@ -1,4 +1,5 @@
 import type {Metadata} from 'next';
+import {OverscrollLock} from '@/components/v2/OverscrollLock';
 import './tailwind.css';
 
 export const metadata: Metadata = {
@@ -10,5 +11,10 @@ export const metadata: Metadata = {
 // and skips the v1 MUI shell (Navigation, MowerConnectionBanner, ThemeRegistry/CssBaseline)
 // around it, so this div is v2's actual visual root — see component-library.md §2.
 export default function V2Layout({children}: {children: React.ReactNode}) {
-  return <div className="v2-root">{children}</div>;
+  return (
+    <div className="v2-root">
+      <OverscrollLock />
+      {children}
+    </div>
+  );
 }
