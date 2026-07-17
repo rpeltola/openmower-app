@@ -62,36 +62,26 @@ export function ManualControl() {
   const [hasError] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Fullscreen API — reclaims the browser address-bar space in landscape. Browsers block
-  // `requestFullscreen()` outside a user gesture, so on-load isn't an option: the first
-  // tap/click anywhere on the page doubles as the trigger, then the listener retires
-  // itself. iOS Safari doesn't support it for non-video content at all — that's left to
-  // Add-to-Home-Screen (manifest.ts `display: standalone`), which is also why standalone
-  // mode skips this (the browser chrome is already gone there). Exiting stays native
-  // (Escape / system back gesture) — there's no in-app control for it anymore.
-  const rootRef = useRef<HTMLDivElement>(null);
+  // Fullscreen API — reclaims the browser address-bar space in landscape. Toggled from an
+  // explicit corner button on the viewport (see MainViewport) rather than an on-load or
+  // first-tap trigger — browsers only require a user gesture, they don't require that
+  // gesture to be a full-page tap. iOS Safari doesn't support it for non-video content at
+  // all, hence the `fullscreenEnabled` feature-detect (SSR-safe: `document` doesn't exist
+  // during render on the server, so the button just stays hidden until the client effect
+  // below runs).
+  const [fullscreenSupported, setFullscreenSupported] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    if (!document.fullscreenEnabled || document.fullscreenElement) return;
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (navigator as Navigator & {standalone?: boolean}).standalone;
-    if (isStandalone) return;
-
-    const root = rootRef.current;
-    if (!root) return;
-    const enterFullscreen = () => {
-      void document.documentElement.requestFullscreen();
-      root.removeEventListener('pointerdown', enterFullscreen);
-      root.removeEventListener('click', enterFullscreen);
-    };
-    root.addEventListener('pointerdown', enterFullscreen);
-    root.addEventListener('click', enterFullscreen);
-    return () => {
-      root.removeEventListener('pointerdown', enterFullscreen);
-      root.removeEventListener('click', enterFullscreen);
-    };
+    setFullscreenSupported(document.fullscreenEnabled);
+    const onFullscreenChange = () => setFullscreen(document.fullscreenElement != null);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen();
+  };
 
   // A phone turned sideways can be WIDER than the `md` breakpoint (e.g. 844px), so the
   // desktop layout can't be gated on width alone — pair orientation with a height cap
@@ -225,7 +215,7 @@ export function ManualControl() {
   );
 
   return (
-    <div ref={rootRef} className="relative mx-auto flex w-full max-w-[1400px] flex-col md:h-dvh">
+    <div className="relative mx-auto flex w-full max-w-[1400px] flex-col md:h-dvh">
       <Toast message={toast} onDismiss={() => setToast(null)} />
       <header className="flex flex-none flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:gap-4 md:px-6 md:py-4">
         <div className="flex items-center justify-between md:block">
@@ -280,7 +270,15 @@ export function ManualControl() {
             old always-desktop camera-slot grid — capability-gated on `cameras.front`, see
             MainViewport. Desktop always gets a viewport (map-only if no camera); mobile/
             landscape only gain one when there's an actual front camera to drive by. */}
-        {isDesktop ? <MainViewport showCamera={caps.cameras.front} headingDeg={-18} className="min-w-0 flex-1" /> : null}
+        {isDesktop ? (
+          <MainViewport
+            showCamera={caps.cameras.front}
+            headingDeg={-18}
+            className="min-w-0 flex-1"
+            fullscreen={fullscreen}
+            onToggleFullscreen={fullscreenSupported ? toggleFullscreen : undefined}
+          />
+        ) : null}
 
         <aside className={isDesktop ? 'flex w-[408px] flex-none flex-col gap-3' : 'flex flex-1 flex-col gap-3'}>
           {!isLandscapeCockpit ? <GamepadTip connected={gamepad.connected} /> : null}
@@ -292,7 +290,13 @@ export function ManualControl() {
                a smaller drive input) so it actually fits a ~390px-tall viewport without
                scrolling — Stop is a safety action, it shouldn't be a scroll away. */
             <div className="flex flex-1 gap-3 overflow-hidden">
-              <MainViewport showCamera headingDeg={-18} className="min-w-0 flex-1" />
+              <MainViewport
+                showCamera
+                headingDeg={-18}
+                className="min-w-0 flex-1"
+                fullscreen={fullscreen}
+                onToggleFullscreen={fullscreenSupported ? toggleFullscreen : undefined}
+              />
               <div className="flex w-[236px] flex-none flex-col items-center gap-1 overflow-y-auto">
                 <HoldToUnlock
                   unlocked={unlocked}
@@ -451,7 +455,13 @@ export function ManualControl() {
                console as every other layout. */
             <div className="flex flex-col gap-3">
               {caps.cameras.front ? (
-                <MainViewport showCamera headingDeg={-18} className="aspect-video w-full flex-none" />
+                <MainViewport
+                  showCamera
+                  headingDeg={-18}
+                  className="aspect-video w-full flex-none"
+                  fullscreen={fullscreen}
+                  onToggleFullscreen={fullscreenSupported ? toggleFullscreen : undefined}
+                />
               ) : null}
               {portraitConsole}
             </div>

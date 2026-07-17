@@ -1,8 +1,10 @@
 'use client';
 
+import {Button} from '@/components/v2/ui/Button';
 import {cn} from '@/components/v2/lib/cn';
 import {CameraFeed} from '@/components/v2/ui/CameraFeed';
 import {MiniMap} from '@/components/v2/ui/MiniMap';
+import {Maximize, Minimize} from 'lucide-react';
 import {useState} from 'react';
 
 export interface MainViewportProps {
@@ -11,12 +13,23 @@ export interface MainViewportProps {
   showCamera: boolean;
   headingDeg?: number;
   className?: string;
+  /** Current fullscreen state — only meaningful (and only rendered as a corner button)
+   *  when `onToggleFullscreen` is also given; the caller owns the Fullscreen API, this
+   *  component just reflects/toggles it. */
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
 /** DJI Fly-style viewport: one large view (camera FPV or map) with the other inset as a
  *  small tappable PiP that swaps to become the main view. Capability-gated — see
  *  `showCamera` — so a mower with no camera never shows an empty/fake feed. */
-export function MainViewport({showCamera, headingDeg = 0, className}: MainViewportProps) {
+export function MainViewport({
+  showCamera,
+  headingDeg = 0,
+  className,
+  fullscreen,
+  onToggleFullscreen,
+}: MainViewportProps) {
   const [main, setMain] = useState<'camera' | 'map'>('camera');
   const active = showCamera ? main : 'map';
 
@@ -27,6 +40,18 @@ export function MainViewport({showCamera, headingDeg = 0, className}: MainViewpo
       ) : (
         <MiniMap headingDeg={headingDeg} className="absolute inset-0" />
       )}
+
+      {onToggleFullscreen ? (
+        <Button
+          variant="soft"
+          size="icon"
+          onClick={onToggleFullscreen}
+          aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          className="absolute right-3 top-3 h-10 w-10 bg-surface/70 backdrop-blur-sm hover:bg-surface/90"
+        >
+          {fullscreen ? <Minimize size={18} strokeWidth={2.4} /> : <Maximize size={18} strokeWidth={2.4} />}
+        </Button>
+      ) : null}
 
       {showCamera ? (
         <button
