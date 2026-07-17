@@ -166,23 +166,29 @@ export function Sheet({open, onClose, title, children, className}: SheetProps) {
         onClick={(e) => e.stopPropagation()}
         style={dragOffset !== null ? {transform: `translateY(${dragOffset}px)`, transition: 'none'} : undefined}
         className={cn(
-          'absolute inset-x-0 bottom-0 flex flex-col gap-[.7rem] rounded-t-[22px] bg-surface px-[1.05rem] pb-[1.05rem] pt-[.55rem]',
+          'absolute inset-x-0 bottom-0 flex max-h-[88dvh] flex-col gap-[.7rem] overflow-hidden rounded-t-[22px] bg-surface px-[1.05rem] pt-[.55rem]',
           'shadow-[0_-8px_30px_rgba(0,0,0,.14)] transition-transform duration-200 motion-reduce:transition-none',
           shown ? 'translate-y-0' : 'translate-y-full',
           className,
         )}
       >
-        <span
-          aria-hidden
-          onPointerDown={onDragPointerDown}
-          className="mx-auto mb-[.3rem] mt-[.1rem] h-[5px] w-[38px] shrink-0 touch-none rounded-[3px] bg-border active:cursor-grabbing"
-        />
-        {title ? (
-          <div onPointerDown={onDragPointerDown} className="touch-none select-none text-[.95rem] font-semibold text-ink">
-            {title}
-          </div>
-        ) : null}
-        {children}
+        {/* Fixed frame: grabber + title never scroll, so the drag handle stays put under the finger. */}
+        <div className="flex shrink-0 flex-col gap-[.7rem]">
+          <span
+            aria-hidden
+            onPointerDown={onDragPointerDown}
+            className="mx-auto mb-[.3rem] mt-[.1rem] h-[5px] w-[38px] shrink-0 touch-none rounded-[3px] bg-border active:cursor-grabbing"
+          />
+          {title ? (
+            <div onPointerDown={onDragPointerDown} className="touch-none select-none text-[.95rem] font-semibold text-ink">
+              {title}
+            </div>
+          ) : null}
+        </div>
+        {/* Scrollable body: content grows/scrolls in here instead of resizing the sheet. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-[.7rem] overflow-y-auto overscroll-contain pb-[1.05rem]">
+          {children}
+        </div>
       </div>
     </div>
   );
