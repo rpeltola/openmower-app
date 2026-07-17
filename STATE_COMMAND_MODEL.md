@@ -11,10 +11,17 @@ This is the app-side contract. The backend authority is OpenMowerNext
 built blind to) and adds the **integration-phase availability model** (§4) that this project
 needs when we map V2's UI surface onto what the current backend can actually support.
 
-Status: the **mock scaffold** described here is built (canonical enum + copy table + a simulated
-transition engine + `useCommand`/`useCommandAvailability`, wired into Home as the reference
-surface). It is MOCK — no MQTT — and is the seam the real gateway drops onto in the data-wiring
-phase.
+Status: **the real binding has landed (W9 Lane A-core, 2026-07-17)** — `useCommand`/
+`useCommandAvailability` now drive Home's Mow/Stop/Dock over the real `cmd/req`→`cmd/res` MQTT
+protocol (`lib/commandClient.ts`) and the real `RobotStateSnapshot` (`lib/v2/useRobotStateSnapshot.ts`,
+reading `robot_state/json`'s `state`/`state_detail`/`paused_reasons`/`commands`/`readiness`/`error`
+fields, falling back to the legacy `current_state` mapping for an old gateway). The mock scaffold
+(`useRobotStateMock.ts`, canonical enum + copy table + a simulated transition engine) stays in the
+tree as the `/v2/states` dev gallery's data source — not deleted, just no longer live. First test
+suite (vitest) covers the copy-table completeness gate + a state×reason×readiness render table +
+`useCommand` ack/nack/timeout. See `V2_STATUS.md` SESSION 5 for the file-level detail. Still open:
+wiring AppShell to actually switch to the BOOTING/PAUSED full-screen states when the robot enters
+them (bound to data, not yet mounted live), and Map.tsx's own command-surface buttons.
 
 ---
 

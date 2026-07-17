@@ -2,6 +2,34 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 5 (2026-07-17) — W9 Lane A-core: first test suite + real robot-state/command binding
+Branch **`feature/w9-app`** (worktree, off `personal`). Implements openmower-app's app-side half
+(B4) of `OpenMowerNext/docs/w9-implementation.md`'s frozen wire contract (§0).
+
+- **First test suite** (vitest + `@testing-library/react`/jsdom, `npx vitest run`, 38 tests): the
+  R4 copy-table completeness gate (`robotState.completeness.test.ts`), a state×reason×readiness
+  render table driven off `robotState.ts`'s canonical enum lists (`stateRender.test.tsx`), and
+  `useCommand`'s ack/nack/timeout+retry (`useCommand.test.tsx`).
+- **`stateSchema` (schemas.ts)** gained the §0.6 fields (`state`, `state_detail`, `paused_reasons`,
+  `commands`, `readiness`, `error`) — all optional/defaulted so an old gateway still parses (R3).
+- **Real `RobotStateSnapshot` binding** (`lib/v2/useRobotStateSnapshot.ts`) replaces the mock as
+  the command surfaces' data source (same shape as `useRobotStateMock.ts`, which stays in the
+  tree for the `/v2/states` dev gallery); falls back to the legacy `current_state`+`is_charging`
+  mapping when the gateway doesn't send `state` yet.
+- **Real `cmd/req`→`cmd/res` client** (`lib/commandClient.ts`, wired into `Mower`/`mowersStore.ts`)
+  and a rewritten `useCommand.ts`: optimistic pending → ack clears it → nack reverts + surfaces
+  `reject_code` via `REJECT_COPY` → ~800 ms unacked ⇒ provisional badge + `retry()`. `Home.tsx`'s
+  Mow/Stop/Dock now go through this (no more fire-and-forget `mower.sendCommand`, R2) and show
+  real per-command blocker reason chips.
+- Added the frozen contract's `UNSUPPORTED` reject code + `REJECT_COPY` row.
+- **BootingScreen/PausedBlockerScreen** now render from the real snapshot's `readiness`/
+  `paused_reasons` (via optional props, so the `/v2/states` gallery and tests still get a demo
+  default) — PAUSED renders every active reason as its own stacked banner, most-severe-first.
+- **NOT done this session:** wiring AppShell to actually SWITCH to BootingScreen/PausedBlocker-
+  Screen when the robot enters those states (they're bound to live data but not yet mounted
+  anywhere outside `/v2/states`) — that routing decision is left for the next wave. Map.tsx's own
+  Pause/Resume/Stop/Dock stat-card buttons are still a local UI mock (`mockPaused`), untouched.
+
 ## ✅ SESSION 4 (2026-07-17) — MERGED to `personal` + Track A data-wiring STARTED + LIVE-VERIFIED
 Branch **`feature/v2-data-wiring`** (worktree, off `personal`). The whole V2 redesign was **merged
 into `personal`** (the app's integration branch) — v2 now coexists with v1 there, cut over later.

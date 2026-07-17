@@ -7,10 +7,27 @@ import {Chip} from '@/components/v2/ui/Chip';
 import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {StatCard} from '@/components/v2/ui/StatCard';
 import {StatePill} from '@/components/v2/ui/StatePill';
+import {REASON_COPY, type PausedReason, type Tone} from '@/lib/v2/robotState';
+import {useRobotStateSnapshot} from '@/lib/v2/useRobotStateSnapshot';
 import {Home as DockIcon, Play, TriangleAlert} from 'lucide-react';
 import {useId} from 'react';
 
 const MOW = {area: 'Etupiha', batteryPct: 71};
+
+// Demo reason for the /v2/states dev gallery + as a last-resort default (no mower selected, or
+// PAUSED with an empty reasons array).
+const DEMO_REASONS: PausedReason[] = ['GPS_LOSS'];
+
+// StatePill's tone vocabulary is accent/warn/info/neutral only (no danger variant) — danger
+// reasons (EMERGENCY/COLLISION) read as their next-most-severe equivalent, same fallback
+// Home.tsx uses for ERROR.
+const PILL_TONE: Record<Tone, 'accent' | 'warn' | 'info' | 'neutral'> = {
+  accent: 'accent',
+  warn: 'warn',
+  danger: 'warn',
+  info: 'info',
+  neutral: 'neutral',
+};
 
 /** The garden outline + mowed lanes + robot/dock markers, plus a growing dashed uncertainty
  *  ring around the robot — the concept's "blockers as data" beat: RTK lost mid-mow grows the
@@ -45,7 +62,30 @@ function PausedMapSvg() {
   );
 }
 
-function BlockerControls({className}: {className?: string}) {
+/** One stacked banner per active PAUSED reason, most-severe-first (the array already arrives
+ *  ordered that way from the gateway, W9 §0.2) — "blockers as data": several reasons can be true
+ *  at once (e.g. GPS_LOSS *and* BATTERY_LOW), each gets its own line instead of collapsing to a
+ *  single guess. */
+function ReasonBanners({reasons, className}: {reasons: PausedReason[]; className?: string}) {
+  return (
+    <div className={cn('flex flex-col gap-1.5', className)}>
+      {reasons.map((reason) => {
+        const copy = REASON_COPY[reason];
+        return (
+          <StatePill
+            key={reason}
+            tone={PILL_TONE[copy.tone]}
+            icon={<TriangleAlert size={16} strokeWidth={2.4} />}
+            label={copy.label}
+            className="shadow-[var(--shadow-m)]"
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function BlockerControls({primaryReason, className}: {primaryReason?: PausedReason; className?: string}) {
   return (
     <div className={cn('flex flex-col gap-[.55rem]', className)}>
       <p className="m-0 text-[.8rem] leading-[1.45] text-ink-soft">
@@ -56,9 +96,11 @@ function BlockerControls({className}: {className?: string}) {
           <Play size={16} fill="currentColor" />
           Mow
         </Button>
-        <Chip variant="warn" className="flex-none">
-          Needs a GPS fix
-        </Chip>
+        {primaryReason ? (
+          <Chip variant="warn" className="flex-none">
+            {REASON_COPY[primaryReason].label}
+          </Chip>
+        ) : null}
       </div>
       <Button variant="ghost" className="justify-center">
         <DockIcon size={15} strokeWidth={2.2} />
@@ -68,10 +110,21 @@ function BlockerControls({className}: {className?: string}) {
   );
 }
 
+export interface PausedBlockerScreenProps {
+  /** Overrides the live `paused_reasons` list (W9 §0.2, most-severe-first) -- used by the
+   *  /v2/states gallery and tests to render a specific reason combo. Falls back to the real
+   *  snapshot, then a static demo reason if neither has data. */
+  reasons?: PausedReason[];
+}
+
 /** PAUSED / blockers-as-data: RTK lost mid-mow grows the uncertainty ring; Mow stays
  *  disabled with its reason attached, Dock is still one tap away (concept caption, mobile
  *  line 1684). */
-export function PausedBlockerScreen() {
+export function PausedBlockerScreen({reasons}: PausedBlockerScreenProps) {
+  const live = useRobotStateSnapshot().reasons;
+  const activeReasons = reasons ?? (live.length > 0 ? live : DEMO_REASONS);
+  const primary = activeReasons[0] as PausedReason | undefined;
+
   return (
     <div className="flex min-h-full flex-col p-4 md:h-full md:min-h-0 md:p-6">
       {/* ===== Mobile: map fills the screen, controls float as a bottom sheet-style card ===== */}
@@ -80,22 +133,16 @@ export function PausedBlockerScreen() {
 
         <div className="absolute inset-x-3 top-3 z-10 flex flex-wrap gap-2">
           <OverlayChip>
-            <span className="text-warn">●</span> RTK lost
+            <span className="text-warn">●</span> {primary ? REASON_COPY[primary].label : 'Paused'}
           </OverlayChip>
           <OverlayChip>🔋 {MOW.batteryPct}%</OverlayChip>
           <OverlayChip className="ml-auto">{MOW.area}</OverlayChip>
         </div>
 
-        <StatePill
-          tone="warn"
-          icon={<TriangleAlert size={16} strokeWidth={2.4} />}
-          label="Paused · Waiting for GPS fix"
-          sub="Position uncertainty is growing"
-          className="absolute inset-x-3 top-[3.1rem] z-10 shadow-[var(--shadow-m)]"
-        />
+        <ReasonBanners reasons={activeReasons} className="absolute inset-x-3 top-[3.1rem] z-10" />
 
         <StatCard className="absolute inset-x-3 bottom-3 z-10">
-          <BlockerControls />
+          <BlockerControls primaryReason={primary} />
         </StatCard>
       </div>
 
@@ -103,17 +150,11 @@ export function PausedBlockerScreen() {
       <div className="hidden md:grid md:min-h-0 md:flex-1 md:grid-cols-[1fr_320px] md:gap-4">
         <Card className="relative overflow-hidden p-0">
           <PausedMapSvg />
-          <StatePill
-            tone="warn"
-            icon={<TriangleAlert size={16} strokeWidth={2.4} />}
-            label="Paused"
-            sub="Waiting for GPS fix"
-            className="absolute left-3 top-3 z-10 w-fit shadow-[var(--shadow-m)]"
-          />
+          <ReasonBanners reasons={activeReasons} className="absolute left-3 top-3 z-10 w-fit" />
         </Card>
 
         <Card className="flex flex-col gap-[.9rem] p-4">
-          <BlockerControls />
+          <BlockerControls primaryReason={primary} />
         </Card>
       </div>
     </div>

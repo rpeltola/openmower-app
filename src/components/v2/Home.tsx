@@ -18,10 +18,11 @@ import {StatePill} from '@/components/v2/ui/StatePill';
 import {Toast} from '@/components/v2/ui/Toast';
 import {useSelectedMowerAvailableDates, useSelectedMowerEventsForDate, useSelectedMowerIsDateLoaded} from '@/hooks/useMowerEvents';
 import {mowerEventsToActivityEvents} from '@/lib/v2/events';
-import {STATE_COPY, type Tone} from '@/lib/v2/robotState';
+import {REJECT_COPY, STATE_COPY, type CommandName, type Tone} from '@/lib/v2/robotState';
+import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
 import {useRobotState} from '@/lib/v2/useRobotState';
 import {getTodayDateKey} from '@/stores/mowerEvents';
-import {useMowersStore, useSelectedMower, type Mower, type MowerCommand} from '@/stores/mowersStore';
+import {useMowersStore, useSelectedMower} from '@/stores/mowersStore';
 import {Bell, Gamepad2, Home as HomeIcon, Sprout, Square} from 'lucide-react';
 import Link from 'next/link';
 import {type ReactNode, useEffect, useMemo, useState} from 'react';
@@ -83,10 +84,12 @@ function QuickActionButton({action}: {action: QuickActionDef}) {
 export function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const mower = useSelectedMower<Mower | undefined>();
   const emergency = useSelectedMower((s) => s?.state.emergency ?? false);
   const {state, heroState, isMowing, isCharging, batteryPct, areaName, coveragePct} = useRobotState();
-  const [pendingCmd, setPendingCmd] = useState<MowerCommand | null>(null);
+  const {run, pending: pendingCmd} = useCommand();
+  const mowAvailability = useCommandAvailability('mow');
+  const stopAvailability = useCommandAvailability('stop');
+  const dockAvailability = useCommandAvailability('dock');
 
   const stateCopy = STATE_COPY[state];
   const tone = stateCopy.tone;
@@ -95,7 +98,6 @@ export function Home() {
   const pillTone = tone === 'danger' ? 'warn' : tone;
 
   const docked = state === 'DOCKED' || state === 'DOCKED_CHARGING';
-  const busy = state === 'DOCKING' || state === 'UNDOCKING' || state === 'AREA_RECORDING' || state === 'HEADING_CALIBRATION';
 
   // Recent-activity feed (desktop dashboard card): today's events, falling back to the most
   // recent available date when today is empty -- same event log the Activity screen reads, just
@@ -159,37 +161,44 @@ export function Home() {
   );
   const mapChipLabel = isMowing && areaName ? areaName : stateCopy.label;
 
-  /** Publishes `cmd` on the shared `command` topic (Mower.sendCommand — see MowerControls.tsx)
-   *  and shows a brief "sent" toast. There's no ack/nack round trip from the app side (that's
-   *  the gateway/mower_logic's job), so this is fire-and-forget: the display keeps following
-   *  whatever `robot_state/json` reports next, not a locally-faked transition. */
-  const dispatch = (cmd: MowerCommand, acceptedMessage: string) => {
-    if (!mower) return;
-    mower.sendCommand(cmd);
-    setPendingCmd(cmd);
-    setToastMessage(acceptedMessage);
-    window.setTimeout(() => setPendingCmd((p) => (p === cmd ? null : p)), 280);
+  /** Issues `cmd` over the real `cmd/req`→`cmd/res` protocol (useCommand.ts) and toasts the
+   *  outcome — the accepted message on ack, or the reject_code's copy-table label on nack. No
+   *  fire-and-forget (R2): the display still follows whatever `robot_state/json.state` reports
+   *  next, but every press now resolves to a known accept/reject instead of a silent publish. */
+  const dispatch = async (cmd: CommandName, acceptedMessage: string) => {
+    const result = await run(cmd);
+    if (result.accepted) {
+      setToastMessage(acceptedMessage);
+    } else if (result.reason) {
+      // Guard the lookup: `reject_code` arrives from the wire cast straight to RejectCode
+      // (commandClient.ts) without validating it's one of the 11 known codes, so a newer/typo'd
+      // gateway code has no REJECT_COPY row -- fall back to a generic message instead of throwing
+      // (mirrors the `?.label` guard the disabled-reason chips below already use).
+      setToastMessage(REJECT_COPY[result.reason]?.label ?? 'Command rejected');
+    }
   };
 
-  const handleStop = () => dispatch('stop', 'Mower stopped');
+  const handleStop = () => void dispatch('stop', 'Mower stopped');
 
-  // The real command set has no separate pause/resume verb: 'start' both begins a fresh mow
-  // and resumes a mission mower_logic left paused (see MowerControls.tsx's "Continue" comment),
-  // so the primary action is Stop while mowing and Mow the rest of the time.
+  // The command vocabulary's 'mow' both begins a fresh mow and resumes a mission mower_logic
+  // left paused (no separate resume verb wired to this button yet), so the primary action is
+  // Stop while mowing and Mow the rest of the time.
   const primaryAction: QuickActionDef = isMowing
     ? {
         key: 'stop',
         label: pendingCmd === 'stop' ? 'Stopping…' : 'Stop',
         icon: <Square size={18} strokeWidth={2.2} fill="currentColor" />,
         onClick: handleStop,
-        disabled: emergency || pendingCmd === 'stop',
+        disabled: emergency || pendingCmd === 'stop' || !stopAvailability.allowed,
+        reason: !stopAvailability.allowed ? REJECT_COPY[stopAvailability.reasons[0]]?.label : undefined,
       }
     : {
         key: 'mow',
-        label: pendingCmd === 'start' ? 'Starting…' : 'Mow now',
+        label: pendingCmd === 'mow' ? 'Starting…' : 'Mow now',
         icon: <Sprout size={18} strokeWidth={2.2} />,
-        onClick: () => dispatch('start', areaName ? `Mowing ${areaName}` : 'Mowing started'),
-        disabled: emergency || busy || pendingCmd === 'start',
+        onClick: () => void dispatch('mow', areaName ? `Mowing ${areaName}` : 'Mowing started'),
+        disabled: emergency || pendingCmd === 'mow' || !mowAvailability.allowed,
+        reason: !mowAvailability.allowed ? REJECT_COPY[mowAvailability.reasons[0]]?.label : undefined,
       };
 
   const quickActions: QuickActionDef[] = [
@@ -198,13 +207,14 @@ export function Home() {
       key: 'dock',
       label: pendingCmd === 'dock' ? 'Docking…' : 'Dock',
       icon: <HomeIcon size={18} strokeWidth={2.2} />,
-      onClick: () => dispatch('dock', 'Heading to dock'),
-      disabled: emergency || docked || state === 'DOCKING' || pendingCmd === 'dock',
+      onClick: () => void dispatch('dock', 'Heading to dock'),
+      disabled: emergency || pendingCmd === 'dock' || !dockAvailability.allowed,
+      reason: !dockAvailability.allowed ? REJECT_COPY[dockAvailability.reasons[0]]?.label : undefined,
     },
     {key: 'manual', label: 'Manual control', icon: <Gamepad2 size={18} strokeWidth={2.2} />, href: '/v2/control'},
   ];
 
-  const stopDisabled = emergency || state === 'IDLE' || pendingCmd === 'stop';
+  const stopDisabled = emergency || !stopAvailability.allowed || pendingCmd === 'stop';
 
   return (
     <div className="relative flex min-h-full flex-col gap-4 p-4 md:h-full md:min-h-0 md:gap-5 md:p-6">

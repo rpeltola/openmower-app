@@ -140,6 +140,35 @@ export const robotFootprintSchema = z.object({
 });
 export type RobotFootprint = z.infer<typeof robotFootprintSchema>;
 
+// W9 STEP 0.6 additions (OpenMowerNext docs/w9-implementation.md) -- all optional-with-defaults
+// so an old/partial robot_state/json payload (a gateway that predates this contract) still
+// parses (R3). `state` is the canonical 16-value enum string (§0.1); absent on an old gateway,
+// in which case the app falls back to the legacy current_state+is_charging mapping (see
+// lib/v2/useRobotStateSnapshot.ts). Field names are exact -- do not rename without updating the
+// gateway in the same breath.
+export const stateDetailSchema = z.object({
+  progress: z.number().optional(), // 0..100 percent (gateway does the UiState 0..1 -> *100 conversion)
+  phase: z.string().optional(),
+  eta: z.string().optional(),
+});
+export type StateDetailWire = z.infer<typeof stateDetailSchema>;
+
+export const commandAvailabilitySchema = z.object({
+  allowed: z.boolean(),
+  reasons: z.array(z.string()).default([]),
+});
+export type CommandAvailabilityWire = z.infer<typeof commandAvailabilitySchema>;
+
+// Keyed by CommandName (mow/stop/dock/pause/resume/undock, §0.4); a plain string record so an
+// unrecognized/future command key doesn't fail the whole parse.
+export const commandsMapSchema = z.record(z.string(), commandAvailabilitySchema);
+export type CommandsMapWire = z.infer<typeof commandsMapSchema>;
+
+// Fixed keys (board_comms/gps/estimator/nav2/map/safety, §0.8); a plain string record for the
+// same forward-compat reason as commands above.
+export const readinessSchema = z.record(z.string(), z.enum(['ok', 'waiting', 'converging', 'activating', 'error']));
+export type ReadinessWire = z.infer<typeof readinessSchema>;
+
 export const stateSchema = z.object({
   battery_percentage: percentage,
   current_state: z.string(),
@@ -167,6 +196,13 @@ export const stateSchema = z.object({
   // Real robot footprint from the URDF, published by the gateway. Optional so older gateways
   // (and the moment before the first message with it arrives) still parse.
   footprint: robotFootprintSchema.optional(),
+  // W9 §0.6 canonical state (absent on an old gateway -- see useRobotStateSnapshot.ts fallback).
+  state: z.string().optional(),
+  state_detail: stateDetailSchema.optional(),
+  paused_reasons: z.array(z.string()).default([]),
+  commands: commandsMapSchema.optional(),
+  readiness: readinessSchema.optional(),
+  error: z.object({code: z.string()}).optional(),
 });
 
 export type State = z.infer<typeof stateSchema>;
@@ -694,4 +730,5 @@ export const stateDefaults: StateOptionalPose = {
   gps_percentage: 0.0,
   is_charging: false,
   pose: undefined,
+  paused_reasons: [],
 };

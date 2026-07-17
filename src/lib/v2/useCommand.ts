@@ -1,44 +1,94 @@
 'use client';
 
-import {useEffect, useRef, useState} from 'react';
 import type {CommandAvailability, CommandName, RejectCode} from '@/lib/v2/robotState';
-import {dispatchCommand, useRobotStateMock} from '@/lib/v2/useRobotStateMock';
+import {useRobotStateSnapshot} from '@/lib/v2/useRobotStateSnapshot';
+import {useSelectedMower} from '@/stores/mowersStore';
+import type {Mower} from '@/stores/mowersStore';
+import {useCallback, useEffect, useRef, useState} from 'react';
 
-// The single entry point every command control uses to issue a command (STATE_COMMAND_MODEL.md
-// §2) — press → optimistic pending affordance → ack/nack. The mock ack window below stands in
-// for the real `cmd/req→res` round trip; the actual state transition rides the store separately
-// (dispatchCommand already kicked it off by the time this returns).
-export function useCommand(): {run: (cmd: CommandName) => {accepted: boolean; reason?: RejectCode}; pending: CommandName | null} {
+export interface CommandResult {
+  accepted: boolean;
+  reason?: RejectCode;
+}
+
+// Timeout after which an un-acked command shows the "no response" provisional badge instead of
+// staying a spinner forever (STATE_COMMAND_MODEL.md §2 step 4 / W9 §0.9's ~300ms ack budget --
+// 800ms gives real MQTT round-trip jitter some room before calling it out).
+const ACK_TIMEOUT_MS = 800;
+
+interface PendingCall {
+  cmd: CommandName;
+  args?: object;
+}
+
+/** The single entry point every v2 command control uses to issue a command (W9 §0.9 /
+ *  STATE_COMMAND_MODEL.md §2) -- press → optimistic pending affordance → real `cmd/req`→`cmd/res`
+ *  ack/nack over MQTT (`Mower.commandClient`, lib/commandClient.ts). No fire-and-forget: every
+ *  call resolves to an accept/reject, and the caller finds out which (R2). The retained
+ *  `robot_state/json.state` transition -- not this ack -- is the actual state confirmation; the
+ *  ack only unblocks the optimistic affordance. */
+export function useCommand(): {
+  run: (cmd: CommandName, args?: object) => Promise<CommandResult>;
+  pending: CommandName | null;
+  /** Set once a command has gone unacked past ACK_TIMEOUT_MS -- "no response yet", not a nack. */
+  provisional: CommandName | null;
+  /** Re-sends the command that's currently provisional (no-op if nothing is). */
+  retry: () => void;
+} {
+  const mower = useSelectedMower<Mower | undefined>((s) => s);
   const [pending, setPending] = useState<CommandName | null>(null);
-  const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [provisional, setProvisional] = useState<CommandName | null>(null);
+  const lastCall = useRef<PendingCall | null>(null);
+  const timeoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
 
   useEffect(() => {
+    mounted.current = true;
     return () => {
-      if (ackTimer.current) clearTimeout(ackTimer.current);
+      mounted.current = false;
+      if (timeoutTimer.current) clearTimeout(timeoutTimer.current);
     };
   }, []);
 
-  const run = (cmd: CommandName): {accepted: boolean; reason?: RejectCode} => {
-    setPending(cmd);
-    const result = dispatchCommand(cmd);
+  const run = useCallback(
+    async (cmd: CommandName, args?: object): Promise<CommandResult> => {
+      if (!mower) return {accepted: false};
 
-    if (ackTimer.current) clearTimeout(ackTimer.current);
+      lastCall.current = {cmd, args};
+      setPending(cmd);
+      setProvisional(null);
+      if (timeoutTimer.current) clearTimeout(timeoutTimer.current);
+      timeoutTimer.current = setTimeout(() => {
+        if (mounted.current) setProvisional(cmd);
+      }, ACK_TIMEOUT_MS);
 
-    if (!result.accepted) {
-      setPending(null);
-      return result;
-    }
+      try {
+        const res = await mower.commandClient.send(cmd, args);
+        if (timeoutTimer.current) clearTimeout(timeoutTimer.current);
+        if (mounted.current) {
+          setPending((p) => (p === cmd ? null : p));
+          setProvisional((p) => (p === cmd ? null : p));
+        }
+        return {accepted: res.accepted, reason: res.reject_code};
+      } catch {
+        // The client's own send() timeout (distinct from ACK_TIMEOUT_MS's UI cue above) --
+        // leave `provisional` set so the control shows "no response" + a retry affordance
+        // rather than reverting to a plain disabled state.
+        if (mounted.current) setPending((p) => (p === cmd ? null : p));
+        return {accepted: false};
+      }
+    },
+    [mower],
+  );
 
-    // Simulated ack window — the pending affordance clears here, independent of however long
-    // the transition timeline itself takes.
-    ackTimer.current = setTimeout(() => setPending(null), 280);
-    return {accepted: true};
-  };
+  const retry = useCallback(() => {
+    if (lastCall.current) void run(lastCall.current.cmd, lastCall.current.args);
+  }, [run]);
 
-  return {run, pending};
+  return {run, pending, provisional, retry};
 }
 
 export function useCommandAvailability(cmd: CommandName): CommandAvailability {
-  const snap = useRobotStateMock();
+  const snap = useRobotStateSnapshot();
   return snap.commands[cmd] ?? {allowed: true, reasons: []};
 }
