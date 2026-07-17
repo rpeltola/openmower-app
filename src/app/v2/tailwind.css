@@ -213,6 +213,27 @@
 .v2-root .mh-clip {
   animation: mh-fly 1.5s ease-out infinite;
 }
+/* Ground parallax — the uncut-tuft strip (ahead of the deck) and the mowed-tick strip (behind
+   it) each tile at a fixed period and scroll by exactly one tile width, so the loop point is
+   pixel-identical to the start and the seam never shows. Two different periods/speeds (ahead
+   is slower/taller, behind is quicker/shorter) read as the same ground plane sliding past a
+   roughly fixed mower — see MowingHero.tsx's `tileForZone` for the matching geometry. */
+.v2-root .mh-ground-ahead {
+  animation: mh-scroll-ahead 2.4s linear infinite;
+}
+.v2-root .mh-ground-behind {
+  animation: mh-scroll-behind 1.05s linear infinite;
+}
+@keyframes mh-scroll-ahead {
+  to {
+    transform: translateX(-56px);
+  }
+}
+@keyframes mh-scroll-behind {
+  to {
+    transform: translateX(-24px);
+  }
+}
 @keyframes mh-bob {
   0%,
   100% {
@@ -255,7 +276,9 @@
   .v2-root .mh-wheel,
   .v2-root .mh-blade,
   .v2-root .mh-tuft,
-  .v2-root .mh-clip {
+  .v2-root .mh-clip,
+  .v2-root .mh-ground-ahead,
+  .v2-root .mh-ground-behind {
     animation: none;
   }
 }
@@ -278,5 +301,47 @@
   .v2-root .dh-breath {
     animation: none;
     opacity: 0.3;
+  }
+}
+
+/* ---- MowingHero charging scene (Home) — bolt pulse + battery-fill breathe over the dock. ---- */
+.v2-root .mh-bolt {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mh-bolt-pulse 1.6s ease-in-out infinite;
+}
+@keyframes mh-bolt-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+.v2-root .mh-battery-fill {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: mh-battery-fill 2.4s ease-in-out infinite;
+}
+@keyframes mh-battery-fill {
+  0%,
+  100% {
+    transform: scaleX(0.55);
+  }
+  50% {
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v2-root .mh-bolt {
+    animation: none;
+    opacity: 0.85;
+  }
+  .v2-root .mh-battery-fill {
+    animation: none;
+    transform: scaleX(0.71);
   }
 }

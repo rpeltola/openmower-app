@@ -7,20 +7,67 @@ import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
 import {MapCard} from '@/components/v2/ui/MapCard';
-import {MowingHero} from '@/components/v2/ui/MowingHero';
+import {MowingHero, type MowerHeroState} from '@/components/v2/ui/MowingHero';
 import {NextScheduledCard} from '@/components/v2/ui/NextScheduledCard';
 import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {PositionTrustCard} from '@/components/v2/ui/PositionTrustCard';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {StatePill} from '@/components/v2/ui/StatePill';
-import {Bell, CheckCircle2, Gamepad2, Home as HomeIcon, Sprout, Square} from 'lucide-react';
+import {Bell, BatteryCharging, CheckCircle2, Gamepad2, Home as HomeIcon, Pause, Sprout, Square} from 'lucide-react';
 import Link from 'next/link';
-import {useState} from 'react';
+import {type ReactNode, useState} from 'react';
 
 // Canonical mock world (design-language.md "Cross-platform contract"): Kotipiha, mowing
 // Etupiha 62%, 24 min left, battery 71%, RTK fixed. Home is a read/glance screen — this PoC
 // wires no MQTT yet (component-library.md §7 build order item 3, live wiring lands later).
 const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24, remainingM2: 148, batteryPct: 71};
+
+// Presentation per mock mowerState — mirrors StatePill's tone vocabulary (accent/warn/info)
+// and drives the hero overlay/StatePill text so the mobile+desktop hero reads consistently
+// with whichever MowingHero scene is showing. Flip DEFAULT_MOWER_STATE below to preview
+// mowing/charging/docked/paused/idle.
+const HERO_META: Record<
+  MowerHeroState,
+  {label: string; dotClass: string; icon: ReactNode; tone: 'accent' | 'warn' | 'info' | 'neutral'; sub: string}
+> = {
+  mowing: {
+    label: 'Mowing',
+    dotClass: 'text-accent',
+    icon: <Sprout size={17} strokeWidth={2.3} />,
+    tone: 'accent',
+    sub: `${MOW.timeLeftMin} min left · returns to dock after`,
+  },
+  paused: {
+    label: 'Paused',
+    dotClass: 'text-warn',
+    icon: <Pause size={17} strokeWidth={2.3} fill="currentColor" />,
+    tone: 'warn',
+    sub: 'Holding position',
+  },
+  charging: {
+    label: 'Charging',
+    dotClass: 'text-info',
+    icon: <BatteryCharging size={17} strokeWidth={2.3} />,
+    tone: 'info',
+    sub: `${MOW.batteryPct}% · charging at Kotipiha`,
+  },
+  docked: {
+    label: 'Docked',
+    dotClass: 'text-info',
+    icon: <HomeIcon size={17} strokeWidth={2.3} />,
+    tone: 'info',
+    sub: 'Full · ready at Kotipiha',
+  },
+  idle: {
+    label: 'Idle',
+    dotClass: 'text-ink-faint',
+    icon: <Sprout size={17} strokeWidth={2.3} />,
+    tone: 'neutral',
+    sub: 'Waiting for next schedule',
+  },
+};
+// "On the lawn" states — mid-job scenes where a coverage % and RTK trust chip make sense.
+const ON_LAWN_STATES: MowerHeroState[] = ['mowing', 'paused'];
 
 const RECENT_EVENTS: ActivityEvent[] = [
   {
@@ -43,11 +90,15 @@ const RECENT_EVENTS: ActivityEvent[] = [
   },
 ];
 
+const DEFAULT_MOWER_STATE: MowerHeroState = 'mowing';
+
 export function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mowerState] = useState<MowerHeroState>(DEFAULT_MOWER_STATE);
+  const onLawn = ON_LAWN_STATES.includes(mowerState);
 
   return (
-    <div className="flex min-h-full flex-col gap-4 p-4 md:h-full md:min-h-0 md:gap-5 md:p-6">
+    <div className="relative flex min-h-full flex-col gap-4 p-4 md:h-full md:min-h-0 md:gap-5 md:p-6">
       <ScreenHeader
         kicker="Kotipiha"
         title="Good morning"
@@ -73,16 +124,19 @@ export function Home() {
       <div className="flex flex-1 flex-col gap-3 md:hidden">
         <MowingHero
           className="h-[140px]"
-          progress={MOW.coverage}
+          state={mowerState}
+          progress={onLawn ? MOW.coverage : undefined}
           overlayTop={
             <>
               <OverlayChip>
-                <span className="text-accent">●</span> Mowing
+                <span className={HERO_META[mowerState].dotClass}>●</span> {HERO_META[mowerState].label}
               </OverlayChip>
               <OverlayChip>{MOW.area}</OverlayChip>
-              <OverlayChip className="ml-auto">
-                <b className="font-bold text-accent">{MOW.coverage}%</b>&nbsp;mowed
-              </OverlayChip>
+              {onLawn ? (
+                <OverlayChip className="ml-auto">
+                  <b className="font-bold text-accent">{MOW.coverage}%</b>&nbsp;mowed
+                </OverlayChip>
+              ) : null}
             </>
           }
         />
@@ -107,13 +161,14 @@ export function Home() {
           <div className="mb-3 flex items-center justify-between gap-3">
             <StatePill
               bare
-              icon={<Sprout size={17} strokeWidth={2.3} />}
-              label={`Mowing ${MOW.area}`}
-              sub={`${MOW.timeLeftMin} min left · returns to dock after`}
+              tone={HERO_META[mowerState].tone}
+              icon={HERO_META[mowerState].icon}
+              label={onLawn ? `${HERO_META[mowerState].label} ${MOW.area}` : HERO_META[mowerState].label}
+              sub={HERO_META[mowerState].sub}
             />
-            <Chip variant="ok">● RTK fixed</Chip>
+            {onLawn ? <Chip variant="ok">● RTK fixed</Chip> : null}
           </div>
-          <MowingHero className="h-[150px]" />
+          <MowingHero className="h-[150px]" state={mowerState} />
         </Card>
 
         <div className="col-start-1 row-start-2 grid content-start grid-cols-4 gap-3">
