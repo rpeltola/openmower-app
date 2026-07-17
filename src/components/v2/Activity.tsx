@@ -1,6 +1,5 @@
 'use client';
 
-import {ActivityWearMeter} from '@/components/v2/activity/ActivityWearMeter';
 import {EventTimeline, type TimelineGroup} from '@/components/v2/activity/EventTimeline';
 import {RunCard, type RunMetric} from '@/components/v2/activity/RunCard';
 import {RunDetail} from '@/components/v2/activity/RunDetail';
@@ -315,7 +314,7 @@ export function Activity() {
             <KpiTile value="96" label="Mows" />
           </div>
 
-          {/* ===== Mobile: week bar chart + wear meter, stacked ===== */}
+          {/* ===== Mobile: week bar chart ===== */}
           <div className="flex flex-1 flex-col gap-3 md:hidden">
             <Card className="p-[.85rem]">
               <div className="flex items-center justify-between">
@@ -324,12 +323,11 @@ export function Activity() {
               </div>
               <WeekBarChart bars={WEEK_BARS} className="mt-[.6rem]" />
             </Card>
-            <ActivityWearMeter hours={38} capacityHours={100} className="mt-auto mb-1" />
           </div>
 
-          {/* ===== Desktop: fortnight trend + wear meter, side by side ===== */}
-          <div className="hidden min-h-0 flex-1 grid-cols-[2fr_1fr] gap-4 md:grid">
-            <Card className="flex flex-col p-4">
+          {/* ===== Desktop: fortnight trend ===== */}
+          <div className="hidden min-h-0 flex-1 md:flex md:flex-col">
+            <Card className="flex flex-1 flex-col p-4">
               <div className="mb-3.5 flex items-baseline justify-between">
                 <span className="font-mono text-[.7rem] uppercase tracking-wide text-ink-faint">
                   Last 14 days · minutes mowed
@@ -338,12 +336,6 @@ export function Activity() {
               </div>
               <WeekBarChart bars={FORTNIGHT_BARS} chartHeightPx={130} className="flex-1" />
             </Card>
-            <ActivityWearMeter
-              hours={38}
-              capacityHours={100}
-              detail="Replace around 100 h · ~62 h remaining"
-              className="flex flex-col justify-between"
-            />
           </div>
         </>
       ) : null}

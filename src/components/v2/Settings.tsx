@@ -11,6 +11,7 @@ import {
   CONNECTION,
   DESKTOP_CATEGORIES,
   DOCKING,
+  MAINTENANCE,
   NOTIFICATION_CATEGORIES,
   POSITIONING,
   UNITS,
@@ -32,6 +33,7 @@ import {
   Sprout,
   Vibrate,
   Wifi,
+  Wrench,
   Zap,
 } from 'lucide-react';
 import {useSearchParams} from 'next/navigation';
@@ -59,9 +61,16 @@ export function Settings() {
   const [units, setUnits] = useState<'metric' | 'imperial'>('metric');
   const [basemapChoice, setBasemapChoice] = useState(BASEMAP);
   const [safetyToggles, setSafetyToggles] = useState<SafetyToggles>({geofence: true, tiltLift: true});
+  const [bladeWearHours, setBladeWearHours] = useState(MAINTENANCE.bladeWearHours);
+  const [lastBladeChange, setLastBladeChange] = useState(MAINTENANCE.lastBladeChange);
   // Mobile-only: which pane the grouped list has drilled into (desktop always shows rail + pane).
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
   const [mowerSelectorOpen, setMowerSelectorOpen] = useState(false);
+
+  function logBladeChange() {
+    setBladeWearHours(0);
+    setLastBladeChange(new Date().toISOString().slice(0, 10));
+  }
 
   // Deep link from More's "About" row (`/v2/settings?category=about`) — jump straight to
   // that category/detail pane instead of landing on the default grouped list.
@@ -116,6 +125,9 @@ export function Settings() {
               onSafetyToggleChange={(key, checked) => setSafetyToggles((prev) => ({...prev, [key]: checked}))}
               notifications={notifications}
               onNotificationChange={(key, checked) => setNotifications((prev) => ({...prev, [key]: checked}))}
+              bladeWearHours={bladeWearHours}
+              lastBladeChange={lastBladeChange}
+              onLogBladeChange={logBladeChange}
             />
           </div>
         ) : (
@@ -195,6 +207,12 @@ export function Settings() {
                 trailing={<DrillChevron />}
               />
               <ListRow
+                icon={<Wrench size={15} strokeWidth={2} className="text-ink-soft" />}
+                title="Maintenance"
+                onClick={() => openCategory('maintenance')}
+                trailing={<DrillChevron />}
+              />
+              <ListRow
                 icon={<Bell size={15} strokeWidth={2} className="text-ink-soft" />}
                 title="Notifications"
                 onClick={() => openCategory('notifications')}
@@ -241,6 +259,9 @@ export function Settings() {
             onSafetyToggleChange={(key, checked) => setSafetyToggles((prev) => ({...prev, [key]: checked}))}
             notifications={notifications}
             onNotificationChange={(key, checked) => setNotifications((prev) => ({...prev, [key]: checked}))}
+            bladeWearHours={bladeWearHours}
+            lastBladeChange={lastBladeChange}
+            onLogBladeChange={logBladeChange}
           />
         </div>
       </div>

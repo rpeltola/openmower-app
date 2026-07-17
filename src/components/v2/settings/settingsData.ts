@@ -18,6 +18,16 @@ export const UNITS_OPTIONS = [
 
 export const BASEMAP_OPTIONS = ['Satellite · Esri', 'Satellite · MML (Finland)', 'Terrain', 'Street'];
 
+// Blade-wear + service readouts, moved here from the Activity · Stats tab (that's a
+// statistic surface, not a maintenance one) — now the Settings · Maintenance category.
+export const MAINTENANCE = {
+  bladeWearHours: 38,
+  bladeCapacityHours: 100,
+  lastBladeChange: '2026-05-02',
+  totalRuntimeHours: 214,
+  nextService: '2026-09-01',
+};
+
 export interface NotificationCategory {
   key: string;
   label: string;
@@ -43,6 +53,7 @@ export const DESKTOP_CATEGORIES = [
   {id: 'units', label: 'Units'},
   {id: 'basemap', label: 'Map basemap'},
   {id: 'general', label: 'General'},
+  {id: 'maintenance', label: 'Maintenance'},
   {id: 'notifications', label: 'Notifications'},
   {id: 'about', label: 'About'},
 ];
@@ -57,6 +68,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   basemap: 'Map basemap',
   safety: 'Safety',
   general: 'General',
+  maintenance: 'Maintenance',
   notifications: 'Notifications',
   about: 'About',
 };

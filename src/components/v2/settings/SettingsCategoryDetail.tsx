@@ -1,3 +1,4 @@
+import {ActivityWearMeter} from '@/components/v2/activity/ActivityWearMeter';
 import {cn} from '@/components/v2/lib/cn';
 import {SettingsGroup} from '@/components/v2/settings/SettingsGroup';
 import {
@@ -5,6 +6,7 @@ import {
   BASEMAP_OPTIONS,
   CONNECTION,
   DOCKING,
+  MAINTENANCE,
   NOTIFICATION_CATEGORIES,
   UNITS_OPTIONS,
   type SafetyToggles,
@@ -17,7 +19,7 @@ import {ListRow} from '@/components/v2/ui/ListRow';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Switch} from '@/components/v2/ui/Switch';
 import {hapticStrong, setHapticsEnabled, useHapticsEnabled} from '@/lib/v2/haptics';
-import {Bell, Check, ChevronRight, Info, Navigation, Shield, Wifi, Zap} from 'lucide-react';
+import {Bell, Check, ChevronRight, Info, Navigation, Shield, Wifi, Wrench, Zap} from 'lucide-react';
 
 export interface SettingsCategoryDetailProps {
   category: string;
@@ -29,6 +31,9 @@ export interface SettingsCategoryDetailProps {
   onSafetyToggleChange: (key: keyof SafetyToggles, checked: boolean) => void;
   notifications: Record<string, boolean>;
   onNotificationChange: (key: string, checked: boolean) => void;
+  bladeWearHours: number;
+  lastBladeChange: string;
+  onLogBladeChange: () => void;
   className?: string;
 }
 
@@ -45,6 +50,9 @@ export function SettingsCategoryDetail({
   onSafetyToggleChange,
   notifications,
   onNotificationChange,
+  bladeWearHours,
+  lastBladeChange,
+  onLogBladeChange,
   className,
 }: SettingsCategoryDetailProps) {
   const hapticsEnabled = useHapticsEnabled();
@@ -188,6 +196,33 @@ export function SettingsCategoryDetail({
             }
           />
         </SettingsGroup>
+      ) : null}
+
+      {category === 'maintenance' ? (
+        <>
+          <ActivityWearMeter
+            hours={bladeWearHours}
+            capacityHours={MAINTENANCE.bladeCapacityHours}
+            detail={`Replace around ${MAINTENANCE.bladeCapacityHours} h · ~${MAINTENANCE.bladeCapacityHours - bladeWearHours} h remaining`}
+            onChangedBlades={onLogBladeChange}
+          />
+
+          <SettingsGroup>
+            <ListRow
+              icon={<Wrench size={15} strokeWidth={2} className="text-ink-soft" />}
+              title="Last blade change"
+              trailing={<span className="font-mono text-[.72rem] text-ink-soft">{lastBladeChange}</span>}
+            />
+            <ListRow
+              title="Total runtime"
+              trailing={<span className="font-mono text-[.72rem] text-ink-soft">{MAINTENANCE.totalRuntimeHours} h</span>}
+            />
+            <ListRow
+              title="Next service"
+              trailing={<span className="font-mono text-[.72rem] text-ink-soft">{MAINTENANCE.nextService}</span>}
+            />
+          </SettingsGroup>
+        </>
       ) : null}
 
       {category === 'notifications' ? (
