@@ -32,6 +32,8 @@ import {validateMap, type MapIssue} from '@/components/v2/map/validation';
 import {useHeatmap} from '@/hooks/useHeatmap';
 import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
 import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
+import {STATE_COPY, type Tone} from '@/lib/v2/robotState';
+import {useRobotState} from '@/lib/v2/useRobotState';
 import {useSelectedMower} from '@/stores/mowersStore';
 import type {DiscoveredObstacle} from '@/stores/schemas';
 import type {TrackSegment} from '@/utils/track-pipeline';
@@ -112,7 +114,19 @@ const MapCanvas = dynamic(() => import('@/components/v2/map/MapCanvas').then((m)
   loading: () => <div className="absolute inset-0 bg-map" />,
 });
 
+// Still mocked: the "Areas" rail's own per-zone active/queued status (renderAreaRow) and the
+// mowed-so-far lane painting (mowedLanesData) — a separate per-zone scheduling feature, not the
+// live robot-state display wired below (useRobotState). Fixing that is a later pass.
 const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24};
+
+// Same tone -> color mapping as Home.tsx's TONE_DOT_CLASS, for the top overlay pill's dot.
+const TONE_DOT_CLASS: Record<Tone, string> = {
+  accent: 'text-accent',
+  warn: 'text-warn',
+  danger: 'text-danger',
+  info: 'text-info',
+  neutral: 'text-ink-faint',
+};
 
 const BASEMAP_STORAGE_KEY = 'v2.basemap';
 const COVERAGE_STORAGE_KEY = 'v2.coveragePreview';
@@ -300,6 +314,12 @@ export function Map() {
   const currentState = useSelectedMower((s) => s?.state.current_state);
   const isCharging = useSelectedMower((s) => s?.state.is_charging ?? false);
   const isDocked = currentState === 'DOCKED' || isCharging;
+
+  // Real display state for the top overlay pill + the live-view stat card below (data-wiring
+  // pass) — separate from the mock `MOW`/`mowAreaName` the "Areas" rail still uses for its own
+  // per-zone scheduling display.
+  const {state: displayState, isMowing, areaName: liveAreaName, coveragePct: liveCoveragePct} = useRobotState();
+  const stateCopy = STATE_COPY[displayState];
   const robotPositionBase = useSelectedMower((s) => s?.position ?? s?.state.pose);
   const robotLiveHeading = useSelectedMower((s) => (s?.state.pose?.heading_valid ? s.state.pose.heading : undefined));
   const robotFootprint = useSelectedMower((s) => s?.state.footprint);
@@ -941,12 +961,14 @@ export function Map() {
       ) : (
         <div className="pointer-events-none absolute inset-x-3 top-3 z-[500] flex flex-wrap items-center gap-2">
           <OverlayChip>
-            <span className={mockPaused ? 'text-warn' : 'text-accent'}>●</span> {mockPaused ? 'Paused' : 'Mowing'}
+            <span className={TONE_DOT_CLASS[stateCopy.tone]}>●</span> {isMowing && mockPaused ? 'Paused' : stateCopy.label}
           </OverlayChip>
-          <OverlayChip>{mowAreaName}</OverlayChip>
-          <OverlayChip className="ml-auto">
-            <span className="text-accent">●</span> RTK fixed
-          </OverlayChip>
+          {liveAreaName ? <OverlayChip>{liveAreaName}</OverlayChip> : null}
+          {isMowing ? (
+            <OverlayChip className="ml-auto">
+              <span className="text-accent">●</span> RTK fixed
+            </OverlayChip>
+          ) : null}
         </div>
       )}
 
@@ -1191,33 +1213,38 @@ export function Map() {
         </>
       ) : (
         <>
-          {/* floating stat card (live view, mobile — desktop gets the Areas panel below too) */}
+          {/* floating stat card (live view, mobile — desktop gets the Areas panel below too).
+              Pause/Resume/Stop only apply while actually mowing (mockPaused is an S5 dev seam
+              that can't override the label/readout outside that state); docked/idle/etc. show
+              the real state label + sub-copy instead of a stale "62% · 24 min left". */}
           <StatCard className="absolute inset-x-3 bottom-3 z-[500] md:left-3 md:right-auto md:w-[320px]">
             <div className="flex items-center gap-2.5">
               <div className="flex-1 leading-tight">
                 <div className="text-[.92rem] font-semibold text-ink">
-                  {mockPaused ? 'Paused' : 'Mowing'} {mowAreaName}
+                  {isMowing ? `${mockPaused ? 'Paused' : 'Mowing'} ${liveAreaName ?? ''}`.trim() : stateCopy.label}
                 </div>
                 <div className="text-[.76rem] text-ink-soft">
-                  {MOW.coverage}% · {mockPaused ? 'holding position' : `${MOW.timeLeftMin} min left`}
+                  {isMowing ? `${liveCoveragePct ?? 0}% · ${mockPaused ? 'holding position' : '—'}` : stateCopy.sub}
                 </div>
               </div>
             </div>
-            <ProgressBar value={MOW.coverage} className="mt-2.5" />
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              {mockPaused ? (
-                <Button variant="primary" className="flex-1 justify-center" onClick={() => setMockPaused(false)}>
-                  <Play size={13} fill="currentColor" /> Resume
+            {isMowing ? <ProgressBar value={liveCoveragePct ?? 0} className="mt-2.5" /> : null}
+            {isMowing ? (
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                {mockPaused ? (
+                  <Button variant="primary" className="flex-1 justify-center" onClick={() => setMockPaused(false)}>
+                    <Play size={13} fill="currentColor" /> Resume
+                  </Button>
+                ) : (
+                  <Button variant="ghost" className="flex-1 justify-center" onClick={() => setMockPaused(true)}>
+                    <Pause size={13} fill="currentColor" /> Pause
+                  </Button>
+                )}
+                <Button variant="danger" className="flex-1 justify-center">
+                  <Square size={13} fill="currentColor" /> Stop
                 </Button>
-              ) : (
-                <Button variant="ghost" className="flex-1 justify-center" onClick={() => setMockPaused(true)}>
-                  <Pause size={13} fill="currentColor" /> Pause
-                </Button>
-              )}
-              <Button variant="danger" className="flex-1 justify-center">
-                <Square size={13} fill="currentColor" /> Stop
-              </Button>
-            </div>
+              </div>
+            ) : null}
           </StatCard>
 
           {/* S4 — desktop-only "Areas" right rail (live view). Mobile keeps the stat card above. */}

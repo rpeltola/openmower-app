@@ -15,19 +15,12 @@ import {PositionTrustCard} from '@/components/v2/ui/PositionTrustCard';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {StatePill} from '@/components/v2/ui/StatePill';
 import {Toast} from '@/components/v2/ui/Toast';
-import {REJECT_COPY, STATE_COPY, heroSceneForState, isOnLawn, isPlanning, type CommandName, type Tone} from '@/lib/v2/robotState';
-import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
-import {useRobotStateMock} from '@/lib/v2/useRobotStateMock';
-import {Bell, CheckCircle2, Gamepad2, Home as HomeIcon, Pause, Play, Sprout, Square} from 'lucide-react';
+import {STATE_COPY, type Tone} from '@/lib/v2/robotState';
+import {useRobotState} from '@/lib/v2/useRobotState';
+import {useSelectedMower, type Mower, type MowerCommand} from '@/stores/mowersStore';
+import {Bell, CheckCircle2, Gamepad2, Home as HomeIcon, Sprout, Square} from 'lucide-react';
 import Link from 'next/link';
 import {type ReactNode, useState} from 'react';
-
-// Canonical mock world (design-language.md "Cross-platform contract"): Kotipiha, mowing
-// Etupiha, 24 min left, battery 71%, RTK fixed. Home is a read/glance screen — this PoC
-// wires no MQTT yet (component-library.md §7 build order item 3, live wiring lands later).
-// Coverage % now rides the robot-state mock's `stateDetail.progress` instead of a fixed
-// constant (see MOW.coverage's one remaining use as a display fallback below).
-const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24, remainingM2: 148, batteryPct: 71};
 
 // Tailwind needs literal class names (not `text-${tone}` template strings) to keep them in the
 // build — a lookup table instead, same spirit as the old HERO_META's per-state `dotClass`.
@@ -79,6 +72,8 @@ function QuickActionButton({action}: {action: QuickActionDef}) {
   );
 }
 
+// Still a static demo feed — the Activity tab/mowerEvents store carries the real event log;
+// wiring it into this card is a separate pass from the state-display work done here.
 const RECENT_EVENTS: ActivityEvent[] = [
   {
     icon: <CheckCircle2 size={14} strokeWidth={2.4} />,
@@ -89,7 +84,7 @@ const RECENT_EVENTS: ActivityEvent[] = [
   {
     icon: <Sprout size={14} strokeWidth={2.2} />,
     tone: 'accent' as const,
-    text: `Mowing started · ${MOW.area}`,
+    text: 'Mowing started',
     time: '09:30',
   },
   {
@@ -103,91 +98,66 @@ const RECENT_EVENTS: ActivityEvent[] = [
 export function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const snap = useRobotStateMock();
-  const {run, pending} = useCommand();
+  const mower = useSelectedMower<Mower | undefined>();
+  const emergency = useSelectedMower((s) => s?.state.emergency ?? false);
+  const {state, heroState, isMowing, isCharging, batteryPct, areaName, coveragePct} = useRobotState();
+  const [pendingCmd, setPendingCmd] = useState<MowerCommand | null>(null);
 
-  const state = snap.state;
   const stateCopy = STATE_COPY[state];
   const tone = stateCopy.tone;
   // StatePill's tone vocabulary is accent/warn/info/neutral only (no danger variant) — ERROR
   // reads as its next-most-severe equivalent there.
   const pillTone = tone === 'danger' ? 'warn' : tone;
-  const onLawn = isOnLawn(state);
-  const planning = isPlanning(state);
-  // Coverage % rides the mock progress ticker so it reads correctly through PLANNING_MISSION
-  // (0→100 "planned") as well as MOWING (falls back to the mock 62% world default).
-  const coverage = snap.stateDetail?.progress ?? MOW.coverage;
-  const coverageLabel = planning ? 'planned' : 'mowed';
 
-  // Every command the primary/quick-action buttons can dispatch, gated live off the mock
-  // command store (STATE_COMMAND_MODEL.md §3 "blockers-as-data") — a disabled control always
-  // carries its `reasons[0]` rather than just going dead.
-  const mowAvailability = useCommandAvailability('mow');
-  const pauseAvailability = useCommandAvailability('pause');
-  const resumeAvailability = useCommandAvailability('resume');
-  const dockAvailability = useCommandAvailability('dock');
-  const stopAvailability = useCommandAvailability('stop');
+  const docked = state === 'DOCKED' || state === 'DOCKED_CHARGING';
+  const busy = state === 'DOCKING' || state === 'UNDOCKING' || state === 'AREA_RECORDING' || state === 'HEADING_CALIBRATION';
 
-  const isMowBusy = pending === 'mow' || state === 'PLANNING_MISSION';
-  const isDockBusy = pending === 'dock' || state === 'DOCKING';
-
-  /** Runs `cmd`, then surfaces the accepted toast or (NACK path) the gated reason via the same
-   *  Toast — "Can't mow — waiting for GPS fix" instead of a silent no-op (STATE_COMMAND_MODEL.md
-   *  §2's ack/nack contract). */
-  const runCommand = (cmd: CommandName, verb: string, acceptedMessage: string) => {
-    const result = run(cmd);
-    if (result.accepted) {
-      setToastMessage(acceptedMessage);
-    } else {
-      setToastMessage(result.reason ? `Can't ${verb} — ${REJECT_COPY[result.reason].label}` : `Can't ${verb} right now`);
-    }
+  /** Publishes `cmd` on the shared `command` topic (Mower.sendCommand — see MowerControls.tsx)
+   *  and shows a brief "sent" toast. There's no ack/nack round trip from the app side (that's
+   *  the gateway/mower_logic's job), so this is fire-and-forget: the display keeps following
+   *  whatever `robot_state/json` reports next, not a locally-faked transition. */
+  const dispatch = (cmd: MowerCommand, acceptedMessage: string) => {
+    if (!mower) return;
+    mower.sendCommand(cmd);
+    setPendingCmd(cmd);
+    setToastMessage(acceptedMessage);
+    window.setTimeout(() => setPendingCmd((p) => (p === cmd ? null : p)), 280);
   };
 
-  const handleStop = () => runCommand('stop', 'stop', 'Mower stopped');
+  const handleStop = () => dispatch('stop', 'Mower stopped');
 
-  const primaryAction: QuickActionDef =
-    state === 'MOWING'
-      ? {
-          key: 'pause',
-          label: pending === 'pause' ? 'Pausing…' : 'Pause',
-          icon: <Pause size={18} strokeWidth={2.2} fill="currentColor" />,
-          onClick: () => runCommand('pause', 'pause', 'Mowing paused'),
-          disabled: pending === 'pause' || !pauseAvailability.allowed,
-          reason: !pauseAvailability.allowed ? REJECT_COPY[pauseAvailability.reasons[0]].label : undefined,
-        }
-      : state === 'PAUSED'
-        ? {
-            key: 'resume',
-            label: pending === 'resume' ? 'Resuming…' : 'Resume',
-            icon: <Play size={18} strokeWidth={2.2} fill="currentColor" />,
-            onClick: () => runCommand('resume', 'resume', 'Mowing resumed'),
-            disabled: pending === 'resume' || !resumeAvailability.allowed,
-            reason: !resumeAvailability.allowed ? REJECT_COPY[resumeAvailability.reasons[0]].label : undefined,
-          }
-        : {
-            key: 'mow',
-            label: isMowBusy ? 'Planning…' : 'Mow now',
-            icon: <Sprout size={18} strokeWidth={2.2} />,
-            onClick: () => runCommand('mow', 'mow', `Planning route · ${MOW.area}`),
-            disabled: isMowBusy || !mowAvailability.allowed,
-            reason: !isMowBusy && !mowAvailability.allowed ? REJECT_COPY[mowAvailability.reasons[0]].label : undefined,
-          };
+  // The real command set has no separate pause/resume verb: 'start' both begins a fresh mow
+  // and resumes a mission mower_logic left paused (see MowerControls.tsx's "Continue" comment),
+  // so the primary action is Stop while mowing and Mow the rest of the time.
+  const primaryAction: QuickActionDef = isMowing
+    ? {
+        key: 'stop',
+        label: pendingCmd === 'stop' ? 'Stopping…' : 'Stop',
+        icon: <Square size={18} strokeWidth={2.2} fill="currentColor" />,
+        onClick: handleStop,
+        disabled: emergency || pendingCmd === 'stop',
+      }
+    : {
+        key: 'mow',
+        label: pendingCmd === 'start' ? 'Starting…' : 'Mow now',
+        icon: <Sprout size={18} strokeWidth={2.2} />,
+        onClick: () => dispatch('start', areaName ? `Mowing ${areaName}` : 'Mowing started'),
+        disabled: emergency || busy || pendingCmd === 'start',
+      };
 
   const quickActions: QuickActionDef[] = [
     primaryAction,
     {
       key: 'dock',
-      label: isDockBusy ? 'Docking…' : 'Dock',
+      label: pendingCmd === 'dock' ? 'Docking…' : 'Dock',
       icon: <HomeIcon size={18} strokeWidth={2.2} />,
-      onClick: () => runCommand('dock', 'dock', 'Heading to dock'),
-      disabled: isDockBusy || !dockAvailability.allowed,
-      reason: !isDockBusy && !dockAvailability.allowed ? REJECT_COPY[dockAvailability.reasons[0]].label : undefined,
+      onClick: () => dispatch('dock', 'Heading to dock'),
+      disabled: emergency || docked || state === 'DOCKING' || pendingCmd === 'dock',
     },
     {key: 'manual', label: 'Manual control', icon: <Gamepad2 size={18} strokeWidth={2.2} />, href: '/v2/control'},
   ];
 
-  const stopDisabled = pending === 'stop' || !stopAvailability.allowed;
-  const stopReason = !stopAvailability.allowed ? REJECT_COPY[stopAvailability.reasons[0]].label : undefined;
+  const stopDisabled = emergency || state === 'IDLE' || pendingCmd === 'stop';
 
   return (
     <div className="relative flex min-h-full flex-col gap-4 p-4 md:h-full md:min-h-0 md:gap-5 md:p-6">
@@ -208,7 +178,6 @@ export function Home() {
               className="hidden md:inline-flex"
               onClick={handleStop}
               disabled={stopDisabled}
-              title={stopReason}
             >
               <Square size={14} fill="currentColor" />
               Stop
@@ -223,28 +192,39 @@ export function Home() {
       <div className="flex flex-1 flex-col gap-3 md:hidden">
         <MowingHero
           className="h-[140px]"
-          state={heroSceneForState(state)}
-          planning={planning}
-          progress={onLawn ? coverage : undefined}
+          state={heroState}
+          progress={isMowing ? coveragePct : undefined}
           overlayTop={
             <>
               <OverlayChip>
                 <stateCopy.icon size={13} className={TONE_DOT_CLASS[stateCopy.tone]} /> {stateCopy.label}
               </OverlayChip>
-              <OverlayChip>{MOW.area}</OverlayChip>
-              {onLawn ? (
+              {areaName ? <OverlayChip>{areaName}</OverlayChip> : null}
+              {isMowing && coveragePct !== undefined ? (
                 <OverlayChip className="ml-auto">
-                  <b className="font-bold text-accent">{coverage}%</b>&nbsp;{coverageLabel}
+                  <b className="font-bold text-accent">{coveragePct}%</b>&nbsp;mowed
                 </OverlayChip>
               ) : null}
             </>
           }
         />
 
-        <div className="grid grid-cols-3 gap-2">
-          <KpiTile value={MOW.timeLeftMin} unit=" min" label="Time left" accent />
-          <KpiTile value={MOW.remainingM2} unit=" m²" label="Remaining" />
-          <KpiTile value={MOW.batteryPct} unit=" %" label="Battery" />
+        {/* Time left / remaining area are mission-planner numbers we don't have yet (no fabricated
+            ETA) — while mowing they read as honest placeholders; docked/idle swaps the row for a
+            docked-appropriate readout instead of stale mowing numbers. */}
+        <div className={cn('grid gap-2', isMowing ? 'grid-cols-3' : 'grid-cols-2')}>
+          {isMowing ? (
+            <>
+              <KpiTile value="—" unit=" min" label="Time left" accent />
+              <KpiTile value="—" unit=" m²" label="Remaining" />
+              <KpiTile value={batteryPct} unit=" %" label="Battery" />
+            </>
+          ) : (
+            <>
+              <KpiTile value={batteryPct} unit=" %" label="Battery" accent />
+              <KpiTile value={isCharging ? 'Charging' : stateCopy.label} label="Status" />
+            </>
+          )}
         </div>
 
         <div className="flex gap-2">
@@ -257,7 +237,6 @@ export function Home() {
           <Square size={15} fill="currentColor" />
           Stop
         </Button>
-        {stopReason ? <div className="-mt-2 text-center text-[.72rem] text-ink-faint">{stopReason}</div> : null}
 
         <PositionTrustCard state="RTK fixed · GPS strong" detail="Position trusted to ±2 cm" className="mt-auto" />
       </div>
@@ -270,19 +249,28 @@ export function Home() {
               bare
               tone={pillTone}
               icon={<stateCopy.icon size={17} strokeWidth={2.3} />}
-              label={onLawn ? `${stateCopy.label} ${MOW.area}` : stateCopy.label}
-              sub={snap.stateDetail?.phase ?? stateCopy.sub}
+              label={isMowing && areaName ? `${stateCopy.label} ${areaName}` : stateCopy.label}
+              sub={stateCopy.sub}
             />
-            {onLawn ? <Chip variant="ok">● RTK fixed</Chip> : null}
+            {isMowing ? <Chip variant="ok">● RTK fixed</Chip> : null}
           </div>
-          <MowingHero className="h-[150px]" state={heroSceneForState(state)} planning={planning} />
+          <MowingHero className="h-[150px]" state={heroState} />
         </Card>
 
         <div className="col-start-1 row-start-2 grid content-start grid-cols-4 gap-3">
-          <KpiTile value={MOW.timeLeftMin} unit=" min" label="Time left" accent />
-          <KpiTile value={MOW.remainingM2} unit=" m²" label="Remaining" />
-          <KpiTile value={MOW.batteryPct} unit=" %" label="Battery" />
-          <KpiTile value={coverage} unit=" %" label="Coverage" />
+          {isMowing ? (
+            <>
+              <KpiTile value="—" unit=" min" label="Time left" accent />
+              <KpiTile value="—" unit=" m²" label="Remaining" />
+              <KpiTile value={batteryPct} unit=" %" label="Battery" />
+              <KpiTile value={coveragePct ?? 0} unit=" %" label="Coverage" />
+            </>
+          ) : (
+            <>
+              <KpiTile className="col-span-2" value={batteryPct} unit=" %" label="Battery" accent />
+              <KpiTile className="col-span-2" value={isCharging ? 'Charging' : stateCopy.label} label="Status" />
+            </>
+          )}
 
           <Card className="col-span-4 flex gap-2 p-2">
             {quickActions.map((action) => (
