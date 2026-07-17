@@ -14,7 +14,7 @@ import {polygonArea, polygonPerimeter, principalAngleDeg} from '@/components/v2/
 import type {TrackPolyline} from '@/components/v2/map/MapCanvas';
 import {SaveMapSheet, VersionHistorySheet} from '@/components/v2/map/MapVersioning';
 import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements';
-import {mapDataToDock, mapDataToZones} from '@/components/v2/map/realData';
+import {mapDataToDock, mapDataToZones, versionFeaturesToZonesAndDock, zonesToMapData} from '@/components/v2/map/realData';
 import {RecordBriefingSheet} from '@/components/v2/map/record/RecordBriefingSheet';
 import {RecordCloseSheet} from '@/components/v2/map/record/RecordCloseSheet';
 import {RecordDriveOverlay, type RecordSpeed} from '@/components/v2/map/record/RecordDriveOverlay';
@@ -33,11 +33,14 @@ import {validateMap, type MapIssue} from '@/components/v2/map/validation';
 import {useHeatmap} from '@/hooks/useHeatmap';
 import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
 import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
+import {useMapVersions} from '@/hooks/useMapVersions';
 import {REJECT_COPY, STATE_COPY, type CommandName, type Tone} from '@/lib/v2/robotState';
 import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
 import {useRobotState} from '@/lib/v2/useRobotState';
 import {useSelectedMower} from '@/stores/mowersStore';
 import type {DiscoveredObstacle} from '@/stores/schemas';
+import {mapVersionToFeatures} from '@/utils/area-converter';
+import {datumToRelative} from '@/utils/coordinates';
 import type {TrackSegment} from '@/utils/track-pipeline';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
@@ -308,6 +311,8 @@ export function Map() {
   // basemap; every layer shares this projection so they stay mutually co-registered). Not worth
   // threading the heavier model through here for a display-only map.
   const realMap = useSelectedMower((s) => s?.map);
+  const rpc = useSelectedMower((s) => s?.rpc);
+  const queryClient = useSelectedMower((s) => s?.queryClient);
   const realDatumLat = realMap?.datum?.lat;
   const realDatumLng = realMap?.datum?.long;
   const origin: Origin = useMemo(
@@ -502,9 +507,83 @@ export function Map() {
   // back to baseline would need looping `editor.undo()` while `editor.canUndo`, but `canUndo` is a
   // value captured at render time: it can't flip mid-loop before React re-renders, so that loop
   // never terminates. Rather than risk that, this stays an honest no-op pointing at the (working)
-  // Undo button in the edit dock, like the Save flow in MapVersioning.tsx.
+  // Undo button in the edit dock.
   const discardChanges = () => {
     setToastMessage("Discarding changes isn't wired up yet — use Undo in the tool dock to step back.");
+  };
+
+  // --- Save / version history (W9 A2b) ---------------------------------------------------------
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const mapVersions = useMapVersions();
+  const [restoringId, setRestoringId] = useState<number | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+
+  const saveMap = async () => {
+    if (!rpc) {
+      setSaveError('Not connected to the mower.');
+      return;
+    }
+    if (!realMap?.datum) {
+      setSaveError('Cannot save yet: the mower has not reported its GPS datum.');
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await rpc.map.replace(zonesToMapData(editor.zones, editor.dock, realMap));
+      // The edits just pushed to the mower ARE the new baseline — reset() re-snapshots the undo
+      // history to this single entry so "Unsaved changes" clears (mirrors the re-seed effect
+      // above, which will also re-run once the retained map/json catches up).
+      editor.reset(editor.zones, editor.dock);
+      setSaveSheetOpen(false);
+      setToastMessage('Map saved.');
+      mapVersions.refresh();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Restore = fetch a past version's stored geojson and load it into the editor as PENDING
+  // (unsaved) edits, same as any other edit — nothing reaches the mower until the user hits Save
+  // in the sheet above. See realData.ts's versionFeaturesToZonesAndDock for the geojson -> Zone[]/
+  // Dock conversion (the stored version's coordinates are absolute WGS84, so the CURRENT live
+  // datum is reused to get back to relative metres — same assumption HistoryMap.tsx makes).
+  const restoreVersion = async (versionId: number) => {
+    if (!queryClient) {
+      setRestoreError('Not connected to the mower.');
+      return;
+    }
+    if (!realMap?.datum) {
+      setRestoreError("Can't restore yet: the mower has not reported its GPS datum.");
+      return;
+    }
+    setRestoringId(versionId);
+    setRestoreError(null);
+    try {
+      const res = await queryClient.request('mapversion', {id: versionId});
+      const raw = typeof res.geojson === 'string' ? (JSON.parse(res.geojson) as unknown) : res.geojson;
+      const features = mapVersionToFeatures(raw);
+      const datum = datumToRelative([realMap.datum.long, realMap.datum.lat]);
+      const {zones, dock} = versionFeaturesToZonesAndDock(features, datum);
+      // One atomic commit (not commitZones + commitDock back to back — see commitZonesAndDock's
+      // doc for why that pair would silently drop the zones).
+      editor.commitZonesAndDock(zones, dock ?? editor.dock);
+      setVersionsSheetOpen(false);
+      editor.setEditing(true);
+      setToastMessage('Version loaded — review it on the map, then Save to keep it.');
+    } catch (err) {
+      setRestoreError(err instanceof Error ? err.message : 'Restore failed.');
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  const openVersionHistory = () => {
+    setVersionsSheetOpen(true);
+    mapVersions.refresh();
   };
 
   // --- Boolean area operations (MAP_BOOLEAN_OPS_SPEC.md) --------------------------------------
@@ -896,7 +975,7 @@ export function Map() {
       disabled: !editor.editing,
       onRun: () => setSaveSheetOpen(true),
     },
-    {id: 'version-history', label: 'Version history…', icon: <History size={15} />, onRun: () => setVersionsSheetOpen(true)},
+    {id: 'version-history', label: 'Version history…', icon: <History size={15} />, onRun: openVersionHistory},
     {id: 'basemap', label: 'Base map…', onRun: () => setBasemapSheetOpen(true)},
     {id: 'zoom-in', label: 'Zoom in', onRun: () => mapRef.current?.zoomIn()},
     {id: 'zoom-out', label: 'Zoom out', onRun: () => mapRef.current?.zoomOut()},
@@ -997,7 +1076,10 @@ export function Map() {
           editor.setTool('select');
         }}
         onDockChange={(next) => {
-          editor.commitDock(next);
+          // MapCanvas only ever reports a new `position` (drag-end / place-by-click) — merge over
+          // the existing dock so heading/approach_distance (the real dock's schema-skewed fields
+          // the v2 editor doesn't edit yet) survive the move instead of being dropped.
+          editor.commitDock({...editor.dock, ...next});
           setPlacingDock(false);
         }}
         coveragePreview={planPreviewZoneId ? planPreviewRevealed : coveragePreviewData}
@@ -1084,7 +1166,7 @@ export function Map() {
         />
         {/* Reachable in both live and edit view, like Base map/Coverage heatmap above — PLACEHOLDER,
             see MapVersioning.tsx. */}
-        <Fab aria-label="Version history" icon={<History size={18} />} onClick={() => setVersionsSheetOpen(true)} />
+        <Fab aria-label="Version history" icon={<History size={18} />} onClick={openVersionHistory} />
         {editor.editing && (
           <div className="relative">
             <Fab aria-label="Validation issues" icon={<AlertTriangle size={18} />} onClick={() => setIssuesSheetOpen(true)} />
@@ -1896,8 +1978,24 @@ export function Map() {
       />
 
       {/* Map saving + version history — UNWIRED PLACEHOLDER (see MapVersioning.tsx). */}
-      <SaveMapSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} zones={editor.zones} />
-      <VersionHistorySheet open={versionsSheetOpen} onClose={() => setVersionsSheetOpen(false)} />
+      <SaveMapSheet
+        open={saveSheetOpen}
+        onClose={() => setSaveSheetOpen(false)}
+        zones={editor.zones}
+        onSave={saveMap}
+        saving={saving}
+        error={saveError}
+      />
+      <VersionHistorySheet
+        open={versionsSheetOpen}
+        onClose={() => setVersionsSheetOpen(false)}
+        versions={mapVersions.versions}
+        loading={mapVersions.loading}
+        error={mapVersions.error}
+        onRestore={restoreVersion}
+        restoringId={restoringId}
+        restoreError={restoreError}
+      />
 
       <CommandPalette
         open={commandPaletteOpen}

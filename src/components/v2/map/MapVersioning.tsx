@@ -1,18 +1,17 @@
 'use client';
 
-// Map saving + version history — UNWIRED PLACEHOLDER pass (MAP_SCREEN_SPEC map-versioning).
-// Nothing here mutates `editor.zones`/`editor.dock`, calls a store action, or reaches the mower.
-// Every action below is an honest no-op (mirrors settings/BackupRestore.tsx): it reports exactly
-// what isn't wired yet via inline status text, never a fake success or progress state. The real
-// wiring later needs, at minimum: a `rpc.map.replace` (or equivalent) write call behind
-// SaveMapSheet's primary button, and a `useMapVersions`/`useMapVersion` pair of read/write hooks
-// backing both sheets in place of the mock list below.
+// Map saving + version history (W9 A2b) — wired to the real persistence contract: Save goes
+// through `rpc.map.replace` (Map.tsx's saveMap), Version history lists `query/mapversions` and
+// restores a version's `query/mapversion` geojson into the editor (see realData.ts's
+// zonesToMapData / versionFeaturesToZonesAndDock). Both components are presentational: all the
+// MQTT/store plumbing lives in Map.tsx, passed down as props, so this file stays easy to test.
 import {isMowableType, type Zone} from '@/components/v2/map/mockMap';
 import {Button} from '@/components/v2/ui/Button';
 import {Chip} from '@/components/v2/ui/Chip';
 import {FormField} from '@/components/v2/ui/FormField';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {Sheet} from '@/components/v2/ui/Sheet';
+import type {MapVersionEntry} from '@/stores/schemas';
 import {RotateCcw, Save} from 'lucide-react';
 import {useEffect, useState} from 'react';
 
@@ -21,21 +20,21 @@ export interface SaveMapSheetProps {
   onClose: () => void;
   /** The editor's current zones — used only to render a read-only "what will be saved" summary. */
   zones: Zone[];
+  /** Persists `zones`/`dock` to the mower as a new map version (`rpc.map.replace`); Map.tsx owns
+   *  the actual payload build + RPC call, catches the RPC error and surfaces it via `error`. */
+  onSave: () => void | Promise<void>;
+  saving: boolean;
+  error: string | null;
 }
 
-/** "Save map" sheet — opened from the unsaved-changes affordance (Map.tsx) or the command
- *  palette. PLACEHOLDER: the primary button never actually saves anything; see the module doc. */
-export function SaveMapSheet({open, onClose, zones}: SaveMapSheetProps) {
+/** "Save map" sheet — opened from the unsaved-changes affordance (Map.tsx) or the command palette. */
+export function SaveMapSheet({open, onClose, zones, onSave, saving, error}: SaveMapSheetProps) {
   const [note, setNote] = useState('');
-  const [status, setStatus] = useState<string | null>(null);
 
-  // Fresh note/status every time the sheet is (re)opened — same pattern as RecordCloseSheet's
+  // Fresh note every time the sheet is (re)opened — same pattern as RecordCloseSheet's
   // draft-name reset.
   useEffect(() => {
-    if (open) {
-      setNote('');
-      setStatus(null);
-    }
+    if (open) setNote('');
   }, [open]);
 
   const areaCount = zones.filter((z) => isMowableType(z.type)).length;
@@ -49,7 +48,10 @@ export function SaveMapSheet({open, onClose, zones}: SaveMapSheetProps) {
           history.
         </p>
 
-        <FormField label="What changed?" hint="Optional — shows up next to this version in the history list.">
+        {/* `note` is a local-only annotation for this session — map.replace has no field to carry
+            it and the persistence service doesn't store save notes yet, so it is intentionally
+            NOT sent (never fabricate a "saved" note the mower doesn't actually have). */}
+        <FormField label="What changed?" hint="Local note only — not sent to the mower (it doesn't store save notes yet).">
           <input
             type="text"
             value={note}
@@ -63,76 +65,73 @@ export function SaveMapSheet({open, onClose, zones}: SaveMapSheetProps) {
           {areaCount} area{areaCount === 1 ? '' : 's'} · {noGoCount} no-go zone{noGoCount === 1 ? '' : 's'} · dock
         </div>
 
-        {/* PLACEHOLDER SEAM: this is where a real save (rpc.map.replace against editor.zones/
-            editor.dock, or whatever the eventual RPC turns out to be) goes. For now it's an honest
-            no-op — no store mutation, no fabricated success. */}
-        <Button
-          variant="primary"
-          className="w-full justify-center"
-          onClick={() => setStatus("Saving to the mower isn't wired up yet — your edits stay in this session.")}
-        >
-          <Save size={16} strokeWidth={2.2} /> Save as new version
+        <Button variant="primary" className="w-full justify-center" disabled={saving} onClick={() => void onSave()}>
+          <Save size={16} strokeWidth={2.2} /> {saving ? 'Saving…' : 'Save as new version'}
         </Button>
-        {status ? <p className="text-[.76rem] leading-[1.5] text-ink-soft">{status}</p> : null}
+        {error ? <p className="text-[.76rem] leading-[1.5] text-danger">{error}</p> : null}
       </div>
     </Sheet>
   );
 }
 
-export interface MockMapVersion {
-  id: string;
-  date: string;
-  note: string;
-}
-
-// MOCK DATA — stands in for a real `useMapVersions()` read hook until the mower actually keeps
-// versioned map history. The first entry is always treated as "Current" by VersionHistorySheet
-// below (index 0), newest first.
-export const MOCK_MAP_VERSIONS: MockMapVersion[] = [
-  {id: 'v5', date: 'Today, 14:32', note: 'Added Saunan area'},
-  {id: 'v4', date: 'Jul 14', note: 'Adjusted Alapiha boundary'},
-  {id: 'v3', date: 'Jul 9', note: 'Moved the docking station'},
-  {id: 'v2', date: 'Jul 2', note: 'Marked the flowerbed as a no-go zone'},
-  {id: 'v1', date: 'Jun 28', note: 'Initial map'},
-];
-
 export interface VersionHistorySheetProps {
   open: boolean;
   onClose: () => void;
+  versions: MapVersionEntry[];
+  loading: boolean;
+  error: string | null;
+  /** Fetches `versionId`'s geojson and loads it into the editor as pending (unsaved) edits — the
+   *  user reviews it on the map and Saves to make it the live one, or Discards to back out.
+   *  Map.tsx owns the fetch + conversion (realData.ts's versionFeaturesToZonesAndDock). */
+  onRestore: (versionId: number) => void | Promise<void>;
+  restoringId: number | null;
+  restoreError: string | null;
 }
 
 /** "Version history" sheet — reachable from a Fab in both live and edit view, plus the command
- *  palette. PLACEHOLDER: the list is MOCK_MAP_VERSIONS above, not a real read from the mower, and
- *  Restore is a no-op; see the module doc. */
-export function VersionHistorySheet({open, onClose}: VersionHistorySheetProps) {
-  const [status, setStatus] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) setStatus(null);
-  }, [open]);
-
+ *  palette. Lists `query/mapversions`; Restore loads a past version's geojson into the editor
+ *  (a pending, unsaved edit — nothing is pushed to the mower until the user explicitly Saves). */
+export function VersionHistorySheet({
+  open,
+  onClose,
+  versions,
+  loading,
+  error,
+  onRestore,
+  restoringId,
+  restoreError,
+}: VersionHistorySheetProps) {
   return (
     <Sheet open={open} onClose={onClose} title="Version history">
       <div className="space-y-2.5">
         <p className="text-[.76rem] leading-[1.4] text-ink-faint">
-          Preview — restoring and saving will be wired to the mower later.
+          Restoring loads that version into the map editor for review — it only becomes the live map once you Save.
         </p>
 
-        {MOCK_MAP_VERSIONS.length === 0 ? (
+        {loading ? (
+          <div className="py-2 text-center text-[.82rem] text-ink-soft">Loading versions…</div>
+        ) : error ? (
+          <div className="py-2 text-center text-[.82rem] text-danger">Couldn&apos;t load version history: {error}</div>
+        ) : versions.length === 0 ? (
           <div className="py-2 text-center text-[.82rem] text-ink-soft">No saved versions yet.</div>
         ) : (
           <div className="space-y-0.5">
-            {MOCK_MAP_VERSIONS.map((version, index) => (
+            {versions.map((version) => (
               <ListRow
                 key={version.id}
-                title={version.note}
-                sub={version.date}
+                title={version.note || `Version ${version.id}`}
+                sub={version.created_at ? new Date(version.created_at * 1000).toLocaleString() : undefined}
                 trailing={
-                  index === 0 ? (
+                  version.is_current ? (
                     <Chip variant="ok">Current</Chip>
                   ) : (
-                    <Button variant="soft" size="sm" onClick={() => setStatus("Restoring a version isn't wired up yet.")}>
-                      <RotateCcw size={13} /> Restore
+                    <Button
+                      variant="soft"
+                      size="sm"
+                      disabled={restoringId !== null}
+                      onClick={() => void onRestore(version.id)}
+                    >
+                      <RotateCcw size={13} /> {restoringId === version.id ? 'Restoring…' : 'Restore'}
                     </Button>
                   )
                 }
@@ -141,7 +140,7 @@ export function VersionHistorySheet({open, onClose}: VersionHistorySheetProps) {
           </div>
         )}
 
-        {status ? <p className="text-[.76rem] leading-[1.5] text-ink-soft">{status}</p> : null}
+        {restoreError ? <p className="text-[.76rem] leading-[1.5] text-danger">{restoreError}</p> : null}
       </div>
     </Sheet>
   );

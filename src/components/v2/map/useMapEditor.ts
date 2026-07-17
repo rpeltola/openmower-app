@@ -105,6 +105,12 @@ export interface MapEditor {
   commitZones: (next: Zone[]) => void;
   /** Move the dock (drag-end or click-to-place) — its own undo entry. */
   commitDock: (next: Dock) => void;
+  /** Replace BOTH zones and dock in a single undo entry — for callers that need to swap the whole
+   *  map atomically (e.g. Version history's Restore, see Map.tsx). Calling `commitZones` then
+   *  `commitDock` back to back would NOT do this: `commitDock`'s closure captures the PRE-commit
+   *  `zones` (state hasn't re-rendered yet), so it would silently overwrite the zones the first
+   *  call just pushed. */
+  commitZonesAndDock: (nextZones: Zone[], nextDock: Dock) => void;
   /** Delete whatever's selected: the multi-select set in the 'multi' tool, else the single
    *  selected vertex. Always keeps a zone's outline at >= 3 points. */
   deleteSelection: () => void;
@@ -195,6 +201,10 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
 
   const commitZones = useCallback((next: Zone[]) => commitState({zones: next, dock}), [commitState, dock]);
   const commitDock = useCallback((next: Dock) => commitState({zones, dock: next}), [commitState, zones]);
+  const commitZonesAndDock = useCallback(
+    (nextZones: Zone[], nextDock: Dock) => commitState({zones: nextZones, dock: nextDock}),
+    [commitState],
+  );
 
   const setEditing = useCallback((next: boolean) => {
     setEditingState(next);
@@ -611,6 +621,7 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     setTool,
     commitZones,
     commitDock,
+    commitZonesAndDock,
     deleteSelection,
     pickSnapVertex,
     toggleMultiVertex,
