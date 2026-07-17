@@ -3,6 +3,7 @@ import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip, type ChipProps} from '@/components/v2/ui/Chip';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
+import {ChevronRight} from 'lucide-react';
 
 export interface RunMetric {
   value: number | string;
@@ -70,7 +71,7 @@ export function RunCard({
           variant="soft"
           onClick={onSelect}
           className={cn(
-            'h-auto w-full flex-col items-start gap-[.5rem] rounded-[16px] border p-[.8rem] text-left',
+            'h-auto w-full cursor-pointer flex-col items-start gap-[.5rem] rounded-[16px] border p-[.8rem] text-left hover:bg-surface',
             selected ? 'border-accent ring-2 ring-accent-wash' : 'border-transparent',
             className,
           )}
@@ -89,7 +90,10 @@ export function RunCard({
     <>
       <div className="flex w-full items-center justify-between gap-2">
         <span className="text-[.9rem] font-[660] tracking-tight text-ink">{plan}</span>
-        <Chip variant={statusVariant}>{statusLabel}</Chip>
+        <span className="flex flex-none items-center gap-1.5">
+          <Chip variant={statusVariant}>{statusLabel}</Chip>
+          {onSelect ? <ChevronRight size={16} strokeWidth={2.4} className="text-ink-faint" /> : null}
+        </span>
       </div>
       <span className="font-mono text-[.7rem] tabular-nums text-ink-faint">{timestamp}</span>
       <div className="flex w-full gap-2">
@@ -107,7 +111,7 @@ export function RunCard({
         variant="soft"
         onClick={onSelect}
         className={cn(
-          'h-auto w-full flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border bg-surface p-[.8rem] text-left shadow-sm hover:bg-surface',
+          'h-auto w-full cursor-pointer flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border bg-surface p-[.8rem] text-left shadow-sm hover:bg-surface-2',
           className,
         )}
       >
