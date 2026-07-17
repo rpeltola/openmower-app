@@ -252,6 +252,9 @@ export function Map() {
   // S4 — mobile counterpart to the desktop Areas rail (md:flex only); opens a Sheet with the
   // same per-area rows + Mow all now so live-view area switching isn't a desktop-only feature.
   const [areasSheetOpen, setAreasSheetOpen] = useState(false);
+  // Also list no-go (obstacle) zones in the Areas panel so an obstacle that's too small to tap on
+  // the map is still selectable from the list (the panel shows only mowable zones by default).
+  const [showObstacles, setShowObstacles] = useState(false);
   const [coverage, setCoverage] = useState(DEFAULT_COVERAGE_SETTINGS);
   // S5 — mock pause/resume for the live-view stat card (a real "hold position" toggle, distinct
   // from S6's involuntary RTK-lost block).
@@ -869,12 +872,20 @@ export function Map() {
     {id: 'cheat-sheet', label: 'Keyboard shortcuts', hint: '?', icon: <HelpCircle size={15} />, onRun: () => setCheatSheetOpen(true)},
   ];
 
-  // S4 — per-area row (name, size, status, Mow button): shared by the desktop Areas rail and the
-  // mobile Areas sheet below so the two can't diverge.
+  // S4 — per-area row (name, size, status): shared by the desktop Areas rail and the mobile Areas
+  // sheet so the two can't diverge. Mowable zones get a "Mow" action; a no-go zone gets a "Select"
+  // action that opens it, so a too-small-to-tap obstacle is still reachable from the list.
   const renderAreaRow = (z: Zone) => {
+    const mowable = isMowableType(z.type);
     const isActive = z.id === activeMowZoneId;
     const areaM2 = measureZone(z, editor.zones).areaM2;
-    const status = isActive ? `Mowing · ${MOW.coverage}%` : z.active === false ? 'Inactive' : 'Queued';
+    const status = mowable
+      ? isActive
+        ? `Mowing · ${MOW.coverage}%`
+        : z.active === false
+          ? 'Inactive'
+          : 'Queued'
+      : ZONE_TYPE_LABELS[z.type];
     return (
       <div key={z.id} className="flex items-center gap-2.5 rounded-[10px] px-1.5 py-2">
         <div className="min-w-0 flex-1">
@@ -883,17 +894,26 @@ export function Map() {
             {areaM2.toFixed(0)} m² · {status}
           </div>
         </div>
-        <Button
-          variant={isActive ? 'primary' : 'soft'}
-          size="sm"
-          disabled={isActive || z.active === false}
-          onClick={() => setActiveMowZoneId(z.id)}
-        >
-          Mow
-        </Button>
+        {mowable ? (
+          <Button
+            variant={isActive ? 'primary' : 'soft'}
+            size="sm"
+            disabled={isActive || z.active === false}
+            onClick={() => setActiveMowZoneId(z.id)}
+          >
+            Mow
+          </Button>
+        ) : (
+          <Button variant="soft" size="sm" onClick={() => openZoneSettings(z.id)}>
+            Select
+          </Button>
+        )}
       </div>
     );
   };
+
+  // No-go zones for the Areas panel's optional list (see showObstacles).
+  const obstacleZones = editor.zones.filter((z) => z.type === 'obstacle');
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -1249,9 +1269,24 @@ export function Map() {
 
           {/* S4 — desktop-only "Areas" right rail (live view). Mobile keeps the stat card above. */}
           <Card className="absolute right-3 top-16 bottom-3 z-[500] hidden w-[300px] flex-col overflow-hidden p-0 md:flex">
-            <div className="border-b border-border px-3.5 py-3 text-[.85rem] font-semibold text-ink">Areas</div>
+            <div className="flex items-center justify-between gap-2 border-b border-border px-3.5 py-2.5">
+              <span className="text-[.85rem] font-semibold text-ink">Areas</span>
+              {obstacleZones.length > 0 && (
+                <Button variant={showObstacles ? 'primary' : 'soft'} size="sm" onClick={() => setShowObstacles((v) => !v)}>
+                  No-go zones ({obstacleZones.length})
+                </Button>
+              )}
+            </div>
             <div className="flex-1 space-y-1 overflow-y-auto p-2">
               {editor.zones.filter((z) => isMowableType(z.type)).map(renderAreaRow)}
+              {showObstacles && obstacleZones.length > 0 && (
+                <>
+                  <div className="px-1.5 pb-1 pt-2 text-[.68rem] font-semibold uppercase tracking-wide text-ink-faint">
+                    No-go zones
+                  </div>
+                  {obstacleZones.map(renderAreaRow)}
+                </>
+              )}
             </div>
             <div className="border-t border-border p-2.5">
               <Button variant="primary" className="w-full justify-center">
@@ -1322,7 +1357,20 @@ export function Map() {
           the Areas FAB in live view on mobile). */}
       <Sheet open={areasSheetOpen} onClose={() => setAreasSheetOpen(false)} title="Areas">
         <div className="space-y-1">{editor.zones.filter((z) => isMowableType(z.type)).map(renderAreaRow)}</div>
-        <Button variant="primary" className="w-full justify-center">
+        {obstacleZones.length > 0 && (
+          <div className="mt-1 space-y-1">
+            <Button
+              variant={showObstacles ? 'primary' : 'soft'}
+              size="sm"
+              className="w-full justify-center"
+              onClick={() => setShowObstacles((v) => !v)}
+            >
+              {showObstacles ? 'Hide' : 'Show'} no-go zones ({obstacleZones.length})
+            </Button>
+            {showObstacles && obstacleZones.map(renderAreaRow)}
+          </div>
+        )}
+        <Button variant="primary" className="mt-2 w-full justify-center">
           <Play size={13} fill="currentColor" /> Mow all now
         </Button>
       </Sheet>
