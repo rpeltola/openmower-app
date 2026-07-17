@@ -4,10 +4,18 @@ import {FeedRow, type FeedRowProps} from '@/components/v2/ui/FeedRow';
 import {type ReactNode} from 'react';
 
 export interface ActivityEvent {
+  /** Stable key for selection (map pins, detail sheets) — optional since most feeds only
+   *  ever render passively and key off `text`. */
+  id?: string;
   icon: ReactNode;
   tone: FeedRowProps['tone'];
   text: string;
   time: string;
+  /** Short category shown as the event-detail sheet's kicker, e.g. "Safety", "Docking". */
+  type?: string;
+  /** Mock garden-canvas position (percent, 0-100 on each axis) — where the event happened,
+   *  for the Activity · Events map view. */
+  location?: {x: number; y: number};
 }
 
 export interface ActivityFeedCardProps {

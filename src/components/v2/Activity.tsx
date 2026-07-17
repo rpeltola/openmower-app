@@ -1,5 +1,6 @@
 'use client';
 
+import {EventMap} from '@/components/v2/activity/EventMap';
 import {EventTimeline, type TimelineGroup} from '@/components/v2/activity/EventTimeline';
 import {RunCard, type RunMetric} from '@/components/v2/activity/RunCard';
 import {RunDetail} from '@/components/v2/activity/RunDetail';
@@ -9,11 +10,13 @@ import {type ActivityEvent} from '@/components/v2/ui/ActivityFeedCard';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {type ChipProps} from '@/components/v2/ui/Chip';
+import {FeedRow} from '@/components/v2/ui/FeedRow';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
+import {Sheet} from '@/components/v2/ui/Sheet';
 import {AlertTriangle, Check, CheckCircle2, ChevronLeft, Home as HomeIcon, Sprout} from 'lucide-react';
-import {useState} from 'react';
+import {useMemo, useState} from 'react';
 
 // Canonical mock world (design-language.md "Cross-platform contract"): Kotipiha. Mock
 // telemetry/history only — this screen wires no MQTT/persistence yet. Copy and values match
@@ -33,43 +36,72 @@ const RANGE_OPTIONS = [
   {value: 'all', label: 'All'},
 ];
 
+const EVENTS_VIEW_OPTIONS = [
+  {value: 'list', label: 'List'},
+  {value: 'map', label: 'Map'},
+];
+
+// Each event's `location` is a mock {x,y} percent position on the garden canvas (same frame
+// EventMap/MiniMap draw in) — plausible spots inside the mock garden outline, not real GPS.
 const EVENT_GROUPS: TimelineGroup[] = [
   {
     day: 'Today',
     events: [
       {
+        id: 'today-rtk-fixed',
         icon: <CheckCircle2 size={14} strokeWidth={2.4} />,
         tone: 'accent' as const,
+        type: 'Positioning',
         text: 'RTK fixed — position trusted',
         time: '09:32',
+        location: {x: 30, y: 25},
       },
       {
+        id: 'today-mow-start',
         icon: <Sprout size={14} strokeWidth={2.2} />,
         tone: 'accent' as const,
+        type: 'Mowing',
         text: 'Mowing started · Etupiha',
         time: '09:30',
+        location: {x: 25, y: 55},
       },
     ],
   },
   {
     day: 'Yesterday',
     events: [
-      {icon: <HomeIcon size={13} strokeWidth={2.2} />, tone: 'info' as const, text: 'Docked · charging', time: '18:10'},
       {
-        icon: <AlertTriangle size={14} strokeWidth={2.2} />,
-        tone: 'warn' as const,
-        text: 'Lifted — paused, then reset',
-        time: '18:04',
+        id: 'yday-docked',
+        icon: <HomeIcon size={13} strokeWidth={2.2} />,
+        tone: 'info' as const,
+        type: 'Docking',
+        text: 'Docked · charging',
+        time: '18:10',
+        location: {x: 80, y: 58},
       },
       {
+        id: 'yday-lifted',
+        icon: <AlertTriangle size={14} strokeWidth={2.2} />,
+        tone: 'warn' as const,
+        type: 'Safety',
+        text: 'Lifted — paused, then reset',
+        time: '18:04',
+        location: {x: 55, y: 75},
+      },
+      {
+        id: 'yday-mow-complete',
         icon: <Check size={14} strokeWidth={2.6} />,
         tone: 'accent' as const,
+        type: 'Mowing',
         text: 'Full mow completed · 99%',
         time: '17:58',
+        location: {x: 60, y: 35},
       },
     ],
   },
 ];
+
+const ALL_EVENTS: ActivityEvent[] = EVENT_GROUPS.flatMap((g) => g.events);
 
 interface Run {
   id: string;
@@ -204,6 +236,21 @@ export function Activity() {
   const [mobileHistoryView, setMobileHistoryView] = useState<'list' | 'detail'>('list');
   const selectedRun = RUNS.find((r) => r.id === selectedRunId) ?? RUNS[0];
 
+  const [eventsView, setEventsView] = useState('list');
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const selectedEvent = ALL_EVENTS.find((e) => e.id === selectedEventId);
+  const eventPins = useMemo(
+    () =>
+      ALL_EVENTS.filter((e) => e.location && e.id).map((e) => ({
+        id: e.id!,
+        x: e.location!.x,
+        y: e.location!.y,
+        tone: e.tone,
+        icon: e.icon,
+      })),
+    [],
+  );
+
   function openRunDetail(id: string) {
     setSelectedRunId(id);
     setMobileHistoryView('detail');
@@ -239,7 +286,23 @@ export function Activity() {
         className={cn('md:w-fit', showMobileRunDetail && 'hidden md:block')}
       />
 
-      {tab === 'events' ? <EventTimeline groups={EVENT_GROUPS} className="flex-1" /> : null}
+      {tab === 'events' ? (
+        <>
+          <SegmentedToggle options={EVENTS_VIEW_OPTIONS} value={eventsView} onChange={setEventsView} className="md:w-fit" />
+          {eventsView === 'list' ? (
+            <EventTimeline groups={EVENT_GROUPS} onSelectEvent={(e) => setSelectedEventId(e.id ?? null)} className="flex-1" />
+          ) : (
+            <div className="flex flex-col gap-2 md:max-w-[720px]">
+              <EventMap
+                pins={eventPins}
+                selectedId={selectedEventId ?? undefined}
+                onSelectPin={setSelectedEventId}
+              />
+              <p className="text-[.76rem] text-ink-faint">Tap a pin to see what happened there.</p>
+            </div>
+          )}
+        </>
+      ) : null}
 
       {tab === 'history' ? (
         <>
@@ -339,6 +402,37 @@ export function Activity() {
           </div>
         </>
       ) : null}
+
+      <Sheet open={!!selectedEvent} onClose={() => setSelectedEventId(null)} title={selectedEvent?.type ?? 'Event'}>
+        {selectedEvent ? (
+          <div className="flex flex-col gap-3">
+            {selectedEvent.location ? (
+              <EventMap
+                pins={[
+                  {
+                    id: selectedEvent.id ?? selectedEvent.text,
+                    x: selectedEvent.location.x,
+                    y: selectedEvent.location.y,
+                    tone: selectedEvent.tone,
+                    icon: selectedEvent.icon,
+                  },
+                ]}
+                selectedId={selectedEvent.id}
+                className="mx-auto max-w-[280px]"
+              />
+            ) : null}
+            <Card className="p-0">
+              <FeedRow
+                icon={selectedEvent.icon}
+                tone={selectedEvent.tone}
+                text={selectedEvent.text}
+                time={selectedEvent.time}
+                className="px-3"
+              />
+            </Card>
+          </div>
+        ) : null}
+      </Sheet>
     </div>
   );
 }
