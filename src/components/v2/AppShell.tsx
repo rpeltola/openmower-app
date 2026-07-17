@@ -2,12 +2,16 @@
 
 import {MowerSelector} from '@/components/v2/MowerSelector';
 import {cn} from '@/components/v2/lib/cn';
+import {BootingScreen} from '@/components/v2/states/BootingScreen';
+import {ErrorScreen} from '@/components/v2/states/ErrorScreen';
+import {PausedBanner} from '@/components/v2/states/PausedBanner';
 import {Button} from '@/components/v2/ui/Button';
 import {ConnectionBanner} from '@/components/v2/ui/ConnectionBanner';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
 import {STATE_COPY, type Tone} from '@/lib/v2/robotState';
 import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
 import {useRobotState} from '@/lib/v2/useRobotState';
+import {useRobotStateSnapshot} from '@/lib/v2/useRobotStateSnapshot';
 import {
   Activity,
   Calendar,
@@ -78,8 +82,25 @@ export function AppShell({children}: AppShellProps) {
   const pathname = usePathname() ?? '/v2';
   const [mowerSelectorOpen, setMowerSelectorOpen] = useState(false);
   const {status: connectionStatus, reconnect} = useConnectionStatus();
-  const {state, isMowing, areaName, coveragePct} = useRobotState();
+  const {state, isMowing, isPlanning, areaName, coveragePct, stateDetail} = useRobotState();
+  const {reasons, error} = useRobotStateSnapshot();
   const stateCopy = STATE_COPY[state];
+
+  // BOOTING/ERROR are a full-screen blocking takeover (STATE_COMMAND_MODEL.md §3) -- there's
+  // nothing useful to navigate to yet (BOOTING) or the robot needs attention before anything
+  // else matters (ERROR), so neither the sidebar/tab bar nor the route's own content mounts.
+  // The connection banner still shows -- knowing whether the gateway itself is even reachable is
+  // exactly what you want while staring at a boot checklist or an error screen.
+  if (state === 'BOOTING' || state === 'ERROR') {
+    return (
+      <div className="mx-auto flex min-h-dvh w-full max-w-[1400px] flex-col">
+        <ConnectionBanner status={connectionStatus} onReconnect={reconnect} />
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-surface p-4">
+          {state === 'BOOTING' ? <BootingScreen /> : <ErrorScreen code={error?.code} />}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] md:h-dvh">
@@ -134,12 +155,26 @@ export function AppShell({children}: AppShellProps) {
         <div className="rounded-xl border border-border bg-surface p-3">
           <div className="flex items-center gap-1.5 text-[.82rem] font-semibold text-ink">
             <span className={cn('h-2 w-2 flex-none rounded-full', TONE_DOT_BG[stateCopy.tone])} />
-            {isMowing && areaName ? `${stateCopy.label} · ${areaName}` : stateCopy.label}
+            {isMowing && areaName
+              ? `${stateCopy.label} · ${areaName}`
+              : isPlanning && stateDetail?.phase
+                ? stateDetail.phase
+                : stateCopy.label}
           </div>
           {/* No mission ETA wired yet — mowing shows real coverage only, never a fabricated
               "min left"; other states fall back to STATE_COPY's sub line. */}
-          <div className="my-1 text-xs text-ink-soft">{isMowing ? `${coveragePct ?? 0}% mowed` : stateCopy.sub}</div>
-          {isMowing ? <ProgressBar value={coveragePct ?? 0} className="h-[5px]" /> : null}
+          <div className="my-1 text-xs text-ink-soft">
+            {isMowing
+              ? `${coveragePct ?? 0}% mowed`
+              : isPlanning
+                ? `${Math.round(stateDetail?.progress ?? 0)}%`
+                : stateCopy.sub}
+          </div>
+          {isMowing ? (
+            <ProgressBar value={coveragePct ?? 0} className="h-[5px]" />
+          ) : isPlanning ? (
+            <ProgressBar value={stateDetail?.progress ?? 0} className="h-[5px]" />
+          ) : null}
         </div>
       </aside>
 
@@ -148,6 +183,7 @@ export function AppShell({children}: AppShellProps) {
           so surface-2 tiles/cards read; desktop keeps the tinted `--bg` canvas. */}
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col bg-surface md:min-h-0 md:bg-transparent">
         <ConnectionBanner status={connectionStatus} onReconnect={reconnect} />
+        {state === 'PAUSED' ? <PausedBanner reasons={reasons} /> : null}
 
         <main className="min-h-0 flex-1 overflow-y-auto pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-0">
           {children}

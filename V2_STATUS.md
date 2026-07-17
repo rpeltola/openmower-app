@@ -2,6 +2,41 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 6 (2026-07-17) — W9 Lane A2a: display side wired to the real canonical state
+Branch **`feature/w9-app2`** (worktree, off `personal`). Completes what SESSION 5 left open: the
+DISPLAY of the real canonical state, not just command availability.
+
+- **One display hook.** `useRobotState.ts` (Home/AppShell/Map's display hook) is now built
+  directly on `useRobotStateSnapshot`'s canonical `state`, instead of independently re-deriving it
+  from `current_state`+`is_charging` — the legacy `toRobotState` mapping moved to `robotState.ts`
+  (both hook files import it from there, no cycle) and is now used in exactly one place
+  (`useRobotStateSnapshot`'s R3/R6 fallback). PLANNING_MISSION/RECOVERING/READY/ERROR now render
+  the instant a gateway publishes them. Added `isPaused`, `isPlanning`, `stateDetail` (progress/
+  phase/eta passthrough) to `RobotStateView`; `coveragePct` now spans every `isOnLawn` state
+  (MOWING/PAUSED/PLANNING_MISSION/RECOVERING), not just MOWING, so it survives a real pause.
+- **Home.tsx** wires `MowingHero`'s existing (previously-unused) `planning` sweep prop and shows
+  `state_detail.phase`/`progress` while PLANNING_MISSION, on both the mobile hero overlay and the
+  desktop KPI grid/StatePill sub — the literal "dead Mow button" acceptance case (Mow → "Planning…"
+  → MOWING, driven by published state only).
+- **AppShell now routes live.** `state===BOOTING`/`ERROR` render a full-screen blocking takeover
+  (`BootingScreen` / the new `states/ErrorScreen.tsx`, using `STATE_COPY.ERROR` + `error.code`) with
+  no nav chrome. `state===PAUSED` mounts the new `states/PausedBanner.tsx` above the normal content:
+  stacked reason chips, most-severe-first; EMERGENCY/COLLISION render danger-toned with no dismiss
+  ("red-blocking"); everything else is dismissible but resurfaces the moment the active reason
+  combo changes.
+- **Map.tsx's stat-card commands are real.** Pause/Resume/Stop/Dock go through `useCommand`/
+  `useCommandAvailability` (same client Home uses) — the local `mockPaused` toggle is gone, the
+  RTK-lost dev-simulate card's Dock button has an `onClick` now, and Pause/Resume/Stop are
+  reachable across both MOWING and PAUSED (`showMowControls = isMowing || isPaused`) instead of
+  only while `isMowing` (previously true forever until `mockPaused` flipped it, which no longer
+  reflects reality once PAUSED is a real, distinct state). No Undock command surface exists on Map
+  — none existed before this pass either, not fabricated here.
+- **Tests**: `useRobotState.test.tsx` (9, canonical-state + fallback + on-lawn coverage cases),
+  `AppShell.test.tsx` (5, BOOTING/ERROR/PAUSED routing incl. red-blocking vs. dismissible),
+  `Map.commands.test.tsx` (3, Pause/Resume call the real client, reason chip on disallow). Full
+  suite: 55 tests passing (`npx vitest run`); `npx tsc --noEmit` and `npm run build` both clean.
+- **Deferred to A2b** (per the wave boundary): manual teleop, map save/versioning, area recording.
+
 ## ✅ SESSION 5 (2026-07-17) — W9 Lane A-core: first test suite + real robot-state/command binding
 Branch **`feature/w9-app`** (worktree, off `personal`). Implements openmower-app's app-side half
 (B4) of `OpenMowerNext/docs/w9-implementation.md`'s frozen wire contract (§0).
@@ -418,8 +453,10 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
       back) instead of dropping the desktop detail pane. **PRINCIPLE (apply to every screen): mobile-
       first, FULL feature parity — never hide features on mobile; give each a mobile idiom (drill-in/
       sheet).** Still audit: Schedule mobile lacks the full week-calendar (has the plan); fine-ish.
-- [ ] Wire REAL data (MQTT store/hooks/schemas — currently ALL MOCK; the stores/lib/hooks are
-      shared with v1 and library-agnostic)
+- [~] Wire REAL data (MQTT store/hooks/schemas). Robot state/command binding is real (W9 Lanes
+      A-core + A2a, SESSIONS 5-6): canonical state, command ack/nack, BOOTING/PAUSED/ERROR live
+      routing, Map's Pause/Resume/Stop/Dock. Remaining: manual teleop, map save/versioning, area
+      recording (A2b) — everything else on this screen-by-screen list is still mock data.
 - [ ] Cut over: v2 → `/`, delete v1 + MUI + the Tailwind-preflight workaround
 
 ## The rhythm (per screen)

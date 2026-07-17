@@ -19,9 +19,23 @@ fields, falling back to the legacy `current_state` mapping for an old gateway). 
 (`useRobotStateMock.ts`, canonical enum + copy table + a simulated transition engine) stays in the
 tree as the `/v2/states` dev gallery's data source — not deleted, just no longer live. First test
 suite (vitest) covers the copy-table completeness gate + a state×reason×readiness render table +
-`useCommand` ack/nack/timeout. See `V2_STATUS.md` SESSION 5 for the file-level detail. Still open:
-wiring AppShell to actually switch to the BOOTING/PAUSED full-screen states when the robot enters
-them (bound to data, not yet mounted live), and Map.tsx's own command-surface buttons.
+`useCommand` ack/nack/timeout. See `V2_STATUS.md` SESSION 5 for the file-level detail.
+
+**W9 Lane A2a (2026-07-17) — the DISPLAY side is fully wired to the same canonical state.**
+`useRobotState` (Home/AppShell/Map's one display hook) is now built directly on top of
+`useRobotStateSnapshot`'s `state` instead of a second, independently-maintained `current_state`
+mapping — so PLANNING_MISSION ("Planning…" + `state_detail.progress`/`phase`), RECOVERING, READY
+and ERROR actually render the instant a gateway publishes them, with the legacy mapping kept only
+as `useRobotStateSnapshot`'s R3/R6 fallback for an old gateway (never a second copy in the display
+hook itself). AppShell now routes live: `state===BOOTING`/`ERROR` render a full-screen blocking
+takeover (`BootingScreen`/the new `ErrorScreen`, no nav chrome); `state===PAUSED` surfaces the new
+`PausedBanner` (stacked reasons, most-severe-first, red-blocking/no-dismiss for EMERGENCY/COLLISION,
+dismissible-but-persistent amber/neutral otherwise) above the normal content. Map's stat-card
+Pause/Resume/Stop/Dock buttons go through the same real `useCommand`/`useCommandAvailability`
+client Home uses (the local `mockPaused` toggle and Dock's missing `onClick` are gone); Pause/
+Resume/Stop are now reachable across both MOWING and PAUSED (`isOnLawn`), not just while
+`isMowing`. Still open: Map has no Undock command surface at all (none existed before this pass
+either — not fabricated here), and A2b's manual teleop / map save-versioning / area-recording.
 
 ---
 
