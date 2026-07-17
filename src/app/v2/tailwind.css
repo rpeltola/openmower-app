@@ -1,0 +1,373 @@
+/* Tailwind v4 entry point for the /v2 design system.
+ *
+ * Coexistence: preflight is intentionally NOT imported (only theme.css + utilities.css).
+ * v1's MUI CssBaseline already resets the whole document; Tailwind's own reset would fight
+ * it globally. This file is only ever imported from src/app/v2/layout.tsx, so its utility
+ * classes are only ever *used* inside /v2 — see component-library.md §2/§3.
+ */
+@import 'tailwindcss/theme.css' layer(theme);
+/* Utilities imported UNLAYERED (no `layer(utilities)`). v1's globals.css ships an unlayered
+   `* { margin:0; padding:0 }` reset that leaks into /v2, and in the cascade an unlayered rule
+   beats a layered one regardless of specificity — so layered utilities would lose every
+   padding/margin to that `*` reset (gap survives, which masked the bug). Unlayered, `.p-4`
+   (0,1,0) beats `*` (0,0,0) on specificity and wins. Only loaded on /v2, only matches v2
+   classes, so v1/MUI are unaffected. */
+@import 'tailwindcss/utilities.css';
+
+/* ---- Design tokens (design-language.md §2 + the concept's exact palette) ---- */
+
+:root {
+  --bg: #f3f6f2;
+  --surface: #ffffff;
+  --surface-2: #edf1eb;
+  --raised: #ffffff;
+  --ink: #14201a;
+  --ink-soft: #586961;
+  --ink-faint: #8a9990;
+  --border: #e2e8e0;
+  --accent: #12855a;
+  --accent-bright: #25b074;
+  --accent-ink: #0b5c3d;
+  --accent-wash: #e4f1ea;
+  --warn: #b7791a;
+  --warn-wash: #f6ebd5;
+  --danger: #c0433a;
+  --danger-wash: #f6e0dd;
+  --info: #3e72ae;
+  --info-wash: #e1ebf5;
+  --map: #e6ede4;
+  --map-line: #d3ddcf;
+  --mowed: #b9e3ce;
+  --bed: #d2c6ae;
+  --dock: #3e72ae;
+  --shadow-s: 0 1px 2px rgba(20, 32, 26, 0.05), 0 2px 8px rgba(20, 32, 26, 0.05);
+  --shadow-m: 0 4px 14px rgba(20, 32, 26, 0.09), 0 18px 40px rgba(20, 32, 26, 0.08);
+  --radius-card: 16px;
+  --radius-control: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c1310;
+    --surface: #151d18;
+    --surface-2: #1c2621;
+    --raised: #1b241f;
+    --ink: #e9eeea;
+    --ink-soft: #9db0a6;
+    --ink-faint: #6e7f76;
+    --border: #26312b;
+    --accent: #3bc384;
+    --accent-bright: #4fd996;
+    --accent-ink: #b7ecd2;
+    --accent-wash: #12271e;
+    --warn: #e1b15e;
+    --warn-wash: #2c2411;
+    --danger: #e88a7d;
+    --danger-wash: #2e1613;
+    --info: #82b2e0;
+    --info-wash: #12212e;
+    --map: #0f1b15;
+    --map-line: #1b2a22;
+    --mowed: #1e5b41;
+    --bed: #3a3324;
+    --dock: #82b2e0;
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-m: 0 6px 20px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* The app already stamps data-theme on <html> (see the blocking script in the root
+   layout) — reuse that single source of truth for both v1 (MUI) and v2 (these vars). */
+:root[data-theme='dark'] {
+  --bg: #0c1310;
+  --surface: #151d18;
+  --surface-2: #1c2621;
+  --raised: #1b241f;
+  --ink: #e9eeea;
+  --ink-soft: #9db0a6;
+  --ink-faint: #6e7f76;
+  --border: #26312b;
+  --accent: #3bc384;
+  --accent-bright: #4fd996;
+  --accent-ink: #b7ecd2;
+  --accent-wash: #12271e;
+  --warn: #e1b15e;
+  --warn-wash: #2c2411;
+  --danger: #e88a7d;
+  --danger-wash: #2e1613;
+  --info: #82b2e0;
+  --info-wash: #12212e;
+  --map: #0f1b15;
+  --map-line: #1b2a22;
+  --mowed: #1e5b41;
+  --bed: #3a3324;
+  --dock: #82b2e0;
+  --shadow-s: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-m: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme='light'] {
+  --bg: #f3f6f2;
+  --surface: #ffffff;
+  --surface-2: #edf1eb;
+  --raised: #ffffff;
+  --ink: #14201a;
+  --ink-soft: #586961;
+  --ink-faint: #8a9990;
+  --border: #e2e8e0;
+  --accent: #12855a;
+  --accent-bright: #25b074;
+  --accent-ink: #0b5c3d;
+  --accent-wash: #e4f1ea;
+  --warn: #b7791a;
+  --warn-wash: #f6ebd5;
+  --danger: #c0433a;
+  --danger-wash: #f6e0dd;
+  --info: #3e72ae;
+  --info-wash: #e1ebf5;
+  --map: #e6ede4;
+  --map-line: #d3ddcf;
+  --mowed: #b9e3ce;
+  --bed: #d2c6ae;
+  --dock: #3e72ae;
+  --shadow-s: 0 1px 2px rgba(20, 32, 26, 0.05), 0 2px 8px rgba(20, 32, 26, 0.05);
+  --shadow-m: 0 4px 14px rgba(20, 32, 26, 0.09), 0 18px 40px rgba(20, 32, 26, 0.08);
+}
+
+/* ---- Wire the tokens into the Tailwind theme (bg-accent, text-ink, border-border, …) ---- */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-wash: var(--accent-wash);
+  --color-warn: var(--warn);
+  --color-warn-wash: var(--warn-wash);
+  --color-danger: var(--danger);
+  --color-danger-wash: var(--danger-wash);
+  --color-info: var(--info);
+  --color-info-wash: var(--info-wash);
+  --color-map: var(--map);
+  --color-map-line: var(--map-line);
+  --color-mowed: var(--mowed);
+  --color-bed: var(--bed);
+  --color-dock: var(--dock);
+
+  --radius-card: var(--radius-card);
+  --radius-control: var(--radius-control);
+}
+
+.v2-root {
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100dvh;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Preflight-omitted button reset. Utilities are imported UNLAYERED, so this reset only needs
+   LOWER SPECIFICITY than a utility to lose to it: `:where(.v2-root button)` is (0,0,0); a single
+   utility class is (0,1,0). So this strips native <button> chrome (border, background, padding,
+   appearance) as a DEFAULT, and any `bg-*`/`border-*`/`p-*` utility on the button overrides it.
+   Net effect = Tailwind preflight for buttons, without importing preflight (which would clobber
+   v1's MUI). Because of this, authored buttons no longer need per-instance `border-0`/
+   `bg-transparent` — but keep using the <Button> component in app code regardless (raw <button>
+   belongs only in the ui/ kit). */
+:where(.v2-root button) {
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+/* ---- MowingHero animation (Home) — ported 1:1 from the concept's .mowhero/.mowscene
+   scene (design-language.md §3 motion). Scoped under .v2-root so it never leaks into v1. ---- */
+.v2-root .mh-mower {
+  animation: mh-bob 2.6s ease-in-out infinite;
+}
+.v2-root .mh-wheel {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mh-spin 0.9s linear infinite;
+}
+.v2-root .mh-blade {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mh-spin 0.5s linear infinite;
+}
+.v2-root .mh-tuft {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: mh-sway 2.1s ease-in-out infinite;
+}
+.v2-root .mh-clip {
+  animation: mh-fly 1.5s ease-out infinite;
+}
+/* Ground parallax — the uncut-tuft strip (ahead of the deck) and the mowed-tick strip (behind
+   it) each tile at a fixed period and scroll by exactly one tile width, so the loop point is
+   pixel-identical to the start and the seam never shows. Two different periods/speeds (ahead
+   is slower/taller, behind is quicker/shorter) read as the same ground plane sliding past a
+   roughly fixed mower — see MowingHero.tsx's `tileForZone` for the matching geometry. */
+.v2-root .mh-ground-ahead {
+  animation: mh-scroll-ahead 2.4s linear infinite;
+}
+.v2-root .mh-ground-behind {
+  animation: mh-scroll-behind 1.05s linear infinite;
+}
+@keyframes mh-scroll-ahead {
+  to {
+    transform: translateX(-56px);
+  }
+}
+@keyframes mh-scroll-behind {
+  to {
+    transform: translateX(-24px);
+  }
+}
+@keyframes mh-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes mh-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes mh-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-6deg);
+  }
+}
+@keyframes mh-fly {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.5);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(18px, -20px) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v2-root .mh-mower,
+  .v2-root .mh-wheel,
+  .v2-root .mh-blade,
+  .v2-root .mh-tuft,
+  .v2-root .mh-clip,
+  .v2-root .mh-ground-ahead,
+  .v2-root .mh-ground-behind {
+    animation: none;
+  }
+}
+
+/* ---- Device Home charge-beam animation — ported 1:1 from the concept's `.breath` lines
+   behind the mower hero (docs/concept/openmower-app-concept.html "B · DEVICE HOME"). ---- */
+.v2-root .dh-breath {
+  animation: dh-breath 2.6s ease-in-out infinite;
+}
+@keyframes dh-breath {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v2-root .dh-breath {
+    animation: none;
+    opacity: 0.3;
+  }
+}
+
+/* ---- MowingHero charging scene (Home) — bolt pulse + battery-fill breathe over the dock. ---- */
+.v2-root .mh-bolt {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mh-bolt-pulse 1.6s ease-in-out infinite;
+}
+@keyframes mh-bolt-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+.v2-root .mh-battery-fill {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: mh-battery-fill 2.4s ease-in-out infinite;
+}
+@keyframes mh-battery-fill {
+  0%,
+  100% {
+    transform: scaleX(0.55);
+  }
+  50% {
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v2-root .mh-bolt {
+    animation: none;
+    opacity: 0.85;
+  }
+  .v2-root .mh-battery-fill {
+    animation: none;
+    transform: scaleX(0.71);
+  }
+}
+
+/* ---- MowingHero PLANNING_MISSION busy overlay (Home) — a soft info-toned band sweeping
+   across the frozen idle scene, layered over MowerBody. ---- */
+.v2-root .mh-scan {
+  animation: mh-scan-sweep 2.2s ease-in-out infinite;
+}
+@keyframes mh-scan-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  15%,
+  85% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(440px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v2-root .mh-scan {
+    animation: none;
+    opacity: 0.3;
+  }
+}
