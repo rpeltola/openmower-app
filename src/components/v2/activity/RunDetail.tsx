@@ -1,4 +1,5 @@
 import {ReplayCard} from '@/components/v2/activity/ReplayCard';
+import {type RunMetric} from '@/components/v2/activity/RunCard';
 import {cn} from '@/components/v2/lib/cn';
 import {ActivityFeedCard, type ActivityEvent} from '@/components/v2/ui/ActivityFeedCard';
 import {Button} from '@/components/v2/ui/Button';
@@ -6,29 +7,28 @@ import {Chip, type ChipProps} from '@/components/v2/ui/Chip';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
 
 export interface RunDetailProps {
+  /** The real job_id (see MowJob) -- threaded straight to ReplayCard's telemetry fetch. */
+  jobId: string | null;
   plan: string;
   statusLabel: string;
   statusVariant: ChipProps['variant'];
   /** e.g. "Mon 09:30 – 11:22 · all areas". */
   timeRange: string;
-  coveragePct: number;
-  areaM2: number | string;
-  duration: string;
+  metrics: [RunMetric, RunMetric, RunMetric];
   events: ActivityEvent[];
   className?: string;
 }
 
 /** Desktop history detail pane (concept "List and detail, side by side"; also the mobile
  *  full-screen drill-in): the run's driven-track replay (`ReplayCard` — animated position
- *  dot, pinned event markers, play/pause + scrubber transport), its KPIs, and its event feed. */
+ *  dot, play/pause + scrubber transport), its KPIs, and its event feed. */
 export function RunDetail({
+  jobId,
   plan,
   statusLabel,
   statusVariant,
   timeRange,
-  coveragePct,
-  areaM2,
-  duration,
+  metrics,
   events,
   className,
 }: RunDetailProps) {
@@ -46,15 +46,16 @@ export function RunDetail({
         </Button>
       </div>
 
-      <ReplayCard timeRange={timeRange} duration={duration} events={events} />
+      <ReplayCard jobId={jobId} />
 
       <div className="grid grid-cols-3 gap-3">
-        <KpiTile value={coveragePct} unit=" %" label="Coverage" accent />
-        <KpiTile value={areaM2} unit=" m²" label="Area mowed" />
-        <KpiTile value={duration} label="Duration" />
+        {metrics.map((m) => (
+          <KpiTile key={m.label} value={m.value} unit={m.unit} label={m.label} accent={m.accent} />
+        ))}
       </div>
 
       <ActivityFeedCard title="Events" events={events} />
+      {events.length === 0 ? <p className="px-1 text-[.76rem] text-ink-faint">No events recorded for this run.</p> : null}
     </div>
   );
 }

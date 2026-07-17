@@ -15,11 +15,24 @@ import {KpiTile} from '@/components/v2/ui/KpiTile';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Sheet} from '@/components/v2/ui/Sheet';
-import {AlertTriangle, Check, CheckCircle2, ChevronLeft, Home as HomeIcon, Sprout} from 'lucide-react';
+import {useMowJobs} from '@/hooks/useMowJobs';
+import type {MowJob, MowJobStatus} from '@/stores/schemas';
+import {formatDuration} from '@/utils/area-utils';
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  Home as HomeIcon,
+  Inbox,
+  Loader2,
+  Sprout,
+} from 'lucide-react';
 import {useMemo, useState} from 'react';
 
-// Canonical mock world (design-language.md "Cross-platform contract"): Kotipiha. Mock
-// telemetry/history only — this screen wires no MQTT/persistence yet. Copy and values match
+// Canonical mock world (design-language.md "Cross-platform contract"): Kotipiha. The History
+// tab (run list + replay) is wired to real mow jobs via useMowJobs/useJobTimedTrack -- Events
+// and Stats below are still the mock dataset. Copy and values match
 // docs/concept/openmower-app-concept.html "Activity" slots + openmower-desktop-concept.html
 // exactly, reconciled to one dataset shared across breakpoints (the two concept files disagree
 // on the third run's exact times/duration — the mobile numbers below are treated as canonical).
@@ -103,7 +116,8 @@ const EVENT_GROUPS: TimelineGroup[] = [
 
 const ALL_EVENTS: ActivityEvent[] = EVENT_GROUPS.flatMap((g) => g.events);
 
-interface Run {
+interface RunView {
+  /** The real job_id (see MowJob) -- threaded to RunCard/RunDetail/ReplayCard. */
   id: string;
   plan: string;
   statusLabel: string;
@@ -112,94 +126,73 @@ interface Run {
   startTime: string;
   endTime: string;
   scope: string;
-  area: string;
-  duration: string;
-  coveragePct: number;
-  completed: boolean;
-  events: ActivityEvent[];
+  metrics: [RunMetric, RunMetric, RunMetric];
 }
 
-const RUNS: Run[] = [
-  {
-    id: 'mon-full-mow',
-    plan: 'Full mow',
-    statusLabel: 'Completed',
-    statusVariant: 'ok',
-    dayLabel: 'Mon',
-    startTime: '09:30',
-    endTime: '11:22',
-    scope: 'all areas',
-    area: '1,542',
-    duration: '1h 52m',
-    coveragePct: 99,
-    completed: true,
-    events: [
-      {icon: <Sprout size={13} strokeWidth={2.2} />, tone: 'accent', text: 'Mowing started', time: '09:30'},
-      {
-        icon: <CheckCircle2 size={13} strokeWidth={2.4} />,
-        tone: 'accent',
-        text: 'RTK fixed — position trusted',
-        time: '09:31',
-      },
-      {icon: <HomeIcon size={13} strokeWidth={2.2} />, tone: 'info', text: 'Docked · charging complete', time: '11:22'},
-    ],
-  },
-  {
-    id: 'sat-etupiha',
-    plan: 'Etupiha',
-    statusLabel: 'Manual-stop',
-    statusVariant: 'warn',
-    dayLabel: 'Sat',
-    startTime: '14:05',
-    endTime: '14:43',
-    scope: 'Etupiha',
-    area: '235',
-    duration: '38m',
-    coveragePct: 46,
-    completed: false,
-    events: [
-      {icon: <Sprout size={13} strokeWidth={2.2} />, tone: 'accent', text: 'Mowing started', time: '14:05'},
-      {
-        icon: <CheckCircle2 size={13} strokeWidth={2.4} />,
-        tone: 'accent',
-        text: 'RTK fixed — position trusted',
-        time: '14:06',
-      },
-      {icon: <AlertTriangle size={13} strokeWidth={2.2} />, tone: 'warn', text: 'Stopped manually', time: '14:43'},
-    ],
-  },
-  {
-    id: 'thu-full-mow',
-    plan: 'Full mow',
-    statusLabel: 'Completed',
-    statusVariant: 'ok',
-    dayLabel: 'Thu',
-    startTime: '08:40',
-    endTime: '10:43',
-    scope: 'all areas',
-    area: '1,529',
-    duration: '2h 03m',
-    coveragePct: 98,
-    completed: true,
-    events: [
-      {icon: <Sprout size={13} strokeWidth={2.2} />, tone: 'accent', text: 'Mowing started', time: '08:40'},
-      {
-        icon: <CheckCircle2 size={13} strokeWidth={2.4} />,
-        tone: 'accent',
-        text: 'RTK fixed — position trusted',
-        time: '08:41',
-      },
-      {icon: <HomeIcon size={13} strokeWidth={2.2} />, tone: 'info', text: 'Docked · charging complete', time: '10:43'},
-    ],
-  },
-];
+/** History run window: last 30 days of mow jobs (see useMowJobs). */
+const HISTORY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-function runMetrics(run: Run): [RunMetric, RunMetric, RunMetric] {
-  return [
-    {value: run.area, unit: ' m²', label: 'Area'},
-    {value: run.duration, label: 'Duration'},
-    {value: run.coveragePct, unit: ' %', label: 'Coverage', accent: run.completed},
-  ];
+function jobStatusLabel(status: MowJob['status']): string {
+  switch (status as MowJobStatus) {
+    case 'completed':
+      return 'Completed';
+    case 'running':
+      return 'Running';
+    case 'failed':
+      return 'Failed';
+    case 'superseded':
+      return 'Superseded';
+    default:
+      return status;
+  }
+}
+
+function jobStatusVariant(status: MowJob['status']): ChipProps['variant'] {
+  switch (status as MowJobStatus) {
+    case 'completed':
+      return 'ok';
+    case 'running':
+      return 'info';
+    case 'failed':
+      return 'danger';
+    case 'superseded':
+      return 'warn';
+    default:
+      return 'neutral';
+  }
+}
+
+function formatClockTime(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'});
+}
+
+/** Maps a real MowJob (see useMowJobs) to the shape RunCard/RunDetail render. MowJob has no
+ *  plan name or coverage percentage, so "plan"/"scope" fall back to the areas driven (whole
+ *  garden when `area_ids` is empty), and the third KPI slot is the job's average battery when
+ *  known, else its path length -- never a fabricated coverage number. */
+function toRunView(job: MowJob): RunView {
+  const areaCount = job.area_ids.length;
+  const scope = areaCount === 0 ? 'all areas' : `${areaCount} area${areaCount === 1 ? '' : 's'}`;
+  const thirdMetric: RunMetric =
+    job.avg_battery_pct != null
+      ? {value: Math.round(job.avg_battery_pct), unit: ' %', label: 'Avg battery'}
+      : {value: Math.round(job.path_length_m), unit: ' m', label: 'Path'};
+
+  return {
+    id: job.id,
+    plan: areaCount === 0 ? 'Full mow' : scope,
+    statusLabel: jobStatusLabel(job.status),
+    statusVariant: jobStatusVariant(job.status),
+    dayLabel: new Date(job.started_at * 1000).toLocaleDateString(undefined, {weekday: 'short'}),
+    startTime: formatClockTime(job.started_at),
+    endTime: job.ended_at != null ? formatClockTime(job.ended_at) : '…',
+    scope,
+    metrics: [
+      {value: Math.round(job.area_m2).toLocaleString(), unit: ' m²', label: 'Area'},
+      {value: formatDuration(job.duration_s), label: 'Duration'},
+      thirdMetric,
+    ],
+  };
 }
 
 const WEEK_BARS: WeekBarChartBar[] = [
@@ -232,9 +225,17 @@ const FORTNIGHT_BARS: WeekBarChartBar[] = [
 export function Activity() {
   const [tab, setTab] = useState('events');
   const [range, setRange] = useState('all');
-  const [selectedRunId, setSelectedRunId] = useState(RUNS[0].id);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [mobileHistoryView, setMobileHistoryView] = useState<'list' | 'detail'>('list');
-  const selectedRun = RUNS.find((r) => r.id === selectedRunId) ?? RUNS[0];
+
+  // Anchored once per mount, not recomputed every render -- useMowJobs refetches whenever
+  // fromMs/toMs change, so a live Date.now() here would loop.
+  const nowMs = useMemo(() => Date.now(), []);
+  const {jobs, loading: jobsLoading, error: jobsError} = useMowJobs(nowMs - HISTORY_WINDOW_MS, nowMs);
+  const runs = useMemo(() => jobs.map(toRunView), [jobs]);
+  // Falls back to the first run whenever nothing (or a stale id) is selected; only read once
+  // `runs.length > 0` is established below.
+  const selectedRun = runs.find((r) => r.id === selectedRunId) ?? runs[0];
 
   const [eventsView, setEventsView] = useState('list');
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -305,66 +306,81 @@ export function Activity() {
       ) : null}
 
       {tab === 'history' ? (
-        <>
-          {/* ===== Mobile: run cards, or a run's full-screen detail drill-in ===== */}
-          <div className="flex flex-1 flex-col gap-2.5 md:hidden">
-            {mobileHistoryView === 'list' ? (
-              RUNS.map((run) => (
-                <RunCard
-                  key={run.id}
-                  onSelect={() => openRunDetail(run.id)}
-                  plan={run.plan}
-                  statusLabel={run.statusLabel}
-                  statusVariant={run.statusVariant}
-                  timestamp={`${run.dayLabel} · ${run.startTime}–${run.endTime}`}
-                  metrics={runMetrics(run)}
+        jobsLoading && runs.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center gap-2 py-10 text-ink-faint">
+            <Loader2 size={16} strokeWidth={2.4} className="animate-spin" />
+            <span className="text-[.82rem]">Loading history…</span>
+          </div>
+        ) : runs.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-10 text-center">
+            <Inbox size={22} strokeWidth={1.8} className="text-ink-faint" />
+            <p className="text-[.86rem] font-semibold text-ink">No runs yet</p>
+            <p className="max-w-[240px] text-[.78rem] text-ink-soft">
+              {jobsError ? 'Could not load run history.' : 'Runs will show up here once the mower finishes a job.'}
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* ===== Mobile: run cards, or a run's full-screen detail drill-in ===== */}
+            <div className="flex flex-1 flex-col gap-2.5 md:hidden">
+              {mobileHistoryView === 'list' ? (
+                runs.map((run) => (
+                  <RunCard
+                    key={run.id}
+                    jobId={run.id}
+                    onSelect={() => openRunDetail(run.id)}
+                    plan={run.plan}
+                    statusLabel={run.statusLabel}
+                    statusVariant={run.statusVariant}
+                    timestamp={`${run.dayLabel} · ${run.startTime}–${run.endTime}`}
+                    metrics={run.metrics}
+                  />
+                ))
+              ) : (
+                <RunDetail
+                  jobId={selectedRun.id}
+                  plan={selectedRun.plan}
+                  statusLabel={selectedRun.statusLabel}
+                  statusVariant={selectedRun.statusVariant}
+                  timeRange={`${selectedRun.dayLabel} ${selectedRun.startTime} – ${selectedRun.endTime} · ${selectedRun.scope}`}
+                  metrics={selectedRun.metrics}
+                  events={[]}
+                  className="flex-1"
                 />
-              ))
-            ) : (
+              )}
+            </div>
+
+            {/* ===== Desktop: run list + detail pane, side by side ===== */}
+            <div className="hidden min-h-0 flex-1 gap-4 md:flex">
+              <div className="flex w-[300px] flex-none flex-col gap-2.5 overflow-y-auto pr-0.5">
+                {runs.map((run) => (
+                  <RunCard
+                    key={run.id}
+                    jobId={run.id}
+                    compact
+                    selected={run.id === selectedRun.id}
+                    onSelect={() => setSelectedRunId(run.id)}
+                    plan={run.plan}
+                    statusLabel={run.statusLabel}
+                    statusVariant={run.statusVariant}
+                    timestamp={`${run.dayLabel} · ${run.startTime}`}
+                    metrics={run.metrics}
+                  />
+                ))}
+              </div>
               <RunDetail
+                jobId={selectedRun.id}
                 plan={selectedRun.plan}
                 statusLabel={selectedRun.statusLabel}
                 statusVariant={selectedRun.statusVariant}
                 timeRange={`${selectedRun.dayLabel} ${selectedRun.startTime} – ${selectedRun.endTime} · ${selectedRun.scope}`}
-                coveragePct={selectedRun.coveragePct}
-                areaM2={selectedRun.area}
-                duration={selectedRun.duration}
-                events={selectedRun.events}
+                metrics={selectedRun.metrics}
+                events={[]}
                 className="flex-1"
               />
-            )}
-          </div>
-
-          {/* ===== Desktop: run list + detail pane, side by side ===== */}
-          <div className="hidden min-h-0 flex-1 gap-4 md:flex">
-            <div className="flex w-[300px] flex-none flex-col gap-2.5 overflow-y-auto pr-0.5">
-              {RUNS.map((run) => (
-                <RunCard
-                  key={run.id}
-                  compact
-                  selected={run.id === selectedRunId}
-                  onSelect={() => setSelectedRunId(run.id)}
-                  plan={run.plan}
-                  statusLabel={run.statusLabel}
-                  statusVariant={run.statusVariant}
-                  timestamp={`${run.dayLabel} · ${run.startTime}`}
-                  metrics={runMetrics(run)}
-                />
-              ))}
             </div>
-            <RunDetail
-              plan={selectedRun.plan}
-              statusLabel={selectedRun.statusLabel}
-              statusVariant={selectedRun.statusVariant}
-              timeRange={`${selectedRun.dayLabel} ${selectedRun.startTime} – ${selectedRun.endTime} · ${selectedRun.scope}`}
-              coveragePct={selectedRun.coveragePct}
-              areaM2={selectedRun.area}
-              duration={selectedRun.duration}
-              events={selectedRun.events}
-              className="flex-1"
-            />
-          </div>
-        </>
+          </>
+        )
       ) : null}
 
       {tab === 'stats' ? (
