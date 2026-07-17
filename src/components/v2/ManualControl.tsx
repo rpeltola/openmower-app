@@ -270,7 +270,10 @@ export function ManualControl() {
         className={
           isDesktop
             ? 'flex flex-1 flex-row gap-4 overflow-hidden p-4 md:gap-4 md:p-6'
-            : 'flex flex-1 flex-col gap-4 overflow-y-auto p-4'
+            : // The landscape cockpit is squeezed into a short (~390px) viewport with no
+              // room to spare — the mobile p-4 leaves the camera+console row a few px
+              // taller than what's left over, so it gets its own tighter padding here.
+              `flex flex-1 flex-col gap-4 overflow-y-auto ${isLandscapeCockpit ? 'p-1' : 'p-4'}`
         }
       >
         {/* The DJI-style viewport (camera FPV main + map PiP, tap to swap) replaces the
@@ -290,7 +293,7 @@ export function ManualControl() {
                scrolling — Stop is a safety action, it shouldn't be a scroll away. */
             <div className="flex flex-1 gap-3 overflow-hidden">
               <MainViewport showCamera headingDeg={-18} className="min-w-0 flex-1" />
-              <div className="flex w-[236px] flex-none flex-col items-center gap-1.5 overflow-y-auto">
+              <div className="flex w-[236px] flex-none flex-col items-center gap-1 overflow-y-auto">
                 <HoldToUnlock
                   unlocked={unlocked}
                   onUnlock={() => setUnlocked(true)}
