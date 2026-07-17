@@ -25,6 +25,7 @@ import {
   Bell,
   ChevronLeft,
   ChevronRight,
+  DatabaseBackup,
   Info,
   LineChart,
   Map as MapIcon,
@@ -216,6 +217,13 @@ export function Settings() {
                 icon={<Bell size={15} strokeWidth={2} className="text-ink-soft" />}
                 title="Notifications"
                 onClick={() => openCategory('notifications')}
+                trailing={<DrillChevron />}
+              />
+              <ListRow
+                icon={<DatabaseBackup size={15} strokeWidth={2} className="text-ink-soft" />}
+                title="Backup & Restore"
+                sub="Export or restore settings, map and databases"
+                onClick={() => openCategory('backup')}
                 trailing={<DrillChevron />}
               />
               <ListRow

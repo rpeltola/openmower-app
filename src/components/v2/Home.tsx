@@ -165,6 +165,11 @@ export function Home() {
     {key: 'manual', label: 'Manual control', icon: <Gamepad2 size={18} strokeWidth={2.2} />, href: '/v2/control'},
   ];
 
+  const handleStop = () => {
+    setMowerState('idle');
+    setToastMessage('Mower stopped');
+  };
+
   return (
     <div className="relative flex min-h-full flex-col gap-4 p-4 md:h-full md:min-h-0 md:gap-5 md:p-6">
       <ScreenHeader
@@ -178,7 +183,7 @@ export function Home() {
             <Button variant="soft" size="icon" aria-label="Notifications" onClick={() => setNotificationsOpen(true)}>
               <Bell size={17} strokeWidth={2} />
             </Button>
-            <Button variant="danger-solid" size="md" className="hidden md:inline-flex">
+            <Button variant="danger-solid" size="md" className="hidden md:inline-flex" onClick={handleStop}>
               <Square size={14} fill="currentColor" />
               Stop
             </Button>
@@ -221,7 +226,7 @@ export function Home() {
           ))}
         </div>
 
-        <Button variant="danger" className="justify-center">
+        <Button variant="danger" className="justify-center" onClick={handleStop}>
           <Square size={15} fill="currentColor" />
           Stop
         </Button>

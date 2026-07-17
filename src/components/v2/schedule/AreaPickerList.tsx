@@ -1,6 +1,7 @@
 'use client';
 
 import {cn} from '@/components/v2/lib/cn';
+import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Check} from 'lucide-react';
 
@@ -19,13 +20,14 @@ export function AreaPickerList({areas, selected, onToggle, className}: AreaPicke
       {areas.map((area, i) => {
         const checked = selected.includes(area);
         return (
-          <button
+          <Button
             key={area}
             type="button"
+            variant="soft"
             onClick={() => onToggle(area)}
             aria-pressed={checked}
             className={cn(
-              'flex w-full items-center gap-[.7rem] border-0 bg-transparent py-2.5 text-left',
+              'h-auto w-full justify-start gap-[.7rem] rounded-none bg-transparent px-0 py-2.5 text-left',
               i > 0 && 'border-t border-border',
             )}
           >
@@ -38,7 +40,7 @@ export function AreaPickerList({areas, selected, onToggle, className}: AreaPicke
             >
               <Check size={13} strokeWidth={3} />
             </span>
-          </button>
+          </Button>
         );
       })}
     </Card>

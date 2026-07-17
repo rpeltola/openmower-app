@@ -37,6 +37,7 @@ import {KpiTile} from '@/components/v2/ui/KpiTile';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
+import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Sheet} from '@/components/v2/ui/Sheet';
 import {Slider} from '@/components/v2/ui/Slider';
 import {StatCard} from '@/components/v2/ui/StatCard';
@@ -161,6 +162,13 @@ const ADD_TO_MAP_ITEMS: {type: ZoneType | 'dock' | 'record'; label: string; sub:
   {type: 'record', label: 'Record a boundary', sub: 'Walk the edge with the mower', icon: <Footprints size={18} />},
 ];
 
+// Rect/circle draw tools (R/O shortcuts) have no create-menu context to inherit a type from, so
+// they get their own small type picker in the tool hint — same option set/order as
+// AreaSettingsSheet's zone-type toggle.
+const DRAW_ZONE_TYPE_OPTIONS: {value: ZoneType; label: string}[] = (['mow', 'spot', 'nav', 'obstacle'] as const).map(
+  (value) => ({value, label: ZONE_TYPE_LABELS[value]}),
+);
+
 const SHORTCUTS: {keys: string; desc: string}[] = [
   {keys: 'V', desc: 'Select / drag tool'},
   {keys: 'A', desc: 'Add point tool'},
@@ -231,6 +239,9 @@ export function Map() {
   const [subtractPickIds, setSubtractPickIds] = useState<Set<string>>(new Set());
   const [subtractKeepOthers, setSubtractKeepOthers] = useState(true);
   const [cutLinePoints, setCutLinePoints] = useState<Meters[]>([]);
+  // Rect/circle draw tools have no create-menu context of their own, so the type they stamp onto
+  // the drawn shape lives here, picked from the tool hint below the tool row.
+  const [drawZoneType, setDrawZoneType] = useState<ZoneType>('mow');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
@@ -755,7 +766,7 @@ export function Map() {
         onToggleMultiVertex={editor.toggleMultiVertex}
         onSetMultiSelected={editor.setMultiSelected}
         onCreateZone={(outline) => {
-          editor.createZone(outline);
+          editor.createZone(outline, drawZoneType);
           editor.setTool('select');
         }}
         onDockChange={(next) => {
@@ -901,6 +912,16 @@ export function Map() {
             {editor.tool === 'multi' && (
               <div className="mt-2 text-[.72rem] text-ink-faint">
                 Tap vertices to select, or Shift-drag a box on the map — {editor.multiSelected.size} selected.
+              </div>
+            )}
+            {(editor.tool === 'rect' || editor.tool === 'circle') && (
+              <div className="mt-2.5 space-y-2">
+                <div className="text-[.72rem] text-ink-faint">
+                  Drag on the map to draw a {editor.tool === 'rect' ? 'rectangle' : 'circle'}.
+                </div>
+                <FormField label="New area type">
+                  <SegmentedToggle options={DRAW_ZONE_TYPE_OPTIONS} value={drawZoneType} onChange={(v) => setDrawZoneType(v as ZoneType)} />
+                </FormField>
               </div>
             )}
             {editor.tool === 'brush' && (

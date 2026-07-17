@@ -44,22 +44,24 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   {key: 'lowBattery', label: 'Low battery', sub: 'Charge drops below 15% away from dock', defaultOn: false},
 ];
 
-// Desktop concept's category rail — this is the concept's own list (it omits "Safety",
-// unlike the mobile grouped list, which has one and drills into the same detail body).
+// Desktop concept's category rail — extended with "safety" (missing from the concept's
+// own list) so desktop has the same path to the geofence/tilt-lift toggles that the
+// mobile grouped list already drills into, via the same shared detail body.
 export const DESKTOP_CATEGORIES = [
   {id: 'connection', label: 'Connection'},
   {id: 'positioning', label: 'Positioning / RTK'},
   {id: 'docking', label: 'Docking station'},
   {id: 'units', label: 'Units'},
   {id: 'basemap', label: 'Map basemap'},
+  {id: 'safety', label: 'Safety'},
   {id: 'general', label: 'General'},
   {id: 'maintenance', label: 'Maintenance'},
   {id: 'notifications', label: 'Notifications'},
+  {id: 'backup', label: 'Backup & Restore'},
   {id: 'about', label: 'About'},
 ];
 
-// Superset of DESKTOP_CATEGORIES's labels — also covers "safety", which the desktop rail
-// omits but the mobile grouped list (and the shared detail body) both support.
+// Labels for every category id used by either breakpoint's category list.
 export const CATEGORY_LABELS: Record<string, string> = {
   connection: 'Connection',
   positioning: 'Positioning / RTK',
@@ -70,6 +72,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   general: 'General',
   maintenance: 'Maintenance',
   notifications: 'Notifications',
+  backup: 'Backup & Restore',
   about: 'About',
 };
 

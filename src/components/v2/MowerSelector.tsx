@@ -1,6 +1,7 @@
 'use client';
 
 import {cn} from '@/components/v2/lib/cn';
+import {Button} from '@/components/v2/ui/Button';
 import {Sheet} from '@/components/v2/ui/Sheet';
 import {Check, Plus, Sprout} from 'lucide-react';
 import {useRouter} from 'next/navigation';
@@ -49,11 +50,12 @@ export function MowerSelector({open, onClose}: MowerSelectorProps) {
         {MOWERS.map((mower) => {
           const selected = mower.id === selectedId;
           return (
-            <button
+            <Button
               key={mower.id}
               type="button"
+              variant="soft"
               onClick={() => selectMower(mower.id)}
-              className="flex w-full items-center gap-3 border-0 bg-transparent py-2 text-left"
+              className="h-auto w-full justify-start gap-3 rounded-none bg-transparent px-0 py-2 text-left"
             >
               <span className="grid h-[38px] w-[38px] flex-none place-items-center rounded-[11px] bg-accent-wash text-accent">
                 <Sprout size={19} strokeWidth={2} />
@@ -68,21 +70,22 @@ export function MowerSelector({open, onClose}: MowerSelectorProps) {
                 </span>
               </span>
               {selected ? <Check size={17} strokeWidth={2.6} className="flex-none text-accent" /> : null}
-            </button>
+            </Button>
           );
         })}
       </div>
 
-      <button
+      <Button
         type="button"
+        variant="soft"
         onClick={addMower}
-        className="flex w-full items-center gap-3 border-0 border-t border-border bg-transparent pt-3 text-left"
+        className="h-auto w-full justify-start gap-3 rounded-none border-t border-border bg-transparent px-0 pt-3 text-left"
       >
         <span className="grid h-[38px] w-[38px] flex-none place-items-center rounded-[11px] bg-surface-2 text-ink-soft">
           <Plus size={18} strokeWidth={2.2} />
         </span>
         <span className="text-[.9rem] font-semibold text-ink">Add a mower</span>
-      </button>
+      </Button>
     </Sheet>
   );
 }

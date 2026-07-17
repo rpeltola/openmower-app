@@ -1,5 +1,6 @@
 import {ActivityWearMeter} from '@/components/v2/activity/ActivityWearMeter';
 import {cn} from '@/components/v2/lib/cn';
+import {BackupRestore} from '@/components/v2/settings/BackupRestore';
 import {SettingsGroup} from '@/components/v2/settings/SettingsGroup';
 import {
   APP_VERSION,
@@ -19,7 +20,7 @@ import {ListRow} from '@/components/v2/ui/ListRow';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Switch} from '@/components/v2/ui/Switch';
 import {hapticStrong, setHapticsEnabled, useHapticsEnabled} from '@/lib/v2/haptics';
-import {Bell, Check, ChevronRight, Info, Navigation, Shield, Wifi, Wrench, Zap} from 'lucide-react';
+import {Bell, Check, Info, Navigation, Shield, Wifi, Wrench, Zap} from 'lucide-react';
 
 export interface SettingsCategoryDetailProps {
   category: string;
@@ -262,6 +263,8 @@ export function SettingsCategoryDetail({
         </>
       ) : null}
 
+      {category === 'backup' ? (<BackupRestore />) : null}
+
       {category === 'about' ? (
         <>
           <Card className="flex items-center gap-[.7rem] p-[.85rem]">
@@ -275,16 +278,14 @@ export function SettingsCategoryDetail({
           </Card>
 
           <SettingsGroup>
-            <ListRow title="Release notes" trailing={<DrillChevron />} />
-            <ListRow title="Privacy policy" trailing={<DrillChevron />} />
-            <ListRow title="Support" trailing={<DrillChevron />} />
+            {/* No detail screens behind these yet — plain rows rather than a chevron
+                implying a drill-in that doesn't exist. */}
+            <ListRow title="Release notes" />
+            <ListRow title="Privacy policy" />
+            <ListRow title="Support" />
           </SettingsGroup>
         </>
       ) : null}
     </div>
   );
-}
-
-function DrillChevron() {
-  return <ChevronRight size={15} strokeWidth={2.4} className="flex-none text-ink-faint" />;
 }

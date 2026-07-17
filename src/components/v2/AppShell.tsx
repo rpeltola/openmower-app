@@ -2,6 +2,7 @@
 
 import {MowerSelector} from '@/components/v2/MowerSelector';
 import {cn} from '@/components/v2/lib/cn';
+import {Button} from '@/components/v2/ui/Button';
 import {ConnectionBanner} from '@/components/v2/ui/ConnectionBanner';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
 import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
@@ -78,10 +79,11 @@ export function AppShell({children}: AppShellProps) {
           <span className="text-[1.02rem] font-bold tracking-tight text-ink">OpenMower</span>
         </div>
 
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onClick={() => setMowerSelectorOpen(true)}
-          className="mb-1.5 flex items-center gap-2 rounded-[10px] border border-border bg-surface px-2.5 py-2 text-left"
+          className="mb-1.5 h-auto gap-2 rounded-[10px] bg-surface px-2.5 py-2 text-left"
         >
           <div className="h-[26px] w-[26px] flex-none rounded-[7px]" style={{background: '#F26A1B'}} />
           <div className="min-w-0 flex-1 leading-tight">
@@ -89,7 +91,7 @@ export function AppShell({children}: AppShellProps) {
             <div className="truncate text-[.7rem] text-ink-soft">Kotipiha</div>
           </div>
           <ChevronDown size={15} className="flex-none text-ink-faint" />
-        </button>
+        </Button>
 
         <nav className="flex flex-col gap-1">
           {DESKTOP_NAV.map((item) => {
