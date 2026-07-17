@@ -36,6 +36,17 @@ events feed hung on "Loading" — this deployed gateway returns **"Method not fo
 (probed the mower's `rpc.methods`), so historical events can't be fetched; gated loading on an
 "attempted" flag → degrades to "No events yet" (live events still stream via `events/json`).
 
+**POLISH + THEME BATCH (from live-testing on the real device):** `c8a8303` obstacle z-order (mow→nav
+→obstacle so nested no-go zones stay clickable) + `L.svg({padding:2})` zoom-twitch fix · `2bf7963`
+Areas panel "No-go zones" toggle (obstacles selectable from the list — 35 of them, hard to tap on
+map) · `2762e38` blade wear removed from Activity/Stats (lives in Settings) + `/v2/onboarding` crash
+fixed (missing `'use client'` → 500) · `a844093` run replay now plays over the REAL map (satellite +
+areas + driven track + moving marker) + 0.5×/1×/2× speed switcher · `7c16b79` **Minimal (no-tile)
+basemap = new map default + theme-aware zone colors (CSS `.v2-zone-*` → design tokens) + in-app THEME
+SWITCHER (Settings›General System/Light/Dark, `lib/v2/theme.ts`, root boot-script honors it)** — the
+map now reads like the concept mockups in both light + dark (live-verified). STILL FIXED-COLOR (satellite-
+tuned): the Home mini-map + ReplayMap (`ZONE_STYLE`). KNOWN: Stats page is sparse now (design pass owed).
+
 Every increment tsc+build clean, opus-validator/live-verified. Commits on `feature/v2-data-wiring`:
 `b7ae131` (diag+activity) · `515b4a0` (map display) · `96fcbb2` (map plan+heatmap) · `5a8696c`
 (global state + Esri) · `6229a45` (read-only domains: events/stats/home-feed/mini-map/connection/settings).

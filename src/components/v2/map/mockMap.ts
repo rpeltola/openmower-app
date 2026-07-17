@@ -136,8 +136,11 @@ export const MOCK_POSE: Pose = {x: -1.5, y: 0.5, heading: 0.6};
 // YardForce-ish footprint (base_link: +x = front/charge port). ~0.63 m long × ~0.56 m wide.
 export const MOCK_FOOTPRINT: Footprint = {front_m: 0.36, rear_m: 0.27, half_width_m: 0.28};
 
-// Fixed map geometry colors — identical in light/dark (map readability rule: theme changes only
-// the UI chrome, never map line/point colors). Chosen to read on satellite imagery.
+// Fixed map geometry colors for the satellite-imagery mini-maps (Home MapCard, activity
+// ReplayMap) — identical in light/dark since they sit over tile imagery, not app chrome.
+// The full MapCanvas editor no longer reads this: its zones are theme-aware via the
+// .v2-zone-<type> CSS classes in tailwind.css, so they also read against the Minimal
+// (no-tile) basemap in both themes.
 export const ZONE_STYLE: Record<ZoneType, {stroke: string; fill: string}> = {
   mow: {stroke: '#2fd58a', fill: '#2fd58a'},
   obstacle: {stroke: '#ff6b5e', fill: '#ff6b5e'},

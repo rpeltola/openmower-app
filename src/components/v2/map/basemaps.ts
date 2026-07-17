@@ -19,6 +19,15 @@ const MML_API_KEY = process.env.NEXT_PUBLIC_MOWER_MML_API_KEY ?? '';
 
 export const BASEMAPS: Basemap[] = [
   {
+    // No tiles at all — a plain, theme-aware canvas so the areas/track/robot read cleanly, like
+    // the concept mockups (satellite imagery reads busy at a garden's scale). MapCanvas paints the
+    // map background instead of adding a tileLayer when `url` is empty.
+    id: 'minimal',
+    label: 'Minimal',
+    url: '',
+    attribution: '',
+  },
+  {
     id: 'esri',
     label: 'Esri World Imagery',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -44,7 +53,9 @@ export const BASEMAPS: Basemap[] = [
   },
 ];
 
-export const DEFAULT_BASEMAP_ID = 'esri';
+// Default to the clean Minimal canvas (matches the concept mockups); satellite/MML are one tap
+// away in the basemap switcher.
+export const DEFAULT_BASEMAP_ID = 'minimal';
 
 export function resolveBasemap(id: string | undefined): Basemap {
   return BASEMAPS.find((b) => b.id === id) ?? BASEMAPS.find((b) => b.id === DEFAULT_BASEMAP_ID)!;

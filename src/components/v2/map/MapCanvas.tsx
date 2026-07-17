@@ -25,7 +25,6 @@ import {
   MOCK_ORIGIN,
   MOCK_POSE,
   MOCK_ZONES,
-  ZONE_STYLE,
   type Dock,
   type Zone,
 } from '@/components/v2/map/mockMap';
@@ -578,11 +577,20 @@ export function MapCanvas({
     if (!map) return;
     const basemap = resolveBasemap(basemapId);
     tileLayerRef.current?.remove();
-    tileLayerRef.current = L.tileLayer(basemap.url, {
-      attribution: basemap.attribution,
-      maxZoom: 22,
-      maxNativeZoom: basemap.maxNativeZoom ?? 19,
-    }).addTo(map);
+    tileLayerRef.current = null;
+    const container = map.getContainer();
+    if (basemap.url) {
+      container.style.background = '';
+      tileLayerRef.current = L.tileLayer(basemap.url, {
+        attribution: basemap.attribution,
+        maxZoom: 22,
+        maxNativeZoom: basemap.maxNativeZoom ?? 19,
+      }).addTo(map);
+    } else {
+      // "Minimal" basemap — no tiles, just a plain theme-aware canvas so the zones/track/robot
+      // read like the concept mockups instead of sitting on busy satellite imagery.
+      container.style.background = 'var(--surface-2)';
+    }
   }, [basemapId]);
 
   // ---- brush tool: disable map panning (drag = paint) while active + show/hide cursor circle ----
@@ -621,14 +629,15 @@ export function MapCanvas({
       .map((e) => e.z);
 
     for (const z of orderedZones) {
-      const style = ZONE_STYLE[z.type];
       const isSelected = editing && z.id === selectedZoneId;
+      // Colors come from CSS (.v2-zone-<type> in tailwind.css) so they track the light/dark
+      // theme tokens instead of the fixed hex in ZONE_STYLE — that stays satellite-tuned for
+      // the mini-maps (MapCard, ReplayMap) that still render on plain tile imagery.
       const polygon = L.polygon(
         z.outline.map((p) => metersToLatLng(p, origin)),
         {
-          color: style.stroke,
+          className: `v2-zone v2-zone-${z.type}`,
           weight: isSelected ? 3 : 2,
-          fillColor: style.fill,
           fillOpacity: z.type === 'obstacle' ? 0.28 : 0.14,
         },
       )
