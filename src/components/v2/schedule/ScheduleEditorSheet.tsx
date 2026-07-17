@@ -175,9 +175,18 @@ export function ScheduleEditorSheet({
         />
       </Card>
 
-      {areaPickerOpen ? (
-        <AreaPickerList areas={MOW_AREAS} selected={selectedAreas} onToggle={toggleArea} />
-      ) : null}
+      <div
+        aria-hidden={!areaPickerOpen}
+        inert={!areaPickerOpen}
+        className={cn(
+          'grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none',
+          areaPickerOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+        )}
+      >
+        <div className="overflow-hidden">
+          <AreaPickerList areas={MOW_AREAS} selected={selectedAreas} onToggle={toggleArea} className="mt-[.35rem]" />
+        </div>
+      </div>
 
       <Card className="px-[.6rem]">
         <ListRow
