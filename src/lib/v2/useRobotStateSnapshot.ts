@@ -5,6 +5,7 @@ import {
   ALL_PAUSED_REASONS,
   ALL_REJECT_CODES,
   ALL_ROBOT_STATES,
+  toRobotState,
   type CommandAvailability,
   type CommandName,
   type PausedReason,
@@ -12,7 +13,6 @@ import {
   type RobotState,
   type RobotStateSnapshot,
 } from '@/lib/v2/robotState';
-import {toRobotState} from '@/lib/v2/useRobotState';
 import {useSelectedMower} from '@/stores/mowersStore';
 import type {CommandsMapWire} from '@/stores/schemas';
 
@@ -107,10 +107,10 @@ function toCommandsRecord(wire: CommandsMapWire): Record<CommandName, CommandAva
  *  for. Same shape as the mock so command surfaces (`useCommand`/`useCommandAvailability`, the
  *  BOOTING/PAUSED screens) swap cleanly. Reads `robot_state/json`'s W9 fields (`state`,
  *  `state_detail`, `paused_reasons`, `commands`, `readiness`, `error`) when the gateway sends
- *  them; falls back to the legacy `current_state`+`is_charging` mapping (`useRobotState.ts`'s
- *  `toRobotState`, same one Home/AppShell/Map's display hook uses) when they're absent, so an
- *  OLD gateway still renders a sane state (R3/R6) -- just without paused-reason detail, live
- *  command blockers, or a BOOTING readiness checklist. */
+ *  them; falls back to the legacy `current_state`+`is_charging` mapping (`robotState.ts`'s
+ *  `toRobotState`) when they're absent, so an OLD gateway still renders a sane state (R3/R6) --
+ *  just without paused-reason detail, live command blockers, or a BOOTING readiness checklist.
+ *  `useRobotState.ts` (Home/AppShell/Map's display hook) builds on top of this. */
 export function useRobotStateSnapshot(): RobotStateSnapshot {
   const rawState = useSelectedMower((s) => s?.state.state);
   const currentState = useSelectedMower((s) => s?.state.current_state);

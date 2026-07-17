@@ -232,3 +232,26 @@ export function isPlanning(state: RobotState): boolean {
 export function isOnLawn(state: RobotState): boolean {
   return state === 'MOWING' || state === 'PAUSED' || state === 'PLANNING_MISSION' || state === 'RECOVERING';
 }
+
+// `current_state` values (mower_logic's HighLevelStatus, folded into robot_state/json) that map
+// 1:1 onto our RobotState enum by name. DOCKED is handled separately below since is_charging
+// splits it into two RobotState values — same "docked" convention MowerMap.tsx/MowerControls.tsx
+// already use. Anything else (older/newer gateway, a value we don't render a dedicated scene
+// for yet) falls back to IDLE rather than guessing. Lives here (not useRobotState.ts) so both
+// useRobotState.ts (the display hook) and useRobotStateSnapshot.ts (the canonical-state binding,
+// R3/R6 fallback) can import it without a cycle between those two hook modules.
+const DIRECT_STATE_MAP: Partial<Record<string, RobotState>> = {
+  IDLE: 'IDLE',
+  MOWING: 'MOWING',
+  PAUSED: 'PAUSED',
+  DOCKING: 'DOCKING',
+  UNDOCKING: 'UNDOCKING',
+  AREA_RECORDING: 'AREA_RECORDING',
+  HEADING_CALIBRATION: 'HEADING_CALIBRATION',
+};
+
+export function toRobotState(currentState: string | undefined, isCharging: boolean): RobotState {
+  if (!currentState) return 'IDLE';
+  if (currentState === 'DOCKED') return isCharging ? 'DOCKED_CHARGING' : 'DOCKED';
+  return DIRECT_STATE_MAP[currentState] ?? 'IDLE';
+}

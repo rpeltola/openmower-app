@@ -1,66 +1,66 @@
 'use client';
 
 import type {MowerHeroState} from '@/components/v2/ui/MowingHero';
-import {heroSceneForState, type RobotState} from '@/lib/v2/robotState';
+import {heroSceneForState, isOnLawn, isPlanning, type RobotState, type StateDetail} from '@/lib/v2/robotState';
+import {useRobotStateSnapshot} from '@/lib/v2/useRobotStateSnapshot';
 import {useSelectedMower} from '@/stores/mowersStore';
-
-// `current_state` values (mower_logic's HighLevelStatus, folded into robot_state/json) that map
-// 1:1 onto our RobotState enum by name. DOCKED is handled separately below since is_charging
-// splits it into two RobotState values — same "docked" convention MowerMap.tsx/MowerControls.tsx
-// already use. Anything else (older/newer gateway, a value we don't render a dedicated scene
-// for yet) falls back to IDLE rather than guessing.
-const DIRECT_STATE_MAP: Partial<Record<string, RobotState>> = {
-  IDLE: 'IDLE',
-  MOWING: 'MOWING',
-  PAUSED: 'PAUSED',
-  DOCKING: 'DOCKING',
-  UNDOCKING: 'UNDOCKING',
-  AREA_RECORDING: 'AREA_RECORDING',
-  HEADING_CALIBRATION: 'HEADING_CALIBRATION',
-};
-
-// Exported so useRobotStateSnapshot.ts's R3 fallback (old gateway, no `state` field yet) uses the
-// exact same mapping instead of a second hand-maintained copy.
-export function toRobotState(currentState: string | undefined, isCharging: boolean): RobotState {
-  if (!currentState) return 'IDLE';
-  if (currentState === 'DOCKED') return isCharging ? 'DOCKED_CHARGING' : 'DOCKED';
-  return DIRECT_STATE_MAP[currentState] ?? 'IDLE';
-}
 
 export interface RobotStateView {
   state: RobotState;
   heroState: MowerHeroState;
   isMowing: boolean;
+  isPaused: boolean;
+  /** True only for PLANNING_MISSION -- the "dead Mow button" busy affordance (STATE_COMMAND_MODEL.md
+   *  §3). Drives MowingHero's `planning` sweep treatment. */
+  isPlanning: boolean;
   isCharging: boolean;
   /** 0-100, already rounded (battery_percentage arrives pre-scaled by stateSchema). */
   batteryPct: number;
   areaName: string | undefined;
-  /** 0-100, only while actually MOWING — undefined the rest of the time rather than a stale
-   *  or fabricated number. */
+  /** 0-100, defined for any on-lawn state (`isOnLawn`: MOWING/PAUSED/PLANNING_MISSION/
+   *  RECOVERING) -- undefined the rest of the time rather than a stale or fabricated number.
+   *  Prefers the real `state_detail.progress` (W9 §0.6) once the gateway sends it, falling back
+   *  to the legacy `current_action_progress` (0-1 fraction) for an old gateway. */
   coveragePct: number | undefined;
+  /** Straight passthrough of the snapshot's `state_detail` (progress/phase/eta) -- lets a caller
+   *  render "Planning… area 2/5" or a RECOVERING phase line without the hook re-deriving it. */
+  stateDetail: StateDetail | undefined;
 }
 
-/** Real display snapshot derived from `robot_state/json` (via the mowersStore singleton) —
- *  replaces useRobotStateMock.ts as Home/AppShell/Map's live DISPLAY source. Still reads its
- *  vocabulary (RobotState, STATE_COPY, heroSceneForState) from robotState.ts so both stay in
- *  sync. No mower selected / no state yet -> a calm IDLE default, never a crash or a fake scene. */
+/** THE display hook every state-rendering surface (Home, AppShell, Map) reads from -- the W9 B5
+ *  consolidation. `state` comes straight from `useRobotStateSnapshot`, which already falls back
+ *  to the legacy `current_state`+`is_charging` mapping for an old gateway (R3/R6) -- so
+ *  PLANNING_MISSION/RECOVERING/READY/ERROR render the moment a gateway starts publishing them,
+ *  with no second, independently-maintained mapping left to drift out of sync. Battery/area/
+ *  progress stay direct store reads here since they're not part of the canonical state envelope
+ *  (robot_state/json.state_detail carries progress/phase, but battery% and the area name are
+ *  separate top-level fields). */
 export function useRobotState(): RobotStateView {
-  const currentState = useSelectedMower((s) => s?.state.current_state);
+  const snapshot = useRobotStateSnapshot();
   const isCharging = useSelectedMower((s) => s?.state.is_charging ?? false);
   const batteryPercentage = useSelectedMower((s) => s?.state.battery_percentage ?? 0);
   const currentAreaName = useSelectedMower((s) => s?.state.current_area_name);
   const currentActionProgress = useSelectedMower((s) => s?.state.current_action_progress ?? 0);
 
-  const state = toRobotState(currentState, isCharging);
-  const isMowing = state === 'MOWING';
+  const state = snapshot.state;
+  const onLawn = isOnLawn(state);
 
   return {
     state,
     heroState: heroSceneForState(state),
-    isMowing,
+    isMowing: state === 'MOWING',
+    isPaused: state === 'PAUSED',
+    isPlanning: isPlanning(state),
     isCharging,
     batteryPct: Math.round(batteryPercentage),
     areaName: currentAreaName || undefined,
-    coveragePct: isMowing ? Math.round(Math.max(0, Math.min(1, currentActionProgress)) * 100) : undefined,
+    coveragePct: onLawn
+      ? Math.round(
+          snapshot.stateDetail?.progress !== undefined
+            ? Math.max(0, Math.min(100, snapshot.stateDetail.progress))
+            : Math.max(0, Math.min(1, currentActionProgress)) * 100,
+        )
+      : undefined,
+    stateDetail: snapshot.stateDetail,
   };
 }

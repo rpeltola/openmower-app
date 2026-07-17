@@ -33,7 +33,8 @@ import {validateMap, type MapIssue} from '@/components/v2/map/validation';
 import {useHeatmap} from '@/hooks/useHeatmap';
 import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
 import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
-import {STATE_COPY, type Tone} from '@/lib/v2/robotState';
+import {REJECT_COPY, STATE_COPY, type CommandName, type Tone} from '@/lib/v2/robotState';
+import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
 import {useRobotState} from '@/lib/v2/useRobotState';
 import {useSelectedMower} from '@/stores/mowersStore';
 import type {DiscoveredObstacle} from '@/stores/schemas';
@@ -264,9 +265,6 @@ export function Map() {
   // the map is still selectable from the list (the panel shows only mowable zones by default).
   const [showObstacles, setShowObstacles] = useState(false);
   const [coverage, setCoverage] = useState(DEFAULT_COVERAGE_SETTINGS);
-  // S5 — mock pause/resume for the live-view stat card (a real "hold position" toggle, distinct
-  // from S6's involuntary RTK-lost block).
-  const [mockPaused, setMockPaused] = useState(false);
   // S4 — which mowable zone the live view treats as "currently mowing" (the per-area Mow button
   // in the desktop Areas panel changes this). MOW.coverage/timeLeftMin stay fixed mock numbers
   // regardless of which area is active — a deliberate simplification, not real per-area progress.
@@ -329,8 +327,29 @@ export function Map() {
   // Real display state for the top overlay pill + the live-view stat card below (data-wiring
   // pass) — separate from the mock `MOW`/`mowAreaName` the "Areas" rail still uses for its own
   // per-zone scheduling display.
-  const {state: displayState, isMowing, areaName: liveAreaName, coveragePct: liveCoveragePct} = useRobotState();
+  const {state: displayState, isMowing, isPaused, areaName: liveAreaName, coveragePct: liveCoveragePct} = useRobotState();
   const stateCopy = STATE_COPY[displayState];
+
+  // Real command wiring for the live-view stat card's Pause/Resume/Stop/Dock (same
+  // `useCommand`/`useCommandAvailability` real `cmd/req`→`cmd/res` protocol Home.tsx uses — no
+  // separate local `mockPaused` toggle anymore). Pause/Resume/Stop apply to both MOWING and
+  // PAUSED (the mower left MOWING the moment it actually paused), so the controls stay reachable
+  // across that transition instead of only while `isMowing`.
+  const {run: runCommand, pending: pendingCmd} = useCommand();
+  const pauseAvailability = useCommandAvailability('pause');
+  const resumeAvailability = useCommandAvailability('resume');
+  const stopAvailability = useCommandAvailability('stop');
+  const dockAvailability = useCommandAvailability('dock');
+  const showMowControls = isMowing || isPaused;
+
+  const dispatchCommand = async (cmd: CommandName, acceptedMessage: string) => {
+    const result = await runCommand(cmd);
+    if (result.accepted) {
+      setToastMessage(acceptedMessage);
+    } else if (result.reason) {
+      setToastMessage(REJECT_COPY[result.reason]?.label ?? 'Command rejected');
+    }
+  };
   const robotPositionBase = useSelectedMower((s) => s?.position ?? s?.state.pose);
   const robotLiveHeading = useSelectedMower((s) => (s?.state.pose?.heading_valid ? s.state.pose.heading : undefined));
   const robotFootprint = useSelectedMower((s) => s?.state.footprint);
@@ -1021,7 +1040,9 @@ export function Map() {
       ) : (
         <div className="pointer-events-none absolute inset-x-3 top-3 z-[500] flex flex-wrap items-center gap-2">
           <OverlayChip>
-            <span className={TONE_DOT_CLASS[stateCopy.tone]}>●</span> {isMowing && mockPaused ? 'Paused' : stateCopy.label}
+            {/* stateCopy already reads "Paused" once the real state is PAUSED (STATE_COPY.PAUSED) —
+                no separate mock-paused label branch needed anymore. */}
+            <span className={TONE_DOT_CLASS[stateCopy.tone]}>●</span> {stateCopy.label}
           </OverlayChip>
           {liveAreaName ? <OverlayChip>{liveAreaName}</OverlayChip> : null}
           {isMowing ? (
@@ -1269,44 +1290,70 @@ export function Map() {
                 Needs a GPS fix
               </Chip>
             </div>
-            <Button variant="ghost" className="mt-2 w-full justify-center">
-              <Home size={15} strokeWidth={2.2} /> Dock
+            <Button
+              variant="ghost"
+              className="mt-2 w-full justify-center"
+              onClick={() => void dispatchCommand('dock', 'Heading to dock')}
+              disabled={pendingCmd === 'dock' || !dockAvailability.allowed}
+            >
+              <Home size={15} strokeWidth={2.2} /> {pendingCmd === 'dock' ? 'Docking…' : 'Dock'}
             </Button>
           </StatCard>
         </>
       ) : (
         <>
           {/* floating stat card (live view, mobile — desktop gets the Areas panel below too).
-              Pause/Resume/Stop only apply while actually mowing (mockPaused is an S5 dev seam
-              that can't override the label/readout outside that state); docked/idle/etc. show
-              the real state label + sub-copy instead of a stale "62% · 24 min left". */}
+              Pause/Resume/Stop are real `cmd/req`→`cmd/res` commands (useCommand, same as
+              Home.tsx) and apply across both MOWING and PAUSED (`showMowControls`); docked/idle/
+              etc. show the real state label + sub-copy instead of a stale "62% · 24 min left". */}
           <StatCard className="absolute inset-x-3 bottom-3 z-[500] md:left-3 md:right-auto md:w-[320px]">
             <div className="flex items-center gap-2.5">
               <div className="flex-1 leading-tight">
                 <div className="text-[.92rem] font-semibold text-ink">
-                  {isMowing ? `${mockPaused ? 'Paused' : 'Mowing'} ${liveAreaName ?? ''}`.trim() : stateCopy.label}
+                  {showMowControls ? `${isPaused ? 'Paused' : 'Mowing'} ${liveAreaName ?? ''}`.trim() : stateCopy.label}
                 </div>
                 <div className="text-[.76rem] text-ink-soft">
-                  {isMowing ? `${liveCoveragePct ?? 0}% · ${mockPaused ? 'holding position' : '—'}` : stateCopy.sub}
+                  {showMowControls ? `${liveCoveragePct ?? 0}% · ${isPaused ? 'holding position' : '—'}` : stateCopy.sub}
                 </div>
               </div>
             </div>
-            {isMowing ? <ProgressBar value={liveCoveragePct ?? 0} className="mt-2.5" /> : null}
-            {isMowing ? (
+            {showMowControls ? <ProgressBar value={liveCoveragePct ?? 0} className="mt-2.5" /> : null}
+            {showMowControls ? (
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                {mockPaused ? (
-                  <Button variant="primary" className="flex-1 justify-center" onClick={() => setMockPaused(false)}>
-                    <Play size={13} fill="currentColor" /> Resume
+                {isPaused ? (
+                  <Button
+                    variant="primary"
+                    className="flex-1 justify-center"
+                    onClick={() => void dispatchCommand('resume', 'Resuming')}
+                    disabled={pendingCmd === 'resume' || !resumeAvailability.allowed}
+                  >
+                    <Play size={13} fill="currentColor" /> {pendingCmd === 'resume' ? 'Resuming…' : 'Resume'}
                   </Button>
                 ) : (
-                  <Button variant="ghost" className="flex-1 justify-center" onClick={() => setMockPaused(true)}>
-                    <Pause size={13} fill="currentColor" /> Pause
+                  <Button
+                    variant="ghost"
+                    className="flex-1 justify-center"
+                    onClick={() => void dispatchCommand('pause', 'Paused')}
+                    disabled={pendingCmd === 'pause' || !pauseAvailability.allowed}
+                  >
+                    <Pause size={13} fill="currentColor" /> {pendingCmd === 'pause' ? 'Pausing…' : 'Pause'}
                   </Button>
                 )}
-                <Button variant="danger" className="flex-1 justify-center">
-                  <Square size={13} fill="currentColor" /> Stop
+                <Button
+                  variant="danger"
+                  className="flex-1 justify-center"
+                  onClick={() => void dispatchCommand('stop', 'Mower stopped')}
+                  disabled={pendingCmd === 'stop' || !stopAvailability.allowed}
+                >
+                  <Square size={13} fill="currentColor" /> {pendingCmd === 'stop' ? 'Stopping…' : 'Stop'}
                 </Button>
               </div>
+            ) : null}
+            {showMowControls &&
+            ((isPaused && !resumeAvailability.allowed) || (!isPaused && !pauseAvailability.allowed)) ? (
+              <Chip variant="warn" className="mt-2 w-fit">
+                {REJECT_COPY[(isPaused ? resumeAvailability : pauseAvailability).reasons[0]]?.label ?? 'Not available'}
+              </Chip>
             ) : null}
           </StatCard>
 

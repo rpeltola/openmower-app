@@ -85,7 +85,7 @@ export function Home() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const emergency = useSelectedMower((s) => s?.state.emergency ?? false);
-  const {state, heroState, isMowing, isCharging, batteryPct, areaName, coveragePct} = useRobotState();
+  const {state, heroState, isMowing, isPlanning, isCharging, batteryPct, areaName, coveragePct, stateDetail} = useRobotState();
   const {run, pending: pendingCmd} = useCommand();
   const mowAvailability = useCommandAvailability('mow');
   const stopAvailability = useCommandAvailability('stop');
@@ -250,16 +250,25 @@ export function Home() {
         <MowingHero
           className="h-[140px]"
           state={heroState}
-          progress={isMowing ? coveragePct : undefined}
+          planning={isPlanning}
+          progress={isMowing ? coveragePct : isPlanning ? stateDetail?.progress : undefined}
           overlayTop={
             <>
               <OverlayChip>
                 <stateCopy.icon size={13} className={TONE_DOT_CLASS[stateCopy.tone]} /> {stateCopy.label}
               </OverlayChip>
-              {areaName ? <OverlayChip>{areaName}</OverlayChip> : null}
+              {isPlanning && stateDetail?.phase ? (
+                <OverlayChip>{stateDetail.phase}</OverlayChip>
+              ) : areaName ? (
+                <OverlayChip>{areaName}</OverlayChip>
+              ) : null}
               {isMowing && coveragePct !== undefined ? (
                 <OverlayChip className="ml-auto">
                   <b className="font-bold text-accent">{coveragePct}%</b>&nbsp;mowed
+                </OverlayChip>
+              ) : isPlanning && stateDetail?.progress !== undefined ? (
+                <OverlayChip className="ml-auto">
+                  <b className="font-bold text-info">{Math.round(stateDetail.progress)}%</b>
                 </OverlayChip>
               ) : null}
             </>
@@ -274,6 +283,11 @@ export function Home() {
             <>
               <KpiTile value="—" unit=" min" label="Time left" accent />
               <KpiTile value="—" unit=" m²" label="Remaining" />
+              <KpiTile value={batteryPct} unit=" %" label="Battery" />
+            </>
+          ) : isPlanning ? (
+            <>
+              <KpiTile value={Math.round(stateDetail?.progress ?? 0)} unit=" %" label={stateDetail?.phase ?? 'Planning'} accent />
               <KpiTile value={batteryPct} unit=" %" label="Battery" />
             </>
           ) : (
@@ -307,11 +321,11 @@ export function Home() {
               tone={pillTone}
               icon={<stateCopy.icon size={17} strokeWidth={2.3} />}
               label={isMowing && areaName ? `${stateCopy.label} ${areaName}` : stateCopy.label}
-              sub={stateCopy.sub}
+              sub={isPlanning && stateDetail?.phase ? stateDetail.phase : stateCopy.sub}
             />
             {isMowing ? <Chip variant="ok">● RTK fixed</Chip> : null}
           </div>
-          <MowingHero className="h-[150px]" state={heroState} />
+          <MowingHero className="h-[150px]" state={heroState} planning={isPlanning} />
         </Card>
 
         <div className="col-start-1 row-start-2 grid content-start grid-cols-4 gap-3">
@@ -321,6 +335,17 @@ export function Home() {
               <KpiTile value="—" unit=" m²" label="Remaining" />
               <KpiTile value={batteryPct} unit=" %" label="Battery" />
               <KpiTile value={coveragePct ?? 0} unit=" %" label="Coverage" />
+            </>
+          ) : isPlanning ? (
+            <>
+              <KpiTile
+                className="col-span-2"
+                value={Math.round(stateDetail?.progress ?? 0)}
+                unit=" %"
+                label={stateDetail?.phase ?? 'Planning'}
+                accent
+              />
+              <KpiTile className="col-span-2" value={batteryPct} unit=" %" label="Battery" />
             </>
           ) : (
             <>
