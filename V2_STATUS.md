@@ -2,6 +2,28 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 3 (2026-07-17) — audit + gap-close + robot-state model. Head: **`4efa68d`** (clean, tsc+build green)
+- Ran a **full-state audit** (see the AUDIT block below) — map editor turned out ~93% ported vs the
+  build specs (tracker was stale), the deferred phases named, non-map gaps found.
+- **Closed the accidental gaps** (`f95f860`): Home Stop buttons wired, rect/circle draw type-pick,
+  desktop Settings Safety category, dead About chevrons removed, stray raw buttons migrated.
+- **Backup & Restore** settings page added as a **placeholder** (`f95f860`) — download/restore
+  layout with honest "not wired yet" inline status; NO zip/backend logic (deferred by request).
+- **Robot-state & command-feedback model** (`4efa68d`) — the big one. Press Mow now enters a
+  **PLANNING_MISSION** busy state ("Planning…" hero sweep + progress) before MOWING; command
+  buttons disable with reason chips. New `src/lib/v2/{robotState,useRobotStateMock,useCommand}.ts`
+  (canonical 16-state enum + copy table + mock transition engine + blockers-as-data), Home rewired.
+  **All MOCK** — the store is the seam the gateway drops onto in the data phase. **Spec:
+  `STATE_COMMAND_MODEL.md`** (consolidated from the stranded `ux-research/docs/state-and-command-ux.md`
+  + backend W9 `OpenMowerNext/docs/ux-state-architecture.md`); it also defines the **3-layer
+  availability model** (hardware-capability=hidden · live-blocker=disabled+reason · **backend-support
+  flag = hidden + "show controls not yet supported" dev toggle**) for the coming V2↔backend integration.
+  KB: `openmower_knowledgebase/v2-app-robot-state-model.md`. opus-validator: APPROVE.
+- **Next up (state model):** wire the other 3 `states/*` mockups to the store (BOOTING readiness,
+  PausedBlocker reasons, HeightConfirm), then real `cmd/req→res` + schema fields in the data phase,
+  then the L3 `featureSupport` registry + hidden toggle during integration. Also owed: the human
+  real-browser DRAG QA pass.
+
 ## 🔎 AUDIT (2026-07-17) — full state audit, no code changed. Head: **`4e14479`** (clean, tsc+build green)
 Three parallel audits (map editor / map screen+area settings / non-map screens) against every spec.
 Findings that CORRECT stale lines below — read this before trusting the checklist:
