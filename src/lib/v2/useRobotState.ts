@@ -19,7 +19,9 @@ const DIRECT_STATE_MAP: Partial<Record<string, RobotState>> = {
   HEADING_CALIBRATION: 'HEADING_CALIBRATION',
 };
 
-function toRobotState(currentState: string | undefined, isCharging: boolean): RobotState {
+// Exported so useRobotStateSnapshot.ts's R3 fallback (old gateway, no `state` field yet) uses the
+// exact same mapping instead of a second hand-maintained copy.
+export function toRobotState(currentState: string | undefined, isCharging: boolean): RobotState {
   if (!currentState) return 'IDLE';
   if (currentState === 'DOCKED') return isCharging ? 'DOCKED_CHARGING' : 'DOCKED';
   return DIRECT_STATE_MAP[currentState] ?? 'IDLE';

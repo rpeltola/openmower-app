@@ -1,4 +1,5 @@
 import type {MowerConfig} from '@/components/types';
+import {MqttCommandClient} from '@/lib/commandClient';
 import {MqttQueryClient} from '@/lib/queryClient';
 import {OpenMowerRpc} from '@/lib/rpc';
 import {generateId} from '@/utils/area-utils';
@@ -65,6 +66,9 @@ export class Mower {
   readonly mqttPrefix: string;
   readonly rpc: OpenMowerRpc;
   readonly queryClient: MqttQueryClient;
+  // v2's `cmd/req` -> `cmd/res` command protocol (W9 §0.9) -- see lib/v2/useCommand.ts. Distinct
+  // from the legacy fire-and-forget `sendCommand()` below, which v1 (and, pre-W9, v2) still uses.
+  readonly commandClient: MqttCommandClient;
   capabilities: Capabilities = {};
   state: StateOptionalPose = stateDefaults;
   map: MapData = mapDefaults;
@@ -93,6 +97,7 @@ export class Mower {
     this.mqttPrefix = config.mqtt_prefix;
     this.rpc = new OpenMowerRpc(mqttClient, config.mqtt_prefix);
     this.queryClient = new MqttQueryClient(mqttClient, config.mqtt_prefix);
+    this.commandClient = new MqttCommandClient(mqttClient, config.mqtt_prefix);
   }
 
   hasCapability(capability: string, minLevel: number = 1): boolean {
@@ -248,6 +253,8 @@ export const useMowersStore = create<MowersStore>()(
             // On-demand query replies (stats/histogram/heatmap/events/mapversions/mapversion/track/mowjobs),
             // correlated by request_id -- see lib/queryClient.ts.
             client.subscribe(clientMower.prefix + 'query/+/res');
+            // v2 command acks/nacks (W9 §0.9), correlated by id -- see lib/commandClient.ts.
+            client.subscribe(clientMower.prefix + 'cmd/res');
             mowers[clientMower.idx].rpc.events.history
               .list()
               .then((dates) => {
@@ -399,6 +406,11 @@ export const useMowersStore = create<MowersStore>()(
               // Routed to whichever caller is awaiting this request_id; doesn't touch store
               // state directly (see MqttQueryClient), so no `set()` needed here.
               mowers[idx].queryClient.handleResponse(payload.toString());
+            } else if (partialTopic === 'cmd/res') {
+              // Routed to whichever caller is awaiting this id; doesn't touch store state
+              // directly (see MqttCommandClient) -- the retained robot_state/json.state
+              // transition is the real confirmation, not this ack.
+              mowers[idx].commandClient.handleResponse(payload.toString());
             }
           } catch (err) {
             console.warn(`Dropping malformed MQTT message on ${topic}:`, err);

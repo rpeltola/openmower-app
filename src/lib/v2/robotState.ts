@@ -60,9 +60,67 @@ export type RejectCode =
   | 'ALREADY_RUNNING'
   | 'ALREADY_DOCKED'
   | 'NOT_READY'
-  | 'RAIN_DELAY';
+  | 'RAIN_DELAY'
+  | 'UNSUPPORTED';
 
 export type CommandName = 'mow' | 'stop' | 'dock' | 'pause' | 'resume' | 'undock';
+
+// Canonical enumeration lists -- the single place every value of each union is spelled out, so
+// the R4 completeness-gate test (and BootingScreen/PausedBlockerScreen's default ordering) is
+// driven off the SAME list the copy tables below are checked against, not a copy of it. Keep
+// these in lockstep with their union type above (the compiler enforces STATE_COPY/REASON_COPY/
+// REJECT_COPY are Record<..., ...> — i.e. exhaustive over the type — but a plain array like this
+// one needs the same discipline by hand when the union grows).
+export const ALL_ROBOT_STATES: RobotState[] = [
+  'BOOTING',
+  'READY',
+  'IDLE',
+  'DOCKED',
+  'DOCKED_CHARGING',
+  'PLANNING_MISSION',
+  'MOWING',
+  'PAUSED',
+  'RECOVERING',
+  'HEADING_CALIBRATION',
+  'UNDOCKING',
+  'DOCKING',
+  'AREA_RECORDING',
+  'MANUAL_DRIVE',
+  'ERROR',
+  'AWAITING_HEIGHT_CONFIRM',
+];
+
+export const ALL_PAUSED_REASONS: PausedReason[] = [
+  'EMERGENCY',
+  'COLLISION',
+  'POSE_UNTRUSTED',
+  'GPS_LOSS',
+  'RAIN',
+  'MANUAL',
+  'BATTERY_LOW',
+  'NOT_READY',
+];
+
+export const ALL_REJECT_CODES: RejectCode[] = [
+  'EMERGENCY_ACTIVE',
+  'POSE_UNTRUSTED',
+  'NO_GPS_FIX',
+  'NO_MAP',
+  'NO_DOCK',
+  'BATTERY_LOW',
+  'ALREADY_RUNNING',
+  'ALREADY_DOCKED',
+  'NOT_READY',
+  'RAIN_DELAY',
+  'UNSUPPORTED',
+];
+
+export const ALL_COMMAND_NAMES: CommandName[] = ['mow', 'stop', 'dock', 'pause', 'resume', 'undock'];
+
+// Fixed readiness keys (W9 §0.8), in the order the BOOTING checklist displays them.
+export const READINESS_KEYS = ['board_comms', 'map', 'gps', 'estimator', 'nav2', 'safety'] as const;
+export type ReadinessKey = (typeof READINESS_KEYS)[number];
+export type ReadinessValue = 'ok' | 'waiting' | 'converging' | 'activating' | 'error';
 
 export interface StateDetail {
   progress?: number;
@@ -80,7 +138,7 @@ export interface RobotStateSnapshot {
   stateDetail?: StateDetail;
   reasons: PausedReason[];
   commands: Record<CommandName, CommandAvailability>;
-  readiness?: Record<string, 'ok' | 'waiting' | 'converging' | 'activating' | 'error'>;
+  readiness?: Record<string, ReadinessValue>;
   error?: {code: string};
 }
 
@@ -134,6 +192,7 @@ export const REJECT_COPY: Record<RejectCode, {label: string}> = {
   ALREADY_DOCKED: {label: 'Already docked'},
   NOT_READY: {label: 'Not ready yet'},
   RAIN_DELAY: {label: 'Waiting out the rain'},
+  UNSUPPORTED: {label: 'Not supported yet'},
 };
 
 // Maps the full 16-value enum onto MowingHero's scene vocabulary (mowing/paused/docked/
