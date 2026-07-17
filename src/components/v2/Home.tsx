@@ -170,7 +170,11 @@ export function Home() {
     if (result.accepted) {
       setToastMessage(acceptedMessage);
     } else if (result.reason) {
-      setToastMessage(REJECT_COPY[result.reason].label);
+      // Guard the lookup: `reject_code` arrives from the wire cast straight to RejectCode
+      // (commandClient.ts) without validating it's one of the 11 known codes, so a newer/typo'd
+      // gateway code has no REJECT_COPY row -- fall back to a generic message instead of throwing
+      // (mirrors the `?.label` guard the disabled-reason chips below already use).
+      setToastMessage(REJECT_COPY[result.reason]?.label ?? 'Command rejected');
     }
   };
 
