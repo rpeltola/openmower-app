@@ -39,11 +39,14 @@ export default async function RootLayout({
   return (
     <html lang="en" className={roboto.variable} suppressHydrationWarning>
       <body suppressHydrationWarning>
-        {/* Runs before React hydrates — sets body background immediately so the
-            blank-before-mount period matches the final theme colour */}
+        {/* Runs before React hydrates — stamps data-theme + body background immediately so the
+            blank-before-mount period matches the final theme. Honors the v2 in-app theme choice
+            (localStorage 'v2.theme', see lib/v2/theme.ts): explicit light/dark wins, 'system' or
+            unset falls back to the OS preference — so the chosen theme sticks with no flash on any
+            page, including /v2 routes that don't import the theme hook. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var d=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',d?'dark':'light');document.body.style.background=d?'#121212':'#fafafa';}catch(e){}})()`,
+            __html: `(function(){try{var t=null;try{t=localStorage.getItem('v2.theme');}catch(e){}var d=t==='dark'?true:t==='light'?false:window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.setAttribute('data-theme',d?'dark':'light');document.body.style.background=d?'#121212':'#fafafa';}catch(e){}})()`,
           }}
         />
         <ConfigInitializer config={config} />

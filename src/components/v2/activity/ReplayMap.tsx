@@ -6,7 +6,7 @@
 // dynamic-import it with { ssr: false } (Leaflet touches `window` at module load, same reason
 // Map.tsx dynamic-imports MapCanvas).
 import {metersToLatLng, type Origin} from '@/lib/v2/geo/projection';
-import {DEFAULT_BASEMAP_ID, resolveBasemap} from '@/components/v2/map/basemaps';
+import {resolveBasemap} from '@/components/v2/map/basemaps';
 import {ZONE_STYLE, type Zone} from '@/components/v2/map/mockMap';
 import type {TimedTrackPoint} from '@/hooks/useJobTimedTrack';
 import L from 'leaflet';
@@ -43,7 +43,9 @@ export function ReplayMap({origin, zones, points, playheadPoint, fitKey, classNa
   // ---- one-time map + layer-group creation -----------------------------------------------------
   useEffect(() => {
     if (!elRef.current || mapRef.current) return;
-    const basemap = resolveBasemap(DEFAULT_BASEMAP_ID);
+    // Replay keeps the satellite basemap on purpose — geographic context (where the run happened)
+    // suits a historical driven path, even though the live map now defaults to the Minimal canvas.
+    const basemap = resolveBasemap('esri');
     // L.svg (not the default canvas) renderer with generous padding: the large real-area polygons
     // otherwise clip/twitch at the viewport edge during zoom — same fix as MapCanvas.
     const map = L.map(elRef.current, {

@@ -20,6 +20,7 @@ import {ListRow} from '@/components/v2/ui/ListRow';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Switch} from '@/components/v2/ui/Switch';
 import {hapticStrong, setHapticsEnabled, useHapticsEnabled} from '@/lib/v2/haptics';
+import {THEME_OPTIONS, useTheme, type Theme} from '@/lib/v2/theme';
 import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
 import {useSelectedMower} from '@/stores/mowersStore';
 import {Bell, Check, Info, Navigation, Shield, Wifi, Wrench, Zap} from 'lucide-react';
@@ -59,6 +60,7 @@ export function SettingsCategoryDetail({
   className,
 }: SettingsCategoryDetailProps) {
   const hapticsEnabled = useHapticsEnabled();
+  const {theme, setTheme, systemIsDark} = useTheme();
 
   const mqttUrl = useSelectedMower((m) => m?.mqttUrl);
   const clientId = useSelectedMower((m) => m?.mqttClient.options.clientId);
@@ -215,26 +217,41 @@ export function SettingsCategoryDetail({
       ) : null}
 
       {category === 'general' ? (
-        <SettingsGroup>
-          <ListRow
-            title="Haptic feedback"
-            sub="Vibrate on button presses (Android & modern iOS)"
-            trailing={
-              <div className="flex items-center gap-2.5">
-                {/* noHaptic: the Button primitive already buzzes on its own pointerdown,
-                    so this fires the test pulse explicitly instead of doubling up. */}
-                <Button variant="soft" size="sm" noHaptic onClick={() => hapticStrong()}>
-                  Test
-                </Button>
-                <Switch
-                  checked={hapticsEnabled}
-                  onCheckedChange={(checked) => setHapticsEnabled(checked)}
-                  aria-label="Haptic feedback"
-                />
-              </div>
-            }
-          />
-        </SettingsGroup>
+        <>
+          <Card className="p-[.85rem]">
+            <FormField
+              label="Appearance"
+              hint={
+                theme === 'system'
+                  ? `Follows your device setting (currently ${systemIsDark ? 'dark' : 'light'}).`
+                  : undefined
+              }
+            >
+              <SegmentedToggle options={THEME_OPTIONS} value={theme} onChange={(v) => setTheme(v as Theme)} />
+            </FormField>
+          </Card>
+
+          <SettingsGroup>
+            <ListRow
+              title="Haptic feedback"
+              sub="Vibrate on button presses (Android & modern iOS)"
+              trailing={
+                <div className="flex items-center gap-2.5">
+                  {/* noHaptic: the Button primitive already buzzes on its own pointerdown,
+                      so this fires the test pulse explicitly instead of doubling up. */}
+                  <Button variant="soft" size="sm" noHaptic onClick={() => hapticStrong()}>
+                    Test
+                  </Button>
+                  <Switch
+                    checked={hapticsEnabled}
+                    onCheckedChange={(checked) => setHapticsEnabled(checked)}
+                    aria-label="Haptic feedback"
+                  />
+                </div>
+              }
+            />
+          </SettingsGroup>
+        </>
       ) : null}
 
       {category === 'maintenance' ? (

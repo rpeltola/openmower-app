@@ -164,6 +164,27 @@
   --radius-control: var(--radius-control);
 }
 
+/* ---- MapCanvas zone colors — theme-aware so zones read on both the Minimal (no-tile,
+   --surface-2) basemap and satellite imagery, in light and dark. Leaflet still sets its own
+   stroke/fill presentation attributes on the <path>, but author CSS beats presentation
+   attributes in the cascade, so these win regardless of paint order. */
+.v2-zone-mow {
+  stroke: var(--accent);
+  fill: var(--accent);
+}
+.v2-zone-obstacle {
+  stroke: var(--danger);
+  fill: var(--danger);
+}
+.v2-zone-nav {
+  stroke: var(--info);
+  fill: var(--info);
+}
+.v2-zone-spot {
+  stroke: var(--warn);
+  fill: var(--warn);
+}
+
 .v2-root {
   background: var(--bg);
   color: var(--ink);
