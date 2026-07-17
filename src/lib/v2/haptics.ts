@@ -81,8 +81,11 @@ function iosSwitchHapticFallback(): void {
 
 /** Fires tactile feedback, respecting the user's haptics preference. `pattern` matches
  *  `navigator.vibrate`'s argument (ms, or an on/off sequence) and is ignored by the iOS
- *  fallback, which can only ever produce a single fixed tap. No-ops during SSR. */
-export function haptic(pattern: number | number[] = 10): void {
+ *  fallback, which can only ever produce a single fixed tap. No-ops during SSR.
+ *  Support: Android Chrome/Edge/Samsung Internet all implement `navigator.vibrate`;
+ *  Firefox 129+ removed it; iOS Safari never had it at all (hence the switch-trick
+ *  fallback above). */
+export function haptic(pattern: number | number[] = 20): void {
   if (!isHapticsEnabled()) return;
   if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
     navigator.vibrate(pattern);
@@ -91,14 +94,16 @@ export function haptic(pattern: number | number[] = 10): void {
   iosSwitchHapticFallback();
 }
 
-/** Light tap — the default for ordinary button presses. */
+/** Light tap — the default for ordinary button presses. Short pulses (well under ~15ms)
+ *  are inaudible/imperceptible on a lot of Android hardware, so this needs to be long
+ *  enough to actually register. */
 export function hapticTap(): void {
-  haptic(10);
+  haptic(20);
 }
 
 /** Firmer buzz for danger/important actions (e.g. stop, delete, e-stop). */
 export function hapticStrong(): void {
-  haptic([0, 25]);
+  haptic([0, 35]);
 }
 
 interface VibrationActuatorLike {

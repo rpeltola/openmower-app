@@ -9,13 +9,14 @@ import {
   UNITS_OPTIONS,
   type SafetyToggles,
 } from '@/components/v2/settings/settingsData';
+import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
 import {FormField} from '@/components/v2/ui/FormField';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Switch} from '@/components/v2/ui/Switch';
-import {setHapticsEnabled, useHapticsEnabled} from '@/lib/v2/haptics';
+import {hapticStrong, setHapticsEnabled, useHapticsEnabled} from '@/lib/v2/haptics';
 import {Bell, Check, ChevronRight, Info, Navigation, Shield, Wifi, Zap} from 'lucide-react';
 
 export interface SettingsCategoryDetailProps {
@@ -172,11 +173,18 @@ export function SettingsCategoryDetail({
             title="Haptic feedback"
             sub="Vibrate on button presses (Android & modern iOS)"
             trailing={
-              <Switch
-                checked={hapticsEnabled}
-                onCheckedChange={(checked) => setHapticsEnabled(checked)}
-                aria-label="Haptic feedback"
-              />
+              <div className="flex items-center gap-2.5">
+                {/* noHaptic: the Button primitive already buzzes on its own pointerdown,
+                    so this fires the test pulse explicitly instead of doubling up. */}
+                <Button variant="soft" size="sm" noHaptic onClick={() => hapticStrong()}>
+                  Test
+                </Button>
+                <Switch
+                  checked={hapticsEnabled}
+                  onCheckedChange={(checked) => setHapticsEnabled(checked)}
+                  aria-label="Haptic feedback"
+                />
+              </div>
             }
           />
         </SettingsGroup>
