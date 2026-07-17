@@ -14,7 +14,7 @@ import {Toast} from '@/components/v2/ui/Toast';
 import {useMediaQuery} from '@/components/v2/lib/useMediaQuery';
 import {useCapabilities} from '@/lib/v2/capabilities';
 import {gamepadButtonLabels, type GamepadButtonLabels, useGamepad} from '@/lib/v2/useGamepad';
-import {Bluetooth, Gamepad2, Home, Maximize, Minimize, RotateCcw, Sprout, Square, X} from 'lucide-react';
+import {Bluetooth, Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 
 const SPEED_OPTIONS = [
@@ -62,26 +62,36 @@ export function ManualControl() {
   const [hasError] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Fullscreen API — reclaims the browser address-bar space in landscape. iOS Safari
-  // doesn't support it for non-video content, so `fullscreenEnabled` gates the button
-  // itself (rather than a standalone-mode check): the app is already handled there via
-  // Add-to-Home-Screen (manifest.ts `display: standalone`).
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [fullscreenSupported, setFullscreenSupported] = useState(false);
+  // Fullscreen API — reclaims the browser address-bar space in landscape. Browsers block
+  // `requestFullscreen()` outside a user gesture, so on-load isn't an option: the first
+  // tap/click anywhere on the page doubles as the trigger, then the listener retires
+  // itself. iOS Safari doesn't support it for non-video content at all — that's left to
+  // Add-to-Home-Screen (manifest.ts `display: standalone`), which is also why standalone
+  // mode skips this (the browser chrome is already gone there). Exiting stays native
+  // (Escape / system back gesture) — there's no in-app control for it anymore.
+  const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    setFullscreenSupported(document.fullscreenEnabled);
-    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
+    if (!document.fullscreenEnabled || document.fullscreenElement) return;
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (navigator as Navigator & {standalone?: boolean}).standalone;
+    if (isStandalone) return;
+
+    const root = rootRef.current;
+    if (!root) return;
+    const enterFullscreen = () => {
       void document.documentElement.requestFullscreen();
-    }
-  };
+      root.removeEventListener('pointerdown', enterFullscreen);
+      root.removeEventListener('click', enterFullscreen);
+    };
+    root.addEventListener('pointerdown', enterFullscreen);
+    root.addEventListener('click', enterFullscreen);
+    return () => {
+      root.removeEventListener('pointerdown', enterFullscreen);
+      root.removeEventListener('click', enterFullscreen);
+    };
+  }, []);
 
   // A phone turned sideways can be WIDER than the `md` breakpoint (e.g. 844px), so the
   // desktop layout can't be gated on width alone — pair orientation with a height cap
@@ -215,7 +225,7 @@ export function ManualControl() {
   );
 
   return (
-    <div className="relative mx-auto flex w-full max-w-[1400px] flex-col md:h-dvh">
+    <div ref={rootRef} className="relative mx-auto flex w-full max-w-[1400px] flex-col md:h-dvh">
       <Toast message={toast} onDismiss={() => setToast(null)} />
       <header className="flex flex-none flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:gap-4 md:px-6 md:py-4">
         <div className="flex items-center justify-between md:block">
@@ -246,16 +256,6 @@ export function ManualControl() {
             </Chip>
           ) : null}
           <Chip variant="ok">🔋 71%</Chip>
-          {fullscreenSupported ? (
-            <Button
-              variant="soft"
-              size="icon"
-              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-              onClick={toggleFullscreen}
-            >
-              {isFullscreen ? <Minimize size={16} strokeWidth={2.4} /> : <Maximize size={16} strokeWidth={2.4} />}
-            </Button>
-          ) : null}
           <Button variant="ghost" size="sm" className="hidden md:inline-flex">
             <X size={14} strokeWidth={2.4} />
             Close
