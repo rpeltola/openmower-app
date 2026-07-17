@@ -23,6 +23,19 @@ function areasSummary(selected: string[]): string {
   return `${selected.length} areas`;
 }
 
+function parseTimeToMinutes(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return ((h || 0) * 60 + (m || 0)) % 1440;
+}
+
+function formatDuration(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) return `${h} h ${m} min`;
+  if (h > 0) return `${h} h`;
+  return `${m} min`;
+}
+
 export interface ScheduleEditorSheetProps {
   open: boolean;
   onClose: () => void;
@@ -56,6 +69,8 @@ export function ScheduleEditorSheet({
   minBatteryPct = 30,
 }: ScheduleEditorSheetProps) {
   const [days, setDays] = useState(activeDays);
+  const [start, setStart] = useState(windowStart);
+  const [end, setEnd] = useState(windowEnd);
   const [rainSkip, setRainSkip] = useState(initialRainSkip);
   const [quietHours, setQuietHours] = useState(initialQuietHours);
   // `areas` (the prop) is a free-text summary from the parent; parse it into a starting
@@ -70,6 +85,15 @@ export function ScheduleEditorSheet({
   function toggleArea(area: string) {
     setSelectedAreas((prev) => (prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]));
   }
+
+  // Live "what this produces next" preview, recomputed from the editable fields — the day
+  // stays whatever `nextRun` (the parent's mock) named, only the time/areas/duration react.
+  const previewDay = nextRun.when.split(' ')[0];
+  const durationMin = (parseTimeToMinutes(end) - parseTimeToMinutes(start) + 1440) % 1440;
+  const livePreview = {
+    when: previewDay ? `${previewDay} ${start}` : start,
+    detail: `${areasSummary(selectedAreas)} · ~${formatDuration(durationMin)}`,
+  };
 
   return (
     <Sheet open={open} onClose={onClose} className="max-h-[88vh] overflow-y-auto">
@@ -109,13 +133,25 @@ export function ScheduleEditorSheet({
       <div>
         <div className="text-[.82rem] font-semibold text-ink">Time window</div>
         <div className="mt-[.4rem] flex items-center gap-[.5rem]">
-          <span className="tabular-nums flex-1 rounded-[11px] border border-accent bg-accent-wash py-[.55rem] text-center text-[.8rem] font-[680] text-accent">
-            Start · {windowStart}
-          </span>
+          <label className="flex-1 rounded-[11px] border border-accent bg-accent-wash py-[.4rem] text-center">
+            <span className="block text-[.58rem] font-semibold uppercase tracking-[.08em] text-accent/70">Start</span>
+            <input
+              type="time"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="tabular-nums w-full bg-transparent text-center text-[.8rem] font-[680] text-accent outline-none [color-scheme:light] dark:[color-scheme:dark]"
+            />
+          </label>
           <span className="text-[.8rem] text-ink-faint">–</span>
-          <span className="tabular-nums flex-1 rounded-[11px] border border-accent bg-accent-wash py-[.55rem] text-center text-[.8rem] font-[680] text-accent">
-            End · {windowEnd}
-          </span>
+          <label className="flex-1 rounded-[11px] border border-accent bg-accent-wash py-[.4rem] text-center">
+            <span className="block text-[.58rem] font-semibold uppercase tracking-[.08em] text-accent/70">End</span>
+            <input
+              type="time"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className="tabular-nums w-full bg-transparent text-center text-[.8rem] font-[680] text-accent outline-none [color-scheme:light] dark:[color-scheme:dark]"
+            />
+          </label>
         </div>
       </div>
 
@@ -189,8 +225,8 @@ export function ScheduleEditorSheet({
       <StatePill
         tone="info"
         icon={<Clock size={15} strokeWidth={2.2} />}
-        label={`Next: ${nextRun.when}`}
-        sub={nextRun.detail}
+        label={`Next: ${livePreview.when}`}
+        sub={livePreview.detail}
         className="mb-[.35rem] mt-auto"
       />
     </Sheet>
