@@ -14,6 +14,9 @@ export interface RunMetric {
 }
 
 export interface RunCardProps {
+  /** The real job_id (see MowJob), stamped onto the rendered row for identification -- not
+   *  otherwise used inside this card since selection already flows through `onSelect`. */
+  jobId?: string | null;
   plan: string;
   statusLabel: string;
   statusVariant: ChipProps['variant'];
@@ -32,6 +35,7 @@ export interface RunCardProps {
  *  matter (concept "Activity · history"). `compact` swaps the boxed mobile metric tiles for
  *  the desktop sidebar's plain inline trio, and becomes selectable when `onSelect` is given. */
 export function RunCard({
+  jobId,
   plan,
   statusLabel,
   statusVariant,
@@ -69,6 +73,7 @@ export function RunCard({
         <Button
           type="button"
           variant="soft"
+          data-job-id={jobId ?? undefined}
           onClick={onSelect}
           className={cn(
             'h-auto w-full cursor-pointer flex-col items-start gap-[.5rem] rounded-[16px] border p-[.8rem] text-left hover:bg-surface',
@@ -82,7 +87,9 @@ export function RunCard({
     }
 
     return (
-      <div className={cn('flex flex-col gap-[.5rem] rounded-[16px] bg-surface-2 p-[.8rem]', className)}>{content}</div>
+      <div data-job-id={jobId ?? undefined} className={cn('flex flex-col gap-[.5rem] rounded-[16px] bg-surface-2 p-[.8rem]', className)}>
+        {content}
+      </div>
     );
   }
 
@@ -109,6 +116,7 @@ export function RunCard({
       <Button
         type="button"
         variant="soft"
+        data-job-id={jobId ?? undefined}
         onClick={onSelect}
         className={cn(
           'h-auto w-full cursor-pointer flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border bg-surface p-[.8rem] text-left shadow-sm hover:bg-surface-2',
@@ -120,5 +128,9 @@ export function RunCard({
     );
   }
 
-  return <Card className={cn('flex flex-col gap-2 p-[.8rem]', className)}>{content}</Card>;
+  return (
+    <Card data-job-id={jobId ?? undefined} className={cn('flex flex-col gap-2 p-[.8rem]', className)}>
+      {content}
+    </Card>
+  );
 }

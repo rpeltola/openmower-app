@@ -5,7 +5,9 @@ import {cn} from '@/components/v2/lib/cn';
 import {Button} from '@/components/v2/ui/Button';
 import {ConnectionBanner} from '@/components/v2/ui/ConnectionBanner';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
+import {STATE_COPY, type Tone} from '@/lib/v2/robotState';
 import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
+import {useRobotState} from '@/lib/v2/useRobotState';
 import {
   Activity,
   Calendar,
@@ -21,6 +23,15 @@ import {
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import {useState} from 'react';
+
+// Same tone -> color mapping as StatePill's icon chip (StatePill.tsx), just as a plain dot here.
+const TONE_DOT_BG: Record<Tone, string> = {
+  accent: 'bg-accent',
+  warn: 'bg-warn',
+  danger: 'bg-danger',
+  info: 'bg-info',
+  neutral: 'bg-ink-soft',
+};
 
 interface NavItem {
   href: string;
@@ -67,6 +78,8 @@ export function AppShell({children}: AppShellProps) {
   const pathname = usePathname() ?? '/v2';
   const [mowerSelectorOpen, setMowerSelectorOpen] = useState(false);
   const {status: connectionStatus, reconnect} = useConnectionStatus();
+  const {state, isMowing, areaName, coveragePct} = useRobotState();
+  const stateCopy = STATE_COPY[state];
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] md:h-dvh">
@@ -120,11 +133,13 @@ export function AppShell({children}: AppShellProps) {
         {/* sidestate — the always-visible status card at the foot of the sidebar */}
         <div className="rounded-xl border border-border bg-surface p-3">
           <div className="flex items-center gap-1.5 text-[.82rem] font-semibold text-ink">
-            <span className="h-2 w-2 flex-none rounded-full bg-accent" />
-            Mowing · Etupiha
+            <span className={cn('h-2 w-2 flex-none rounded-full', TONE_DOT_BG[stateCopy.tone])} />
+            {isMowing && areaName ? `${stateCopy.label} · ${areaName}` : stateCopy.label}
           </div>
-          <div className="my-1 text-xs text-ink-soft">62% · 24 min left</div>
-          <ProgressBar value={62} className="h-[5px]" />
+          {/* No mission ETA wired yet — mowing shows real coverage only, never a fabricated
+              "min left"; other states fall back to STATE_COPY's sub line. */}
+          <div className="my-1 text-xs text-ink-soft">{isMowing ? `${coveragePct ?? 0}% mowed` : stateCopy.sub}</div>
+          {isMowing ? <ProgressBar value={coveragePct ?? 0} className="h-[5px]" /> : null}
         </div>
       </aside>
 

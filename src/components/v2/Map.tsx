@@ -6,12 +6,14 @@
 // (batches 1-3 of MAP_EDITOR_SPEC.md), plus the real per-area settings editor (AREA_SETTINGS_SPEC.md,
 // AreaSettingsSheet.tsx). The "Choose zone" Sheet below is just the quick zone switcher now —
 // selecting a zone (there, or by tapping it on the map) opens the settings editor.
-import {latLngToMeters, metersToLatLng, type Meters, type Pose} from '@/lib/v2/geo/projection';
+import {latLngToMeters, metersToLatLng, type Meters, type Origin, type Pose} from '@/lib/v2/geo/projection';
 import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {coverageLines, outlineLaps} from '@/components/v2/map/coverage';
 import {polygonArea, polygonPerimeter, principalAngleDeg} from '@/components/v2/map/geometry';
+import type {TrackPolyline} from '@/components/v2/map/MapCanvas';
 import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements';
+import {mapDataToDock, mapDataToZones} from '@/components/v2/map/realData';
 import {RecordBriefingSheet} from '@/components/v2/map/record/RecordBriefingSheet';
 import {RecordCloseSheet} from '@/components/v2/map/record/RecordCloseSheet';
 import {RecordDriveOverlay, type RecordSpeed} from '@/components/v2/map/record/RecordDriveOverlay';
@@ -27,6 +29,14 @@ import {
 } from '@/components/v2/map/mockMap';
 import {useMapEditor, TOOL_SHORTCUT_KEYS, type EditTool, type OpResult} from '@/components/v2/map/useMapEditor';
 import {validateMap, type MapIssue} from '@/components/v2/map/validation';
+import {useHeatmap} from '@/hooks/useHeatmap';
+import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
+import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
+import {STATE_COPY, type Tone} from '@/lib/v2/robotState';
+import {useRobotState} from '@/lib/v2/useRobotState';
+import {useSelectedMower} from '@/stores/mowersStore';
+import type {DiscoveredObstacle} from '@/stores/schemas';
+import type {TrackSegment} from '@/utils/track-pipeline';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
@@ -59,6 +69,7 @@ import {
   Copy,
   Eraser,
   Expand,
+  Flame,
   Footprints,
   HelpCircle,
   Home,
@@ -103,10 +114,23 @@ const MapCanvas = dynamic(() => import('@/components/v2/map/MapCanvas').then((m)
   loading: () => <div className="absolute inset-0 bg-map" />,
 });
 
+// Still mocked: the "Areas" rail's own per-zone active/queued status (renderAreaRow) and the
+// mowed-so-far lane painting (mowedLanesData) — a separate per-zone scheduling feature, not the
+// live robot-state display wired below (useRobotState). Fixing that is a later pass.
 const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24};
+
+// Same tone -> color mapping as Home.tsx's TONE_DOT_CLASS, for the top overlay pill's dot.
+const TONE_DOT_CLASS: Record<Tone, string> = {
+  accent: 'text-accent',
+  warn: 'text-warn',
+  danger: 'text-danger',
+  info: 'text-info',
+  neutral: 'text-ink-faint',
+};
 
 const BASEMAP_STORAGE_KEY = 'v2.basemap';
 const COVERAGE_STORAGE_KEY = 'v2.coveragePreview';
+const HEATMAP_STORAGE_KEY = 'v2.heatmap';
 
 // Coverage preview (§F) — visual only, remembered locally, never written to the map.
 interface CoveragePreviewSettings {
@@ -126,6 +150,17 @@ const DEFAULT_COVERAGE_SETTINGS: CoveragePreviewSettings = {
   angleOffsetDeg: 0,
   angleIsAbsolute: false,
 };
+
+// Coverage heatmap (data-wiring pass) — off by default, remembered locally like the coverage
+// preview above. `metricKey: null` means "no metric explicitly chosen yet" — the render below
+// falls back to the first metric useHeatmapMetrics() returns, without persisting that choice
+// until the user actually picks one.
+interface HeatmapSettings {
+  enabled: boolean;
+  metricKey: string | null;
+}
+
+const DEFAULT_HEATMAP_SETTINGS: HeatmapSettings = {enabled: false, metricKey: null};
 
 // Mowed-so-far lanes (S1) use a fixed lane spacing — separate from the user-adjustable coverage-
 // preview tool width above, since one is "what already happened" and the other is a what-if plan.
@@ -187,6 +222,14 @@ const SHORTCUTS: {keys: string; desc: string}[] = [
   {keys: '?', desc: 'This cheat sheet'},
 ];
 
+// Stable empty references for the real-data selectors below (see the "real store data" block in
+// Map()) — a fresh `?? []` on every selector call would be a new array each render, defeating
+// zustand's reference-equality check and re-rendering on every store tick even when there's
+// nothing selected.
+const EMPTY_TRACK_BUFFER: Meters[] = [];
+const EMPTY_TRACK_HISTORY: TrackSegment[] = [];
+const EMPTY_OBSTACLES: DiscoveredObstacle[] = [];
+
 export function Map() {
   const mapRef = useRef<LeafletMap | null>(null);
   const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
@@ -203,6 +246,8 @@ export function Map() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
   const [coverageSheetOpen, setCoverageSheetOpen] = useState(false);
+  const [heatmapSheetOpen, setHeatmapSheetOpen] = useState(false);
+  const [heatmap, setHeatmap] = useState(DEFAULT_HEATMAP_SETTINGS);
   const [addObjectSheetOpen, setAddObjectSheetOpen] = useState(false);
   // S4 — mobile counterpart to the desktop Areas rail (md:flex only); opens a Sheet with the
   // same per-area rows + Mow all now so live-view area switching isn't a desktop-only feature.
@@ -245,6 +290,96 @@ export function Map() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const editor = useMapEditor(MOCK_ZONES, MOCK_DOCK);
 
+  // --- real store data (data-wiring pass — display/read-only; see the module-level doc) --------
+  // The map's real GPS datum becomes the projection origin once the mower has reported one;
+  // MOCK_ORIGIN otherwise (no mower selected / no fix yet), so the /v2 preview still renders.
+  // projection.ts's equirectangular model (longitude scaled by cos(latitude), like this real
+  // datum) is a small approximation vs. coordinates.ts's full WGS84-ellipsoid LocalCartesian —
+  // ~0.1% (a few cm at a garden's edge, a small constant offset of the whole overlay vs. the
+  // basemap; every layer shares this projection so they stay mutually co-registered). Not worth
+  // threading the heavier model through here for a display-only map.
+  const realMap = useSelectedMower((s) => s?.map);
+  const realDatumLat = realMap?.datum?.lat;
+  const realDatumLng = realMap?.datum?.long;
+  const origin: Origin = useMemo(
+    () => (realDatumLat !== undefined && realDatumLng !== undefined ? {lat: realDatumLat, lng: realDatumLng} : MOCK_ORIGIN),
+    [realDatumLat, realDatumLng],
+  );
+
+  // Live robot pose + footprint — same composition as MowerMap.tsx: x/y prefer the driven-track
+  // position topic (falls back to the 5 Hz robot_state pose), heading always comes from the live
+  // robot_state pose so the marker keeps turning during an in-place spin (position/json only
+  // ticks after >=5cm of translation). Hidden (null) with no mower, no pose yet, or while docked —
+  // never drawn at a fabricated position.
+  const currentState = useSelectedMower((s) => s?.state.current_state);
+  const isCharging = useSelectedMower((s) => s?.state.is_charging ?? false);
+  const isDocked = currentState === 'DOCKED' || isCharging;
+
+  // Real display state for the top overlay pill + the live-view stat card below (data-wiring
+  // pass) — separate from the mock `MOW`/`mowAreaName` the "Areas" rail still uses for its own
+  // per-zone scheduling display.
+  const {state: displayState, isMowing, areaName: liveAreaName, coveragePct: liveCoveragePct} = useRobotState();
+  const stateCopy = STATE_COPY[displayState];
+  const robotPositionBase = useSelectedMower((s) => s?.position ?? s?.state.pose);
+  const robotLiveHeading = useSelectedMower((s) => (s?.state.pose?.heading_valid ? s.state.pose.heading : undefined));
+  const robotFootprint = useSelectedMower((s) => s?.state.footprint);
+  const robotPose: Pose | null = useMemo(
+    () =>
+      robotPositionBase && !isDocked
+        ? {x: robotPositionBase.x, y: robotPositionBase.y, heading: robotLiveHeading ?? robotPositionBase.heading}
+        : null,
+    [robotPositionBase, robotLiveHeading, isDocked],
+  );
+
+  // Driven track — one polyline per run of shared blade state: the compacted history segments,
+  // plus the live (uncompacted) buffer under the mower's current blade state. Built straight from
+  // the store's already-local (datum-relative) metres, skipping useTrackFeatures' absolute-lon/lat
+  // conversion since that needs a MapContext datum this v2 route doesn't have.
+  const trackBuffer = useSelectedMower((s) => s?.track.buffer ?? EMPTY_TRACK_BUFFER);
+  const trackHistorySegments = useSelectedMower((s) => s?.track.historySegments ?? EMPTY_TRACK_HISTORY);
+  const trackBladesOn = useSelectedMower((s) => s?.track.attributes.blades ?? false);
+  const trackPolylines: TrackPolyline[] = useMemo(() => {
+    const segments = trackHistorySegments
+      .filter((seg) => seg.points.length >= 2)
+      .map((seg) => ({points: seg.points, bladesOn: seg.attributes.blades}));
+    if (trackBuffer.length >= 2) segments.push({points: trackBuffer, bladesOn: trackBladesOn});
+    return segments;
+  }, [trackHistorySegments, trackBuffer, trackBladesOn]);
+
+  // Discovered obstacles (contact/sensing finds) — distinct from user-drawn `type: 'obstacle'` zones.
+  const discoveredObstacles = useSelectedMower((s) => s?.obstacles ?? EMPTY_OBSTACLES);
+
+  // Real coverage-plan overlay (data-wiring pass, read-only) — the server's actual planned path,
+  // distinct from `coveragePreviewData`/`planPreviewFull` below (those are local what-if previews
+  // and never touch this hook). `useJobPlannedPath` falls back to the live job on its own when
+  // passed null — there's no "browse a past job" concept on /v2 yet, so null is exactly "whatever
+  // the mower is currently running, or nothing". Hidden while editing so it never doubles up with
+  // the edit-mode local coverage preview.
+  const {plannedPath: livePlannedPath} = useJobPlannedPath(null);
+  const plannedPathForMap = editor.editing ? null : (livePlannedPath?.paths ?? null);
+
+  // Coverage heatmap (data-wiring pass, read-only) — off by default; on/off + metric persist in
+  // localStorage like the coverage-preview prefs above. useHeatmap resolves to an empty cell list
+  // (nothing drawn) whenever the metric is off, unavailable, or the query errors — never a
+  // fabricated heatmap (R1).
+  const {metrics: heatmapMetrics} = useHeatmapMetrics();
+  const heatmapMetricKey = heatmap.enabled ? (heatmap.metricKey ?? heatmapMetrics[0]?.key ?? null) : null;
+  const {cellSize: heatmapCellSize, cells: heatmapCells, loading: heatmapLoading} = useHeatmap(heatmapMetricKey);
+  const heatmapMetricInfo = heatmapMetrics.find((m) => m.key === heatmapMetricKey);
+
+  // Re-seed the editor from the real map once the mower has reported one (any real area or
+  // docking station) — but never over local edit history (canUndo = unsaved forward edits;
+  // canRedo = the user undid to baseline but still has a redo we must not clobber on the next
+  // map/json tick). So a live map update can't discard in-session edit state. Runs again whenever
+  // `realMap` gets a new reference (every map/json message); re-seeding with equivalent real data
+  // is harmless — it re-snapshots history to a single entry (see useMapEditor's `reset`).
+  useEffect(() => {
+    if (!realMap || editor.canUndo || editor.canRedo) return;
+    if (realMap.areas.length === 0 && realMap.docking_stations.length === 0) return;
+    editor.reset(mapDataToZones(realMap), mapDataToDock(realMap) ?? MOCK_DOCK);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realMap, editor.canUndo, editor.canRedo]);
+
   useEffect(() => {
     const stored = localStorage.getItem(BASEMAP_STORAGE_KEY);
     if (stored && BASEMAPS.some((b) => b.id === stored)) setBasemapId(stored);
@@ -264,6 +399,24 @@ export function Map() {
     setCoverage((prev) => {
       const next = {...prev, ...patch};
       localStorage.setItem(COVERAGE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const stored = localStorage.getItem(HEATMAP_STORAGE_KEY);
+    if (!stored) return;
+    try {
+      setHeatmap({...DEFAULT_HEATMAP_SETTINGS, ...JSON.parse(stored)});
+    } catch {
+      // ignore malformed localStorage content — keep the defaults
+    }
+  }, []);
+
+  const updateHeatmap = (patch: Partial<HeatmapSettings>) => {
+    setHeatmap((prev) => {
+      const next = {...prev, ...patch};
+      localStorage.setItem(HEATMAP_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
   };
@@ -479,7 +632,7 @@ export function Map() {
           if (recordDistSinceLastPointRef.current >= RECORD_STEP_M) {
             recordDistSinceLastPointRef.current = 0;
             setRecordPoints((pts) => [...pts, {x: next.x, y: next.y}]);
-            mapRef.current?.panTo(metersToLatLng(next, MOCK_ORIGIN), {animate: false});
+            mapRef.current?.panTo(metersToLatLng(next, origin), {animate: false});
           }
         }
       }
@@ -509,7 +662,7 @@ export function Map() {
   // map center (rect/circle draw tools are still there for a drawn shape instead); "drops into
   // editing it" per the spec means opening the settings editor for the brand-new zone right away.
   const addObjectAtCenter = (type: ZoneType, sizeM?: number) => {
-    const center = mapRef.current ? latLngToMeters(mapRef.current.getCenter(), MOCK_ORIGIN) : {x: 0, y: 0};
+    const center = mapRef.current ? latLngToMeters(mapRef.current.getCenter(), origin) : {x: 0, y: 0};
     const id = editor.addZone(center, type, sizeM);
     openZoneSettings(id);
     setAddObjectSheetOpen(false);
@@ -626,7 +779,7 @@ export function Map() {
     // second sheet on top of the one the user is browsing issues from.
     if (issue.zoneId) editor.selectZone(issue.zoneId);
     setIssuesSheetOpen(false);
-    mapRef.current?.setView(metersToLatLng(issue.point, MOCK_ORIGIN), 20);
+    mapRef.current?.setView(metersToLatLng(issue.point, origin), 20);
   };
 
   // Command palette (Ctrl/Cmd+K) — every action on this screen, filterable by name. Kept close to
@@ -748,8 +901,17 @@ export function Map() {
         className="absolute inset-0 h-full w-full"
         basemapId={basemapId}
         onReady={(m) => (mapRef.current = m)}
+        origin={origin}
         zones={editor.zones}
         dock={editor.dock}
+        pose={robotPose}
+        footprint={robotFootprint}
+        track={trackPolylines}
+        obstacles={discoveredObstacles}
+        plannedPath={plannedPathForMap}
+        heatmapCells={heatmapCells}
+        heatmapCellSize={heatmapCellSize}
+        heatmapHigherIsBetter={heatmapMetricInfo?.higher_is_better ?? false}
         editing={editor.editing}
         selectedZoneId={editor.selectedZoneId}
         selectedVertex={editor.selectedVertex}
@@ -799,12 +961,14 @@ export function Map() {
       ) : (
         <div className="pointer-events-none absolute inset-x-3 top-3 z-[500] flex flex-wrap items-center gap-2">
           <OverlayChip>
-            <span className={mockPaused ? 'text-warn' : 'text-accent'}>●</span> {mockPaused ? 'Paused' : 'Mowing'}
+            <span className={TONE_DOT_CLASS[stateCopy.tone]}>●</span> {isMowing && mockPaused ? 'Paused' : stateCopy.label}
           </OverlayChip>
-          <OverlayChip>{mowAreaName}</OverlayChip>
-          <OverlayChip className="ml-auto">
-            <span className="text-accent">●</span> RTK fixed
-          </OverlayChip>
+          {liveAreaName ? <OverlayChip>{liveAreaName}</OverlayChip> : null}
+          {isMowing ? (
+            <OverlayChip className="ml-auto">
+              <span className="text-accent">●</span> RTK fixed
+            </OverlayChip>
+          ) : null}
         </div>
       )}
 
@@ -832,6 +996,11 @@ export function Map() {
           <Fab aria-label="Recenter on robot" icon={<Locate size={18} />} onClick={() => mapRef.current?.setZoom(19)} />
         )}
         <Fab aria-label="Base map" icon={<Layers size={18} />} onClick={() => setBasemapSheetOpen(true)} />
+        <Fab
+          aria-label="Coverage heatmap"
+          icon={<Flame size={18} className={heatmap.enabled ? 'text-accent' : undefined} />}
+          onClick={() => setHeatmapSheetOpen(true)}
+        />
         {editor.editing && (
           <div className="relative">
             <Fab aria-label="Validation issues" icon={<AlertTriangle size={18} />} onClick={() => setIssuesSheetOpen(true)} />
@@ -1044,33 +1213,38 @@ export function Map() {
         </>
       ) : (
         <>
-          {/* floating stat card (live view, mobile — desktop gets the Areas panel below too) */}
+          {/* floating stat card (live view, mobile — desktop gets the Areas panel below too).
+              Pause/Resume/Stop only apply while actually mowing (mockPaused is an S5 dev seam
+              that can't override the label/readout outside that state); docked/idle/etc. show
+              the real state label + sub-copy instead of a stale "62% · 24 min left". */}
           <StatCard className="absolute inset-x-3 bottom-3 z-[500] md:left-3 md:right-auto md:w-[320px]">
             <div className="flex items-center gap-2.5">
               <div className="flex-1 leading-tight">
                 <div className="text-[.92rem] font-semibold text-ink">
-                  {mockPaused ? 'Paused' : 'Mowing'} {mowAreaName}
+                  {isMowing ? `${mockPaused ? 'Paused' : 'Mowing'} ${liveAreaName ?? ''}`.trim() : stateCopy.label}
                 </div>
                 <div className="text-[.76rem] text-ink-soft">
-                  {MOW.coverage}% · {mockPaused ? 'holding position' : `${MOW.timeLeftMin} min left`}
+                  {isMowing ? `${liveCoveragePct ?? 0}% · ${mockPaused ? 'holding position' : '—'}` : stateCopy.sub}
                 </div>
               </div>
             </div>
-            <ProgressBar value={MOW.coverage} className="mt-2.5" />
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              {mockPaused ? (
-                <Button variant="primary" className="flex-1 justify-center" onClick={() => setMockPaused(false)}>
-                  <Play size={13} fill="currentColor" /> Resume
+            {isMowing ? <ProgressBar value={liveCoveragePct ?? 0} className="mt-2.5" /> : null}
+            {isMowing ? (
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                {mockPaused ? (
+                  <Button variant="primary" className="flex-1 justify-center" onClick={() => setMockPaused(false)}>
+                    <Play size={13} fill="currentColor" /> Resume
+                  </Button>
+                ) : (
+                  <Button variant="ghost" className="flex-1 justify-center" onClick={() => setMockPaused(true)}>
+                    <Pause size={13} fill="currentColor" /> Pause
+                  </Button>
+                )}
+                <Button variant="danger" className="flex-1 justify-center">
+                  <Square size={13} fill="currentColor" /> Stop
                 </Button>
-              ) : (
-                <Button variant="ghost" className="flex-1 justify-center" onClick={() => setMockPaused(true)}>
-                  <Pause size={13} fill="currentColor" /> Pause
-                </Button>
-              )}
-              <Button variant="danger" className="flex-1 justify-center">
-                <Square size={13} fill="currentColor" /> Stop
-              </Button>
-            </div>
+              </div>
+            ) : null}
           </StatCard>
 
           {/* S4 — desktop-only "Areas" right rail (live view). Mobile keeps the stat card above. */}
@@ -1506,6 +1680,41 @@ export function Map() {
               />
             </div>
           </FormField>
+        </div>
+      </Sheet>
+
+      <Sheet open={heatmapSheetOpen} onClose={() => setHeatmapSheetOpen(false)} title="Coverage heatmap">
+        <div className="space-y-3.5">
+          <FormField label="Show heatmap">
+            <div className="flex items-center justify-between">
+              <span className="text-[.78rem] text-ink-soft">
+                {heatmapMetrics.length === 0 ? 'No heatmap data yet.' : 'Colors map cells by the selected metric.'}
+              </span>
+              <Switch
+                checked={heatmap.enabled}
+                onCheckedChange={(v) => updateHeatmap({enabled: v})}
+                disabled={heatmapMetrics.length === 0}
+                aria-label="Show coverage heatmap"
+              />
+            </div>
+          </FormField>
+
+          {heatmap.enabled && heatmapMetrics.length > 0 && (
+            <FormField label="Metric">
+              <SegmentedToggle
+                options={heatmapMetrics.map((m) => ({value: m.key, label: m.label}))}
+                value={heatmapMetricKey ?? heatmapMetrics[0].key}
+                onChange={(v) => updateHeatmap({metricKey: v})}
+              />
+            </FormField>
+          )}
+
+          {heatmap.enabled && heatmapLoading && (
+            <div className="text-center text-[.76rem] text-ink-faint">Loading heatmap…</div>
+          )}
+          {heatmap.enabled && !heatmapLoading && heatmapMetricKey && heatmapCells.length === 0 && (
+            <div className="text-center text-[.76rem] text-ink-faint">No heatmap data for this metric yet.</div>
+          )}
         </div>
       </Sheet>
 

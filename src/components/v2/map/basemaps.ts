@@ -23,7 +23,11 @@ export const BASEMAPS: Basemap[] = [
     label: 'Esri World Imagery',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Tiles © Esri, Maxar, Earthstar Geographics',
-    maxNativeZoom: 19,
+    // Over rural Finland Esri serves a "Map data not yet available" PLACEHOLDER tile (a 200, not
+    // a 404) from z19 up (measured at the garden datum: z13-18 real imagery, z19+ the identical
+    // 2521-byte placeholder). Cap native tiles at 18 so Leaflet overzooms the last REAL imagery
+    // (blurry but true) past z18 instead of painting the "no data" placeholder.
+    maxNativeZoom: 18,
   },
   {
     id: 'mml-ortokuva',

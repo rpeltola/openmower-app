@@ -2,6 +2,42 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 4 (2026-07-17) — MERGED to `personal` + Track A data-wiring STARTED + LIVE-VERIFIED
+Branch **`feature/v2-data-wiring`** (worktree, off `personal`). The whole V2 redesign was **merged
+into `personal`** (the app's integration branch) — v2 now coexists with v1 there, cut over later.
+Then began **Track A of the integration plan** (`OpenMowerNext/docs/v2-integration-plan.md`): wire
+V2 off its mocks onto the REAL Zustand store (`useSelectedMower`) — app-only, the backend already
+serves it (the v1 store already consumed the whole contract; V2 just wasn't using it).
+
+**Landed + LIVE-VERIFIED against the real mower** (dev server pointed at `ws://192.168.1.200:9001`,
+Playwright screenshots — the mower was **DOCKED/charging**, which the app now shows correctly):
+- **Diagnostics** ← real `state.sensors` (GPS/IMU/battery/power/pose/drive-ESCs/mow-ESC) + **ESC
+  fault chips** (`utils/esc-faults`); nulls render `—` not `0` (R1). Confirmed live: 28.3 V, RTK
+  3.0 cm, real pose, ESC 28.5/28.6 V, faults OK.
+- **Activity History + Replay** ← `useMowJobs` + `useJobTimedTrack` (real driven track projected;
+  the old hardcoded SVG is gone). Events/Stats sub-tabs still mock (next).
+- **`/v2` map — full DISPLAY** ← real areas/dock (via new `map/realData.ts` + `useMapEditor.reset`),
+  robot pose+heading+footprint, driven track, discovered obstacles, coverage-plan overlay, heatmap
+  (toggle+picker). Ported from the working MowerMap hooks. Confirmed live: real garden areas render.
+- **Real robot state, GLOBAL** ← new `lib/v2/useRobotState.ts` from `current_state`+`is_charging`.
+  Home hero/pill/KPIs, AppShell sidebar, Map pill all show the REAL state → **docked hero, no
+  phantom "Mowing 62%"**; mowing-only UI hidden off-lawn; commands dispatch the real store verb.
+  The mock `useRobotStateMock`/`useCommand` stay only for the states-showcase/W9 demo.
+- **Esri basemap overzoom FIXED** — Esri serves a placeholder tile from z19 over rural Finland
+  (measured at the datum: z13-18 real, z19+ the 2521-byte "no data" tile); capped
+  `maxNativeZoom:18` so Leaflet overzooms REAL imagery. Confirmed live: real satellite now renders.
+
+Every increment tsc+build clean, opus-validator/live-verified. Commits on `feature/v2-data-wiring`:
+`b7ae131` (diag+activity) · `515b4a0` (map display) · `96fcbb2` (map plan+heatmap) · `5a8696c`
+(global state + Esri).
+
+**Track A remaining:** map **edit→save + versioning** (the one risky piece — the V2 editor's phantom
+per-area settings + `spot` type + single-dock diverge from the server, needs field-by-field
+reconciliation, ties to the plan's D7 L3-flag decision); Activity **Events/Stats**; Home **mini-map
+preview tile + recent-activity feed** (still mock components); **Manual teleop**. **Untested live:**
+the *mowing*-state path (coverage %, mowing hero) — robot is docked, renders only when it mows.
+**Deferred to W9:** command ack/nack + PLANNING_MISSION progress (backend work).
+
 ## ✅ SESSION 3 (2026-07-17) — audit + gap-close + robot-state model. Head: **`4efa68d`** (clean, tsc+build green)
 - Ran a **full-state audit** (see the AUDIT block below) — map editor turned out ~93% ported vs the
   build specs (tracker was stale), the deferred phases named, non-map gaps found.
