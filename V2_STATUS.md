@@ -2,6 +2,19 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 13 (2026-07-18) — 3 more real-mower Manual Control fixes: top speed, clear-emergency, landscape unlock
+Branch **`feature/w9-gate`**. `MAX_LINEAR_MPS` raised 0.35 → 0.5 (the real ~0.5 m/s wheel max, vs.
+the 0.4 m/s autonomous mow speed) so "Fast" reaches actual top speed; angular left untouched.
+Added an emergency detection + "EMERGENCY — Clear & resume" banner to `ManualControl.tsx` (reads
+`state.emergency` plus a `state`/`PAUSED`-reason fallback via `useRobotStateSnapshot`, sends the
+legacy `sendCommand('reset_emergency')` v1's map toolbar already uses) so a wheel-lift latch mid-
+drive is clearable without leaving the page. Fixed `HoldToUnlock.tsx`'s press-and-hold/slide
+gestures triggering browser text-selection/callout in landscape (`select-none` + `userSelect`/
+`touchAction: 'none'` + blocked context menu on both the `PressHold` button and the
+`SlideToUnlock` knob/track). New `HoldToUnlock.test.tsx` (jsdom has no `PointerEvent` at all in
+this repo's jsdom version — drive the drag gesture with `MouseEvent`s typed as pointer* instead,
+noted in the test file). Full suite 196 passing; `tsc --noEmit` and `npm run build` both clean.
+
 ## ✅ SESSION 12 (2026-07-18) — 3 real-hardware bug fixes: dead Close buttons, mock viewport map, gated-nav leaks
 Branch **`feature/w9-gate`** (same worktree/branch as SESSIONs 10-11). Three independent,
 narrowly-scoped fixes found on real hardware, no shared root cause:

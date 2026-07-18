@@ -20,7 +20,9 @@ import {REJECT_COPY} from '@/lib/v2/robotState';
 import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
 import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
 import {useRobotState} from '@/lib/v2/useRobotState';
-import {Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
+import {useRobotStateSnapshot} from '@/lib/v2/useRobotStateSnapshot';
+import {type Mower, useSelectedMower} from '@/stores/mowersStore';
+import {Gamepad2, Home, RotateCcw, Sprout, Square, TriangleAlert, X} from 'lucide-react';
 import {useRouter} from 'next/navigation';
 import {useEffect, useRef, useState} from 'react';
 
@@ -60,12 +62,13 @@ function controllerName(brand: string): string {
 
 // Drive-command math (W9 A2b) — publishes over the SAME `teleop{vx,vz}` topic v1's map-screen
 // joystick uses (see hooks/useTeleop.ts / components/map/teleop/VirtualJoystick.tsx), just fed by
-// this page's own d-pad/analog-stick/gamepad input instead of a drag gesture. `MAX_LINEAR_MPS`/
-// `MAX_ANGULAR_RAD_S` match VirtualJoystick's proven real-world caps (0.35 m/s keeps turning
-// headroom below the ~0.5 m/s wheel max); the Speed segmented control scales both by the same
-// factor (APP-ONLY client-side math — no backend speed concept), capping out at "Fast" = exactly
-// VirtualJoystick's cap rather than exceeding it.
-const MAX_LINEAR_MPS = 0.35;
+// this page's own d-pad/analog-stick/gamepad input instead of a drag gesture. `MAX_LINEAR_MPS` is
+// the mower's real wheel max (~0.5 m/s, faster than the 0.4 m/s autonomous mow speed) so "Fast"
+// reaches the actual top speed rather than throttling below it — the drivetrain/xESC clamp to the
+// physical max regardless, so this can't overdrive the wheels. The Speed segmented control scales
+// both linear and angular by the same factor (APP-ONLY client-side math — no backend speed
+// concept), capping out at "Fast" = exactly this max rather than exceeding it.
+const MAX_LINEAR_MPS = 0.5;
 const MAX_ANGULAR_RAD_S = 1.6;
 const SPEED_FACTOR: Record<string, number> = {slow: 0.4, normal: 0.7, fast: 1};
 
@@ -210,6 +213,25 @@ export function ManualControl() {
   const {status: connectionStatus} = useConnectionStatus();
   const connected = connectionStatus === 'connected';
 
+  // Emergency detection -- catches a wheel-lift/E-stop latch mid-drive so it's clearable from
+  // right here instead of forcing the user off this page. `state.emergency` (robot_state/json's
+  // numeric bool, same field MowerControls.tsx's map toolbar reads) is the primary signal; the
+  // canonical-state ERROR/PAUSED+EMERGENCY-reason checks are a belt-and-suspenders fallback for a
+  // gateway that only expresses it through the W9 state envelope.
+  const emergencyFlag = useSelectedMower((s) => s?.state.emergency ?? false);
+  const {state: robotState, reasons: pausedReasons} = useRobotStateSnapshot();
+  const emergencyActive =
+    emergencyFlag || robotState === 'ERROR' || (robotState === 'PAUSED' && pausedReasons.includes('EMERGENCY'));
+
+  // The legacy fire-and-forget `command:reset_emergency` path (mowersStore.ts's `sendCommand`) --
+  // same one v1's map toolbar (MowerControls.tsx) uses. No accept/reject round-trip to wait on;
+  // it either clears or the emergency condition (e.g. a still-lifted wheel) just re-latches.
+  const mower = useSelectedMower<Mower | undefined>((s) => s);
+  const handleClearEmergency = () => {
+    mower?.sendCommand('reset_emergency');
+    setToast('Emergency reset sent');
+  };
+
   // Entering this page puts the robot into MANUAL_DRIVE so `/joy_vel` teleop actually reaches the
   // wheels and blade_on/blade_off are accepted (the backend command_gate rejects them in any other
   // state); leaving returns it to IDLE and turns the blade off. Mount/unmount, not the unlock
@@ -350,6 +372,28 @@ export function ManualControl() {
   return (
     <div className="relative mx-auto flex w-full max-w-[1400px] flex-col md:h-dvh">
       <Toast message={toast} onDismiss={() => setToast(null)} />
+      {/* Fix 2 (post-real-mower-testing): a wheel-lift/E-stop latch mid-drive used to strand the
+          user on this page with no way to clear it short of leaving. Distinct from the blade
+          banner below -- this one carries its own big, unmistakable reset action. */}
+      {emergencyActive ? (
+        <div role="alert" className="flex flex-none flex-col items-center gap-1.5 bg-danger px-3 py-2.5 text-white">
+          <div className="flex items-center gap-2 text-[.8rem] font-bold uppercase tracking-wide">
+            <TriangleAlert size={15} strokeWidth={2.6} />
+            Emergency stop active
+          </div>
+          <Button
+            variant="danger-solid"
+            size="sm"
+            className="border border-white bg-white text-danger hover:bg-white/90"
+            onClick={handleClearEmergency}
+          >
+            EMERGENCY — Clear &amp; resume
+          </Button>
+          <p className="text-center text-[.65rem] text-white/80">
+            Will re-trigger immediately if the cause (e.g. a lifted wheel) is still active.
+          </p>
+        </div>
+      ) : null}
       {/* Safety UX (W9 manual-blade): the one thing on this page that must be impossible to miss --
           a spinning blade under manual control, driven off the REAL `mow_enabled` sensor, not the
           optimistic toggle state. */}
