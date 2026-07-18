@@ -64,6 +64,13 @@ all landed in one pass since they share no files beyond `Map.tsx`'s wiring.
 - **Not touched / spotted but out of scope**: `Map.tsx`'s Save/Version-history mount still carries
   a stale `{/* ... UNWIRED PLACEHOLDER ... */}` comment left over from before SESSION 7 wired
   those up — noted, not fixed (comment-only, unrelated to this session's files).
+## ✅ SESSION 9 (2026-07-18) — Mission composer (W9)
+Branch **`feature/w9-mission`** (worktree, off `personal`). Ported v1's multi-area ordered mow-job
+composer to the v2 kit (`components/v2/mission/MissionComposerSheet.tsx` + row/direction/progress),
+reachable from the Map screen's new "Mission" FAB/Areas-panel entry; reuses `useMissionComposer`/
+`mission-utils.ts`/`mow_mission/*` store publishers as-is. 22 new tests (payload builder, composer
+state machine, presentational Sheet contract, end-to-end store-publish wiring through `Map.tsx`);
+full suite 127 passing, `tsc`/`build` clean.
 
 ## ✅ SESSION 8 (2026-07-18) — "Record area" against the new `record_area/*` gateway bridge
 Branch **`feature/w9-app2`** (worktree, off `personal`). Closes SESSION 7's "NOT this wave" gap:
