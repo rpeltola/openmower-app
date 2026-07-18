@@ -3,22 +3,22 @@
 // "Record area" -- drive a new mowing area or obstacle boundary with the mower (MAP_SCREEN_SPEC
 // S8's real counterpart: unlike RecordBriefingSheet/RecordDriveOverlay/RecordCloseSheet, which mock
 // the drive with a local physics loop, this talks to the real `record_area/*` gateway bridge (see
-// mowersStore.ts) and drives with the real `teleop{vx,vz}` topic via useTeleop -- same math
-// ManualControl.tsx uses (directionToVelocity), reusing the one Joystick glyph (see its own doc).
+// mowersStore.ts) and drives with the SAME unified manual-control console the Manual control page
+// uses (DriveConsole -> useManualDrive -> teleop{vx,vz}) -- so the boundary drive gets the real
+// D-pad/Joystick toggle, the Speed control, and gamepad/PS5 support, just with the blade OFF (you're
+// tracing a boundary, not cutting).
 //
 // State machine: idle -> picking (name + type) -> recording (driving, live point count) ->
 // done (success -> toast + close) | error (failed -> toast, stays open so the user can retry or
 // discard). `nextRecordAreaStep` is exported standalone so the transition table can be unit-tested
 // without rendering the drive UI (mirrors ManualControl.test.tsx's directionToVelocity split).
-import {directionToVelocity} from '@/components/v2/ManualControl';
+import {DriveConsole} from '@/components/v2/drive/DriveConsole';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {FormField} from '@/components/v2/ui/FormField';
-import {Joystick, type Direction} from '@/components/v2/ui/Joystick';
 import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
 import {Sheet} from '@/components/v2/ui/Sheet';
-import {useTeleop} from '@/hooks/useTeleop';
 import type {Mower} from '@/stores/mowersStore';
 import {useSelectedMower} from '@/stores/mowersStore';
 import type {RecordAreaPhase} from '@/stores/schemas';
@@ -109,19 +109,6 @@ export function RecordAreaFlow({open, onClose, onToast}: RecordAreaFlowProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // Real drive input -- same `teleop{vx,vz}` topic + publish loop as ManualControl.tsx. Zeroed
-  // whenever we're not actively `recording` (leaving the joystick, closing the sheet, a
-  // success/failure landing) so a torn-down flow never leaves the mower driving.
-  const {setVelocity} = useTeleop();
-  useEffect(() => {
-    if (step !== 'recording') setVelocity(0, 0);
-  }, [step, setVelocity]);
-
-  const handleDirection = (dir: Direction | null) => {
-    const {vx, vz} = directionToVelocity(dir, 1);
-    setVelocity(vx, vz);
-  };
-
   const startRecording = () => {
     if (!mower) return;
     mower.publishRecordAreaStart(name.trim() || DEFAULT_NAME[kind], TYPE_TO_WIRE[kind]);
@@ -193,9 +180,16 @@ export function RecordAreaFlow({open, onClose, onToast}: RecordAreaFlowProps) {
 
           <Card className="absolute inset-x-3 bottom-3 z-[900] p-3 md:left-3 md:right-auto md:w-[340px]">
             <p className="m-0 text-center text-[.8rem] text-ink-soft">Drive the boundary of your area</p>
-            <div className="mt-2.5 flex items-center justify-center">
-              <Joystick size={116} onDirectionChange={handleDirection} disabled={busy} />
-            </div>
+            {/* The unified manual-control console (D-pad/Joystick toggle + Speed + gamepad/PS5),
+                blade OFF -- you're tracing a boundary, not cutting. Defaults to Slow for precise
+                edge tracing; greyed + inert while the recording is processing/saving (`busy`). */}
+            <DriveConsole
+              className="mt-2.5"
+              driveEnabled={!busy}
+              defaultSpeed="slow"
+              size={116}
+              features={{inputMode: true, speed: true, blade: false}}
+            />
             {step === 'error' && (
               <div className="mt-2 rounded-[10px] bg-danger-wash px-2.5 py-1.5 text-center text-[.76rem] font-semibold text-danger">
                 {recordAreaStatus?.message || 'Recording failed'}

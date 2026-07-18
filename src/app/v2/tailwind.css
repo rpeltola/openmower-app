@@ -193,6 +193,27 @@
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* ---- No accidental text selection anywhere in /v2. Press-and-holding a control (most visibly the
+   drive d-pad) used to trigger Chrome's text-selection drag on desktop and the long-press callout
+   on mobile — never wanted in an app UI. Killed globally under .v2-root; re-enabled only where text
+   entry actually happens (inputs / textareas / contenteditable) and for anything that opts back in
+   with `.select-text` (the hook for a future press-and-hold-to-copy field). Scoped to .v2-root so
+   v1/MUI is untouched. ---- */
+.v2-root {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.v2-root input,
+.v2-root textarea,
+.v2-root [contenteditable]:not([contenteditable='false']),
+.v2-root .select-text,
+.v2-root .select-text * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 /* Preflight-omitted button reset. Utilities are imported UNLAYERED, so this reset only needs
    LOWER SPECIFICITY than a utility to lose to it: `:where(.v2-root button)` is (0,0,0); a single
    utility class is (0,1,0). So this strips native <button> chrome (border, background, padding,
