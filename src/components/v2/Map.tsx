@@ -10,7 +10,9 @@ import {latLngToMeters, metersToLatLng, type Meters, type Origin, type Pose} fro
 import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {coverageLines, outlineLaps} from '@/components/v2/map/coverage';
+import {DockSettingsSheet} from '@/components/v2/map/DockSettingsSheet';
 import {polygonArea, polygonPerimeter, principalAngleDeg} from '@/components/v2/map/geometry';
+import {exportMapGeoJson, geoJsonExportFilename, geoJsonToMapData, parseMapGeoJson} from '@/components/v2/map/geojsonIO';
 import type {TrackPolyline} from '@/components/v2/map/MapCanvas';
 import {SaveMapSheet, VersionHistorySheet} from '@/components/v2/map/MapVersioning';
 import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements';
@@ -18,6 +20,7 @@ import {mapDataToDock, mapDataToZones, versionFeaturesToZonesAndDock, zonesToMap
 import {RecordAreaFlow} from '@/components/v2/map/record/RecordAreaFlow';
 import {RecordBriefingSheet} from '@/components/v2/map/record/RecordBriefingSheet';
 import {RecordCloseSheet} from '@/components/v2/map/record/RecordCloseSheet';
+import {RecordDockingFlow} from '@/components/v2/map/record/RecordDockingFlow';
 import {RecordDriveOverlay, type RecordSpeed} from '@/components/v2/map/record/RecordDriveOverlay';
 import {
   GLOBAL_DEFAULTS,
@@ -43,6 +46,7 @@ import type {DiscoveredObstacle} from '@/stores/schemas';
 import {mapVersionToFeatures} from '@/utils/area-converter';
 import {datumToRelative} from '@/utils/coordinates';
 import type {TrackSegment} from '@/utils/track-pipeline';
+import type {FeatureCollection} from 'geojson';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
@@ -72,8 +76,10 @@ import {
   Circle as CircleIcon,
   CirclePlus,
   Command,
+  Compass,
   Copy,
   Disc,
+  Download,
   Eraser,
   Expand,
   Flame,
@@ -112,6 +118,7 @@ import {
   Target,
   Trash2,
   Undo2,
+  Upload,
   Waypoints,
   X,
 } from 'lucide-react';
@@ -293,6 +300,17 @@ export function Map() {
   // "Record area" (real) -- drives the actual `record_area/*` gateway bridge + real teleop (see
   // RecordAreaFlow.tsx), distinct from the S8 mock drive-the-edge flow above.
   const [recordAreaOpen, setRecordAreaOpen] = useState(false);
+  // "Record dock" (real) -- drives the `record_docking/*` gateway bridge (RecordDockingFlow.tsx);
+  // unlike record-area, the mower drives itself, no teleop pad here.
+  const [recordDockingOpen, setRecordDockingOpen] = useState(false);
+  // Dock settings (heading/approach_distance/name/active) -- DockSettingsSheet.tsx.
+  const [dockSettingsOpen, setDockSettingsOpen] = useState(false);
+  // GeoJSON import -- the parsed-and-validated file, pending the user's confirm (import replaces
+  // the whole map, see geojsonIO.ts); null when there's nothing pending.
+  const [importFeatures, setImportFeatures] = useState<FeatureCollection | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
   // Boolean area operations (MAP_BOOLEAN_OPS_SPEC.md) — merge/split/subtract live in the Transform
   // sheet's "Area operations" section rather than a new tool-row icon or dock row.
   const [mergePickerOpen, setMergePickerOpen] = useState(false);
@@ -501,6 +519,8 @@ export function Map() {
     setCutLinePoints([]);
     setSaveSheetOpen(false);
     setRecordAreaOpen(false);
+    setRecordDockingOpen(false);
+    setDockSettingsOpen(false);
   };
 
   const toggleEditing = () => {
@@ -592,6 +612,75 @@ export function Map() {
     mapVersions.refresh();
   };
 
+  // --- GeoJSON import/export (v1 reference: DownloadButton/UploadButton/UploadModal) ----------
+  // Export serializes the mower's current (already-saved) map/json — "whatever the store
+  // currently holds" — not the local unsaved editor draft, so a download always matches what's
+  // actually on the robot.
+  const exportMap = () => {
+    if (!realMap) {
+      setToastMessage('Not connected to the mower.');
+      return;
+    }
+    const geojson = exportMapGeoJson(realMap);
+    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(geojson, null, 2));
+    const link = document.createElement('a');
+    link.setAttribute('href', dataUri);
+    link.setAttribute('download', geoJsonExportFilename());
+    link.click();
+  };
+
+  const triggerImportPicker = () => importFileInputRef.current?.click();
+
+  // Parsing/validation happens immediately on file selection (parseMapGeoJson never throws — a
+  // malformed file just toasts and nothing else happens); the actual overwrite waits for the
+  // confirm dialog below, since import REPLACES the whole map.
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
+    if (!file) return;
+    const text = await file.text();
+    const result = parseMapGeoJson(text);
+    if (!result.ok) {
+      setToastMessage(result.error);
+      return;
+    }
+    setImportError(null);
+    setImportFeatures(result.features);
+  };
+
+  const cancelImport = () => {
+    setImportFeatures(null);
+    setImportError(null);
+  };
+
+  const confirmImport = async () => {
+    if (!importFeatures) return;
+    if (!rpc) {
+      setImportError('Not connected to the mower.');
+      return;
+    }
+    if (!realMap?.datum) {
+      setImportError('Cannot import yet: the mower has not reported its GPS datum.');
+      return;
+    }
+    setImporting(true);
+    setImportError(null);
+    try {
+      const converted = geoJsonToMapData(realMap, importFeatures);
+      await rpc.map.replace(converted);
+      // Same immediate-local-reflect as saveMap above -- don't wait for the mower's own map/json
+      // echo to clear the editor's undo history.
+      editor.reset(mapDataToZones(converted), mapDataToDock(converted) ?? MOCK_DOCK);
+      setImportFeatures(null);
+      setToastMessage('Map imported.');
+      mapVersions.refresh();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // --- Boolean area operations (MAP_BOOLEAN_OPS_SPEC.md) --------------------------------------
   const showOpResult = (result: OpResult, failureFallback: string) => {
     if (!result.ok) setToastMessage(result.reason ?? failureFallback);
@@ -674,6 +763,14 @@ export function Map() {
     closeAllEditSheets();
     closePlanPreview();
     setRecordAreaOpen(true);
+  };
+
+  // "Record dock" (real) -- same close-everything-first pattern as openRecordArea above.
+  const openRecordDocking = () => {
+    editor.setEditing(false);
+    closeAllEditSheets();
+    closePlanPreview();
+    setRecordDockingOpen(true);
   };
 
   const drawOnMapInstead = () => {
@@ -789,7 +886,16 @@ export function Map() {
   const openZoneSettings = (id: string) => {
     editor.selectZone(id);
     setZoneSheetOpen(false);
+    setDockSettingsOpen(false);
     setAreaSettingsOpen(true);
+  };
+
+  // Tapping the dock marker (live view) or the "Dock settings…" command opens the dock's own
+  // settings sheet — same idea as openZoneSettings above, just for the one physical dock instead
+  // of a picked zone.
+  const openDockSettings = () => {
+    setAreaSettingsOpen(false);
+    setDockSettingsOpen(true);
   };
 
   // Create-object menu (MAP_SCREEN_SPEC S3): every polygon object type is a square at the current
@@ -945,7 +1051,9 @@ export function Map() {
     {id: 'add-to-map', label: 'Add to map…', disabled: !editor.editing, onRun: () => setAddObjectSheetOpen(true)},
     {id: 'record-boundary', label: 'Record a boundary…', icon: <Footprints size={15} />, onRun: () => setRecordStep('r1')},
     {id: 'record-area', label: 'Record area…', icon: <Disc size={15} />, onRun: openRecordArea},
+    {id: 'record-dock', label: 'Record dock…', icon: <Compass size={15} />, onRun: openRecordDocking},
     {id: 'place-dock', label: 'Place dock', disabled: !editor.editing, onRun: () => setPlacingDock(true)},
+    {id: 'dock-settings', label: 'Dock settings…', icon: <MapPin size={15} />, onRun: openDockSettings},
     {
       id: 'duplicate-zone',
       label: 'Duplicate zone',
@@ -992,6 +1100,8 @@ export function Map() {
       onRun: () => setSaveSheetOpen(true),
     },
     {id: 'version-history', label: 'Version history…', icon: <History size={15} />, onRun: openVersionHistory},
+    {id: 'export-map', label: 'Export map (GeoJSON)', icon: <Download size={15} />, onRun: exportMap},
+    {id: 'import-map', label: 'Import map (GeoJSON)…', icon: <Upload size={15} />, onRun: triggerImportPicker},
     {id: 'basemap', label: 'Base map…', onRun: () => setBasemapSheetOpen(true)},
     {id: 'zoom-in', label: 'Zoom in', onRun: () => mapRef.current?.zoomIn()},
     {id: 'zoom-out', label: 'Zoom out', onRun: () => mapRef.current?.zoomOut()},
@@ -1093,11 +1203,12 @@ export function Map() {
         }}
         onDockChange={(next) => {
           // MapCanvas only ever reports a new `position` (drag-end / place-by-click) — merge over
-          // the existing dock so heading/approach_distance (the real dock's schema-skewed fields
-          // the v2 editor doesn't edit yet) survive the move instead of being dropped.
+          // the existing dock so heading/approach_distance (editable separately, via
+          // DockSettingsSheet -- see openDockSettings) survive the move instead of being dropped.
           editor.commitDock({...editor.dock, ...next});
           setPlacingDock(false);
         }}
+        onDockClick={openDockSettings}
         coveragePreview={planPreviewZoneId ? planPreviewRevealed : coveragePreviewData}
         mowedLanes={mowedLanesData}
         robotAccuracyM={mockBlocked ? 1.4 : 0.35}
@@ -1155,7 +1266,7 @@ export function Map() {
           with (and visually overlap) the column: the S4 "Areas" panel (300px) in live view, and the
           area-settings panel (360px) in edit mode when open. Shift the column left of whichever is
           showing; otherwise keep it at the edge. */}
-      <div className={`absolute right-3 top-16 z-[520] flex flex-col gap-2 ${editor.editing ? (areaSettingsOpen ? 'md:right-[384px]' : '') : 'md:right-[336px]'}`}>
+      <div className={`absolute right-3 top-16 z-[520] flex flex-col gap-2 ${editor.editing ? (areaSettingsOpen || dockSettingsOpen ? 'md:right-[384px]' : '') : 'md:right-[336px]'}`}>
         <Fab
           aria-label={editor.editing ? 'Exit edit mode' : 'Edit map'}
           icon={editor.editing ? <X size={18} /> : <Pencil size={18} />}
@@ -1176,6 +1287,9 @@ export function Map() {
         )}
         {!editor.editing && !mockBlocked && (
           <Fab aria-label="Record area" icon={<Disc size={18} />} onClick={openRecordArea} />
+        )}
+        {!editor.editing && !mockBlocked && (
+          <Fab aria-label="Record dock" icon={<Compass size={18} />} onClick={openRecordDocking} />
         )}
         <Fab aria-label="Base map" icon={<Layers size={18} />} onClick={() => setBasemapSheetOpen(true)} />
         <Fab
@@ -1595,6 +1709,13 @@ export function Map() {
         onPreviewPlan={onPreviewPlan}
       />
 
+      <DockSettingsSheet
+        open={dockSettingsOpen}
+        onClose={() => setDockSettingsOpen(false)}
+        dock={editor.dock}
+        onUpdate={(patch) => editor.commitDock({...editor.dock, ...patch})}
+      />
+
       {/* Zone create/transform — placeholder home for this until the area-settings batch folds
           the Basics (name/type/active) part into the real per-area settings editor. */}
       <Sheet open={transformSheetOpen} onClose={() => setTransformSheetOpen(false)} title={selectedZone?.name ?? 'Transform'}>
@@ -1999,6 +2120,43 @@ export function Map() {
       {/* "Record area" (real) -- the live counterpart to the S8 mock flow above; talks to the
           record_area/* gateway bridge + real teleop instead of a local physics loop. */}
       <RecordAreaFlow open={recordAreaOpen} onClose={() => setRecordAreaOpen(false)} onToast={setToastMessage} />
+
+      {/* "Record dock" (real) -- talks to the record_docking/* gateway bridge; the mower drives
+          itself, so unlike RecordAreaFlow there's no teleop pad, just a live phase readout. */}
+      <RecordDockingFlow open={recordDockingOpen} onClose={() => setRecordDockingOpen(false)} onToast={setToastMessage} />
+
+      {/* GeoJSON import — hidden file input triggered from the command palette's "Import map…";
+          selecting a file only parses/validates it (see handleImportFile), the actual overwrite
+          waits for this confirm sheet since import REPLACES the whole map. */}
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept=".geojson,.json"
+        onChange={handleImportFile}
+        className="hidden"
+      />
+      <Sheet open={importFeatures !== null} onClose={cancelImport} title="Import map?">
+        <div className="space-y-3.5">
+          <p className="m-0 text-[.8rem] leading-[1.4] text-ink-soft">
+            This replaces every area and docking station on the mower&apos;s current map with the{' '}
+            {importFeatures?.features.length ?? 0} feature{importFeatures?.features.length === 1 ? '' : 's'} in this
+            file. This can&apos;t be undone from the app.
+          </p>
+          {importError && (
+            <div className="rounded-[10px] bg-danger-wash px-2.5 py-1.5 text-center text-[.76rem] font-semibold text-danger">
+              {importError}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="flex-1" onClick={cancelImport} disabled={importing}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" className="flex-1" onClick={confirmImport} disabled={importing}>
+              {importing ? 'Importing…' : 'Import & replace'}
+            </Button>
+          </div>
+        </div>
+      </Sheet>
 
       {/* Map saving + version history — UNWIRED PLACEHOLDER (see MapVersioning.tsx). */}
       <SaveMapSheet

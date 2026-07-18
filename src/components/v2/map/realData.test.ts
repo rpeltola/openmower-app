@@ -106,6 +106,34 @@ describe('zonesToMapData', () => {
     });
   });
 
+  it('editing heading/approach_distance (DockSettingsSheet patch shape) keeps every other dock field', () => {
+    const dock = mapDataToDock(SAMPLE_MAP)!;
+    // Mirrors DockSettingsSheet's onUpdate -> Map.tsx's
+    // onUpdate={(patch) => editor.commitDock({...editor.dock, ...patch})}.
+    const edited: Dock = {...dock, heading: 2.0, approach_distance: 1.5};
+    const saved = zonesToMapData([], edited, SAMPLE_MAP);
+    expect(saved.docking_stations[0]).toEqual({
+      id: 'dock-1',
+      properties: {name: 'Docking station', active: true},
+      position: {x: -4, y: -4.5},
+      heading: 2.0,
+      approach_distance: 1.5,
+    });
+  });
+
+  it('editing name/active (DockSettingsSheet patch shape) keeps heading/approach_distance/position', () => {
+    const dock = mapDataToDock(SAMPLE_MAP)!;
+    const edited: Dock = {...dock, name: 'Back dock', active: false};
+    const saved = zonesToMapData([], edited, SAMPLE_MAP);
+    expect(saved.docking_stations[0]).toEqual({
+      id: 'dock-1',
+      properties: {name: 'Back dock', active: false},
+      position: {x: -4, y: -4.5},
+      heading: 1.2345,
+      approach_distance: 0.6,
+    });
+  });
+
   it('defaults heading/approach_distance to 0 and mints an id for a dock that was never loaded from a real map', () => {
     const saved = zonesToMapData([], MOCK_DOCK);
     expect(saved.docking_stations[0].heading).toBe(0);
