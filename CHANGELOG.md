@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-07-18
+- Surfaced the robot's capabilities (previously a v1-only `/debug` page badge list) on v2's Diagnostics screen as a "Capabilities" card — reuses the existing live `capabilities/json` store data and schema, degrading to an explicit empty state on an old gateway instead of hiding or crashing.
 - Added the "Record area" map control (W9 Lane A2b follow-up): drive a new mowing area or obstacle boundary end-to-end against the new `record_area/*` gateway MQTT bridge (`start`/`finish`/`cancel` + a retained `status`), reusing the real teleop drive input and Joystick glyph from Manual control; picks the area type up front, shows a live point count while recording, and toasts + closes on success or stays open with the failure reason on a reject.
 
 ## 2026-07-17

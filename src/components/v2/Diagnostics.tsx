@@ -8,7 +8,7 @@ import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {Sparkline} from '@/components/v2/ui/Sparkline';
 import {StatRow} from '@/components/v2/ui/StatRow';
 import {useSelectedMower} from '@/stores/mowersStore';
-import type {Sensors} from '@/stores/schemas';
+import type {Capabilities, Sensors} from '@/stores/schemas';
 import {escHasFault, fmtEscFault} from '@/utils/esc-faults';
 import {RotateCcw} from 'lucide-react';
 import {Fragment} from 'react';
@@ -89,6 +89,41 @@ function EscFaultChip({label, code}: {label: string; code: number | null | undef
   );
 }
 
+/** `mow`/`blade_reset` -> "Mow"/"Blade reset" -- the gateway's capability keys are already
+ *  human-ish snake_case, so a straight split+titlecase reads fine without a lookup table. */
+function capabilityLabel(key: string): string {
+  return key
+    .split(/[_-]/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+/**
+ * Capability badges, ported from the v1 `/debug` page's `CapabilitiesSection` (same
+ * `capabilities/json` -> `Capabilities` (a sparse `{name: level}` map, level >= 1 = supported)
+ * this app already subscribes to and parses -- see stores/mowersStore.ts/schemas.ts). Only
+ * capabilities the gateway actually reported are shown (there's no "not supported" entry to
+ * render, just an absent key), so an old gateway with an empty/missing map degrades to the
+ * empty-state line below instead of a wall of false negatives.
+ */
+function CapabilityChips({capabilities}: {capabilities: Capabilities | undefined}) {
+  const entries = capabilities ? Object.entries(capabilities) : [];
+  if (entries.length === 0) {
+    return <div className="text-[.76rem] text-ink-faint">No capabilities reported yet</div>;
+  }
+  return (
+    <div className="flex flex-wrap gap-[.4rem]">
+      {entries.map(([key, level]) => (
+        <Chip key={key} variant="ok">
+          {capabilityLabel(key)}
+          {level > 1 ? ` ×${level}` : ''}
+        </Chip>
+      ))}
+    </div>
+  );
+}
+
 type PoseRow = {label: string; value: string; unit: string};
 
 type DriveRow = {label: string; l: string; r: string; unit?: string};
@@ -119,6 +154,7 @@ const BATTERY_SPARK_DESKTOP = {
 export function Diagnostics() {
   const name = useSelectedMower((mower) => mower?.name);
   const state = useSelectedMower((mower) => mower?.state);
+  const capabilities = useSelectedMower((mower) => mower?.capabilities);
   const sensors = state?.sensors;
   const battery = sensors?.battery;
   const power = sensors?.power;
@@ -257,6 +293,10 @@ export function Diagnostics() {
             </span>
           </div>
         </DiagCard>
+
+        <DiagCard label="Capabilities">
+          <CapabilityChips capabilities={capabilities} />
+        </DiagCard>
       </div>
 
       {/* ===== Desktop: dense multi-column grid, everything visible with no scroll ===== */}
@@ -334,6 +374,10 @@ export function Diagnostics() {
 
         <DiagCard label="Rain" action={<Chip variant={rainWet ? 'info' : 'neutral'}>{mower ? (rainWet ? 'Wet' : 'Dry') : '—'}</Chip>}>
           <StatRow boxed label="Sensor value" value={fmt(mower?.rain_value, 2)} />
+        </DiagCard>
+
+        <DiagCard label="Capabilities">
+          <CapabilityChips capabilities={capabilities} />
         </DiagCard>
       </div>
     </div>
