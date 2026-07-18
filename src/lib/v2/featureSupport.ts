@@ -73,9 +73,8 @@ export const FEATURE_SUPPORT: Record<FeatureId, FeatureSupportEntry> = {
     reason: "Backup & restore needs a mower-side RPC that doesn't exist yet.",
   },
   bladeToggle: {
-    supported: false,
+    supported: true,
     label: 'Manual blade on/off',
-    reason: "Manual blade toggling isn't exposed by the mower's software yet — the blade only runs during a mow.",
   },
   safetyWrites: {
     supported: false,

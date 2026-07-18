@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-18 (2)
+- Wired Manual control's blade on/off toggle E2E against the new OpenMowerNext
+  `feature/manual-blade` backend: entering `/v2/control` sends `manual_drive` (robot state
+  becomes `MANUAL_DRIVE`, `/joy_vel` teleop starts flowing), leaving sends `manual_stop`. The
+  blade toggle now issues real `blade_on`/`blade_off` commands through `useCommand`, reflects
+  the actual `sensors.mower.mow_enabled` sensor (not local optimistic state), is disabled with a
+  reason chip when the backend's `command_gate` rejects it (only accepted in `MANUAL_DRIVE`), and
+  a pulsing "BLADE SPINNING" alert banner shows whenever the blade is actually on. Flipped
+  `bladeToggle` to `supported: true` in `featureSupport.ts`.
+
 ## 2026-07-18
 - R1 honesty pass: wired `FeatureGate` onto every mock/unbacked v2 control (previously only
   Backup & Restore used it). With the Settings → General "Show controls not yet supported"

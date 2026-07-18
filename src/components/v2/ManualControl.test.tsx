@@ -1,4 +1,4 @@
-import {cleanup, render, screen, waitFor} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {afterEach, beforeAll, describe, expect, it, vi} from 'vitest';
 
 // Manual control's drive publish (`teleop{vx,vz}`) and Dock/Stop now go through the real store
@@ -16,6 +16,23 @@ vi.mock('@/stores/mowersStore', () => {
     useMowersStore: useMowersStoreMock,
   };
 });
+
+// HoldToUnlock's real gesture (press-and-hold on desktop, slide on mobile) isn't practical to
+// drive headlessly (see the drive-command-math describe block's comment below) -- stub it with
+// a plain button so the blade-toggle wiring tests can reach the unlocked state without
+// reimplementing pointer-drag math in jsdom.
+vi.mock('@/components/v2/ui/HoldToUnlock', () => ({
+  HoldToUnlock: ({unlocked, onUnlock, onLock}: {unlocked: boolean; onUnlock: () => void; onLock?: () => void}) =>
+    unlocked ? (
+      <button type="button" onClick={onLock}>
+        Lock
+      </button>
+    ) : (
+      <button type="button" onClick={onUnlock}>
+        Unlock
+      </button>
+    ),
+}));
 
 // jsdom doesn't implement matchMedia -- ManualControl's landscape-cockpit/desktop-width
 // detection (useMediaQuery/useBreakpoint) calls it unconditionally on every render, unlike
@@ -37,10 +54,13 @@ import {directionToVelocity, ManualControl, vectorToVelocity} from '@/components
 import {setShowUnsupportedFeatures} from '@/lib/v2/featureSupport';
 import {useMowersStore, useSelectedMower} from '@/stores/mowersStore';
 
-function mockMower(send: (...args: never[]) => Promise<{accepted: boolean; reject_code?: string; state?: string}>) {
+function mockMower(
+  send: (...args: never[]) => Promise<{accepted: boolean; reject_code?: string; state?: string}>,
+  stateOverrides: Record<string, unknown> = {},
+) {
   const publishTeleop = vi.fn();
   const fakeMower = {
-    state: {commands: {stop: {allowed: true, reasons: []}, dock: {allowed: true, reasons: []}}},
+    state: {commands: {stop: {allowed: true, reasons: []}, dock: {allowed: true, reasons: []}}, ...stateOverrides},
     commandClient: {send},
     publishTeleop,
   };
@@ -82,6 +102,90 @@ describe('ManualControl (W9 A2b)', () => {
     // useTeleop's cleanup effect always re-publishes the zeroed velocity on unmount (see
     // hooks/useTeleop.ts) -- a safety net so a torn-down control never leaves the mower driving.
     await waitFor(() => expect(publishTeleop).toHaveBeenCalledWith(0, 0));
+  });
+});
+
+// W9 manual-blade feature: entering/leaving the page drives the robot in/out of MANUAL_DRIVE
+// (required for both `/joy_vel` teleop to reach the wheels and blade_on/blade_off to be
+// accepted by the backend command_gate).
+describe('ManualControl — manual-mode entry/exit', () => {
+  afterEach(cleanup);
+
+  it('sends manual_drive on mount and manual_stop on unmount', async () => {
+    const send = vi.fn(() => Promise.resolve({accepted: true, state: 'MANUAL_DRIVE'}));
+    mockMower(send);
+    const {unmount} = render(<ManualControl />);
+
+    await waitFor(() => expect(send).toHaveBeenCalledWith('manual_drive', undefined));
+
+    unmount();
+    await waitFor(() => expect(send).toHaveBeenCalledWith('manual_stop', undefined));
+  });
+});
+
+describe('ManualControl — blade toggle (manual-blade feature)', () => {
+  afterEach(cleanup);
+
+  it('reflects the real mow_enabled sensor (not local state) and shows the BLADE SPINNING alert', () => {
+    mockMower(() => Promise.resolve({accepted: true}), {sensors: {mower: {mow_enabled: true}}});
+    render(<ManualControl />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Blade spinning');
+    expect(screen.getAllByRole('button', {name: 'Blade on'})[0]).toBeInTheDocument();
+  });
+
+  it('sends blade_on through the command client once unlocked', async () => {
+    const send = vi.fn(() => Promise.resolve({accepted: true}));
+    mockMower(send, {
+      commands: {
+        stop: {allowed: true, reasons: []},
+        dock: {allowed: true, reasons: []},
+        blade_on: {allowed: true, reasons: []},
+        blade_off: {allowed: true, reasons: []},
+      },
+    });
+    render(<ManualControl />);
+
+    fireEvent.click(screen.getByRole('button', {name: 'Unlock'}));
+    fireEvent.click(screen.getAllByRole('button', {name: 'Blade'})[0]);
+
+    await waitFor(() => expect(send).toHaveBeenCalledWith('blade_on', undefined));
+  });
+
+  it('sends blade_off (not blade_on) once the blade is already on', async () => {
+    const send = vi.fn(() => Promise.resolve({accepted: true}));
+    mockMower(send, {
+      commands: {
+        stop: {allowed: true, reasons: []},
+        dock: {allowed: true, reasons: []},
+        blade_on: {allowed: true, reasons: []},
+        blade_off: {allowed: true, reasons: []},
+      },
+      sensors: {mower: {mow_enabled: true}},
+    });
+    render(<ManualControl />);
+
+    fireEvent.click(screen.getByRole('button', {name: 'Unlock'}));
+    fireEvent.click(screen.getAllByRole('button', {name: 'Blade on'})[0]);
+
+    await waitFor(() => expect(send).toHaveBeenCalledWith('blade_off', undefined));
+  });
+
+  it('disables the blade toggle with a reason chip when the command gate rejects it (not in MANUAL_DRIVE)', () => {
+    mockMower(() => Promise.resolve({accepted: true}), {
+      commands: {
+        stop: {allowed: true, reasons: []},
+        dock: {allowed: true, reasons: []},
+        blade_on: {allowed: false, reasons: ['NOT_READY']},
+        blade_off: {allowed: false, reasons: ['NOT_READY']},
+      },
+    });
+    render(<ManualControl />);
+
+    fireEvent.click(screen.getByRole('button', {name: 'Unlock'}));
+
+    expect(screen.getAllByRole('button', {name: 'Blade'})[0]).toBeDisabled();
+    expect(screen.getAllByText('Not ready yet')[0]).toBeInTheDocument();
   });
 });
 

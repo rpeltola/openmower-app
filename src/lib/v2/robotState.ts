@@ -63,7 +63,22 @@ export type RejectCode =
   | 'RAIN_DELAY'
   | 'UNSUPPORTED';
 
-export type CommandName = 'mow' | 'stop' | 'dock' | 'pause' | 'resume' | 'undock';
+export type CommandName =
+  | 'mow'
+  | 'stop'
+  | 'dock'
+  | 'pause'
+  | 'resume'
+  | 'undock'
+  // Manual-drive + blade commands (OpenMowerNext `feature/manual-blade`) -- same `cmd/req`→
+  // `cmd/res` protocol, no new REJECT copy needed (they reuse NOT_READY/etc). `manual_drive`
+  // enters MANUAL_DRIVE (teleop starts flowing), `manual_stop` returns to IDLE (blade off too).
+  // `blade_on`/`blade_off` are only accepted while in MANUAL_DRIVE -- the backend command_gate
+  // rejects them otherwise.
+  | 'manual_drive'
+  | 'manual_stop'
+  | 'blade_on'
+  | 'blade_off';
 
 // Canonical enumeration lists -- the single place every value of each union is spelled out, so
 // the R4 completeness-gate test (and BootingScreen/PausedBlockerScreen's default ordering) is
@@ -115,7 +130,18 @@ export const ALL_REJECT_CODES: RejectCode[] = [
   'UNSUPPORTED',
 ];
 
-export const ALL_COMMAND_NAMES: CommandName[] = ['mow', 'stop', 'dock', 'pause', 'resume', 'undock'];
+export const ALL_COMMAND_NAMES: CommandName[] = [
+  'mow',
+  'stop',
+  'dock',
+  'pause',
+  'resume',
+  'undock',
+  'manual_drive',
+  'manual_stop',
+  'blade_on',
+  'blade_off',
+];
 
 // Fixed readiness keys (W9 §0.8), in the order the BOOTING checklist displays them.
 export const READINESS_KEYS = ['board_comms', 'map', 'gps', 'estimator', 'nav2', 'safety'] as const;
