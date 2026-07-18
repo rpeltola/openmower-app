@@ -2,6 +2,35 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 12 (2026-07-18) — 3 real-hardware bug fixes: dead Close buttons, mock viewport map, gated-nav leaks
+Branch **`feature/w9-gate`** (same worktree/branch as SESSIONs 10-11). Three independent,
+narrowly-scoped fixes found on real hardware, no shared root cause:
+
+- **Manual Control's Close buttons were dead** (`ManualControl.tsx`): neither the mobile icon
+  button nor the desktop text button had an `onClick`. Added `closeManualControl()` — exits
+  fullscreen if active, then `router.back()` if there's history to unwind, else `router.push
+  ('/v2')` — wired to both.
+- **`MiniMap.tsx` rewritten from static mock SVG to real data**: it used to take a `headingDeg`
+  prop and draw a hardcoded garden shape at a fixed rotation. It now reads the store directly
+  (`map`/`position`/`state.pose`/`state.sensors.gps.position_accuracy`, same composition
+  Map.tsx/Home.tsx's MapCard use) and fits the real zone outline(s) + dock + live mower pose to
+  its viewBox with a north-up bounding-box projection. The position-uncertainty ring only ever
+  draws from a real `sensors.gps.position_accuracy` reading — never a fabricated default radius
+  (R1) — and the whole thing degrades to a "Map loading…" placeholder with no real map/pose yet.
+  `MainViewport`'s `headingDeg` prop is gone too (had nothing left to feed it).
+- **Settings leaked nav entries for fully-gated categories**: Backup & Restore, Notifications,
+  and Safety are each entirely wrapped in one `FeatureGate` (`SettingsCategoryDetail.tsx`/
+  `BackupRestore.tsx`), but their mobile `ListRow`s and desktop rail entries stayed visible on an
+  unsupported mower, landing on an empty gated pane. `Settings.tsx` now computes
+  `isFeatureSupported('backup'|'pushNotifications'|'safetyWrites') || useShowUnsupportedFeatures
+  ()` and conditionally renders/filters those 3 nav entries only — Connection/Positioning/
+  Docking/Units/Basemap/General/Maintenance/About are unaffected.
+
+Tests added: `ManualControl.test.tsx` (Close button describe block), new `MiniMap.test.tsx` (empty
+state / marker-without-ring / marker-with-ring), new `Settings.test.tsx` (gated nav-entry
+presence across the dev toggle). Full suite 186 passing; `tsc --noEmit` and `npm run build` both
+clean.
+
 ## ✅ SESSION 11 (2026-07-18) — Manual Control blade on/off, E2E (W9 manual-blade)
 Branch **`feature/w9-gate`** (same worktree/branch as SESSION 10). SESSION 10 deliberately left
 ManualControl's blade toggle UI in place but ungated/unwired ("another workstream owns that E2E").

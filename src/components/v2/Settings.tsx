@@ -18,6 +18,7 @@ import {SettingsGroup} from '@/components/v2/settings/SettingsGroup';
 import {Button} from '@/components/v2/ui/Button';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
+import {isFeatureSupported, useShowUnsupportedFeatures} from '@/lib/v2/featureSupport';
 import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
 import {useSelectedMower, type Mower} from '@/stores/mowersStore';
 import {
@@ -76,6 +77,15 @@ export function Settings() {
   const connected = connectionStatus === 'connected';
   const gps = mower?.state.sensors?.gps;
   const dockingConfigured = (mower?.map.docking_stations.length ?? 0) > 0;
+
+  // These 3 categories are fully gated (SettingsCategoryDetail.tsx wraps their whole content in
+  // a single FeatureGate, BackupRestore.tsx likewise) -- an unsupported mower has nothing to show
+  // there, so the nav entry itself must not dangle to an empty pane. Same dev-toggle escape
+  // hatch FeatureGate uses everywhere else, so turning it on re-reveals the entries too.
+  const showUnsupported = useShowUnsupportedFeatures();
+  const showBackup = isFeatureSupported('backup') || showUnsupported;
+  const showNotifications = isFeatureSupported('pushNotifications') || showUnsupported;
+  const showSafety = isFeatureSupported('safetyWrites') || showUnsupported;
 
   function logBladeChange() {
     mower?.publishBladeReset();
@@ -198,12 +208,14 @@ export function Settings() {
                 onClick={() => openCategory('basemap')}
                 trailing={<DrillValue value={BASEMAP} />}
               />
-              <ListRow
-                icon={<Shield size={15} strokeWidth={2} className="text-ink-soft" />}
-                title="Safety"
-                onClick={() => openCategory('safety')}
-                trailing={<DrillChevron />}
-              />
+              {showSafety ? (
+                <ListRow
+                  icon={<Shield size={15} strokeWidth={2} className="text-ink-soft" />}
+                  title="Safety"
+                  onClick={() => openCategory('safety')}
+                  trailing={<DrillChevron />}
+                />
+              ) : null}
             </SettingsGroup>
 
             <SettingsGroup>
@@ -219,19 +231,23 @@ export function Settings() {
                 onClick={() => openCategory('maintenance')}
                 trailing={<DrillChevron />}
               />
-              <ListRow
-                icon={<Bell size={15} strokeWidth={2} className="text-ink-soft" />}
-                title="Notifications"
-                onClick={() => openCategory('notifications')}
-                trailing={<DrillChevron />}
-              />
-              <ListRow
-                icon={<DatabaseBackup size={15} strokeWidth={2} className="text-ink-soft" />}
-                title="Backup & Restore"
-                sub="Export or restore settings, map and databases"
-                onClick={() => openCategory('backup')}
-                trailing={<DrillChevron />}
-              />
+              {showNotifications ? (
+                <ListRow
+                  icon={<Bell size={15} strokeWidth={2} className="text-ink-soft" />}
+                  title="Notifications"
+                  onClick={() => openCategory('notifications')}
+                  trailing={<DrillChevron />}
+                />
+              ) : null}
+              {showBackup ? (
+                <ListRow
+                  icon={<DatabaseBackup size={15} strokeWidth={2} className="text-ink-soft" />}
+                  title="Backup & Restore"
+                  sub="Export or restore settings, map and databases"
+                  onClick={() => openCategory('backup')}
+                  trailing={<DrillChevron />}
+                />
+              ) : null}
               <ListRow
                 icon={<Info size={15} strokeWidth={2} className="text-ink-soft" />}
                 title="About"
@@ -251,7 +267,9 @@ export function Settings() {
       {/* ===== Desktop: category rail + detail pane — Notifications populated per the concept ===== */}
       <div className="hidden md:grid md:min-h-0 md:flex-1 md:grid-cols-[250px_1fr] md:gap-4">
         <SettingsCategoryRail
-          categories={DESKTOP_CATEGORIES.map((c) =>
+          categories={DESKTOP_CATEGORIES.filter(
+            (c) => (c.id !== 'backup' || showBackup) && (c.id !== 'notifications' || showNotifications) && (c.id !== 'safety' || showSafety),
+          ).map((c) =>
             c.id === 'connection'
               ? {
                   ...c,

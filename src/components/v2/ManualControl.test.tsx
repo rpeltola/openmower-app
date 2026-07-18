@@ -7,6 +7,14 @@ import {afterEach, beforeAll, describe, expect, it, vi} from 'vitest';
 // mocked as BOTH a callable hook (the header's real battery/Connected chips now read it via
 // useConnectionStatus/useRobotState) and a `.getState()` vanilla-store escape hatch (useTeleop.ts
 // reads it that way, not as a hook subscription).
+// Close-button test hooks (below) need a stable reference to assert against -- a fresh vi.fn()
+// per useRouter() call (one per render) can't be asserted on from outside, hence vi.hoisted.
+const {mockRouterPush, mockRouterBack} = vi.hoisted(() => ({mockRouterPush: vi.fn(), mockRouterBack: vi.fn()}));
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/v2',
+  useRouter: () => ({push: mockRouterPush, back: mockRouterBack}),
+}));
+
 vi.mock('@/stores/mowersStore', () => {
   const useMowersStoreMock = ((selector?: (s: unknown) => unknown) =>
     selector?.({mowers: [], selected: 0, mqttStatuses: {}, reconnectNow: vi.fn()})) as typeof import('@/stores/mowersStore').useMowersStore;
@@ -186,6 +194,53 @@ describe('ManualControl — blade toggle (manual-blade feature)', () => {
 
     expect(screen.getAllByRole('button', {name: 'Blade'})[0]).toBeDisabled();
     expect(screen.getAllByText('Not ready yet')[0]).toBeInTheDocument();
+  });
+});
+
+// Close button dead-button fix: both the mobile icon button and the desktop text button must
+// navigate away rather than sit there doing nothing. Forcing `window.history.length` picks a
+// deterministic branch of closeManualControl's back()-vs-push('/v2') fallback so each test only
+// exercises the one path it's checking.
+describe('ManualControl — Close button', () => {
+  afterEach(() => {
+    cleanup();
+    mockRouterPush.mockClear();
+    mockRouterBack.mockClear();
+  });
+
+  it('falls back to router.push("/v2") when there is no history to go back to', () => {
+    Object.defineProperty(window.history, 'length', {value: 1, configurable: true});
+    mockMower(() => Promise.resolve({accepted: true}));
+    render(<ManualControl />);
+
+    screen.getAllByRole('button', {name: 'Close'})[0].click();
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/v2');
+    expect(mockRouterBack).not.toHaveBeenCalled();
+  });
+
+  it('goes back in history when there is somewhere to go back to', () => {
+    Object.defineProperty(window.history, 'length', {value: 2, configurable: true});
+    mockMower(() => Promise.resolve({accepted: true}));
+    render(<ManualControl />);
+
+    screen.getAllByRole('button', {name: 'Close'})[0].click();
+
+    expect(mockRouterBack).toHaveBeenCalled();
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  it('wires both the mobile icon button and the desktop text button to the same handler', () => {
+    Object.defineProperty(window.history, 'length', {value: 1, configurable: true});
+    mockMower(() => Promise.resolve({accepted: true}));
+    render(<ManualControl />);
+
+    const closeButtons = screen.getAllByRole('button', {name: 'Close'});
+    expect(closeButtons.length).toBe(2);
+    closeButtons.forEach((btn) => btn.click());
+
+    expect(mockRouterPush).toHaveBeenCalledTimes(2);
+    expect(mockRouterPush).toHaveBeenCalledWith('/v2');
   });
 });
 
