@@ -85,6 +85,9 @@ export interface MapCanvasProps {
   onCreateZone?: (outline: Zone['outline']) => void;
   /** Fires on dock drag-end, and on a map click while `placingDock` is armed. */
   onDockChange?: (dock: Dock) => void;
+  /** Fires when the dock marker itself is tapped/clicked (not a drag) — opens dock settings.
+   *  Reachable regardless of `editing`, same as selecting a zone from the "Choose zone" sheet. */
+  onDockClick?: () => void;
 
   /** Coverage preview overlay (visual planning aid, §F) — absent/null hides it. */
   coveragePreview?: {outlineLaps: Meters[][]; fillSegments: CoverageSegment[]} | null;
@@ -249,6 +252,7 @@ export function MapCanvas({
   onSetMultiSelected,
   onCreateZone,
   onDockChange,
+  onDockClick,
   coveragePreview = null,
   mowedLanes = null,
   robotAccuracyM = 0.3,
@@ -317,6 +321,8 @@ export function MapCanvas({
   onCreateZoneRef.current = onCreateZone;
   const onDockChangeRef = useRef(onDockChange);
   onDockChangeRef.current = onDockChange;
+  const onDockClickRef = useRef(onDockClick);
+  onDockClickRef.current = onDockClick;
   const placingDockRef = useRef(placingDock);
   placingDockRef.current = placingDock;
   const onAddCutLinePointRef = useRef(onAddCutLinePoint);
@@ -1067,6 +1073,11 @@ export function MapCanvas({
     marker.on('dragend', () => {
       onDockChangeRef.current?.({position: latLngToMeters(marker.getLatLng(), originRef.current)});
     });
+    // A plain click (not a drag) opens dock settings -- fires on both a tap and the mouseup that
+    // ends a drag, so only wire it up while NOT draggable to avoid a drag also opening the sheet.
+    if (!editing) {
+      marker.on('click', () => onDockClickRef.current?.());
+    }
   }, [dock, origin, editing]);
 
   // ---- to-scale robot footprint + heading nose + position-uncertainty ring (S2) ----------------

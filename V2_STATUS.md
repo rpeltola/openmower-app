@@ -2,6 +2,69 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 9 (2026-07-18) — Record dock, dock settings, GeoJSON import/export
+Branch **`feature/w9-app2`** (worktree, off `personal`). Three independent Map-screen features,
+all landed in one pass since they share no files beyond `Map.tsx`'s wiring.
+
+- **Record dock (`record/RecordDockingFlow.tsx`)** mirrors SESSION 8's `RecordAreaFlow.tsx`
+  pattern (same `nextRecordDockingStep` pure-transition-table split, same picking→recording→
+  done/error shape) against the **already-wired** `record_docking/*` bridge (`Mower.
+  publishRecordDockingStart(name)`/`publishRecordDockingCancel()` + the existing
+  `recordDockingStatusSchema` subscription — none of that store wiring was new). The one real
+  difference from area recording: **no teleop pad.** Checked `RecordDockingStation.action`
+  (OpenMowerNext `src/action/`) and v1's still-working `MowerControls.tsx`/
+  `RecordDockingNameDialog.tsx` reference (same bridge) — `driving`/`waiting_for_charging`/
+  `recording`/`saving` are the STATUS_* feedback values of the mower *autonomously* driving
+  itself onto the dock and verifying it charges, not something the app drives. So this flow is
+  just a name-entry sheet + a live phase chip + Cancel; it auto-completes (toast + close) the
+  instant `phase` turns `'success'`, and surfaces `message` and stays open on `'failed'`, same
+  as `RecordAreaFlow`. FABs/command palette gained "Record dock" (`Compass` icon) next to
+  "Record area".
+- **Dock settings (`map/DockSettingsSheet.tsx`)** ports v1's `DockingStationSettingsDialog.tsx`
+  (name/active/approach_distance) onto the v2 kit and adds the field v1 never exposed:
+  **heading** (the dock's schema-skew flagged since SESSION 7 — `dockingStationSchema` always
+  carries it, but the v2 editor only ever moved the dock's `position`). Same commit model as
+  `AreaSettingsSheet`: a mobile Sheet + a desktop right-hand panel share one content component,
+  edits commit immediately via `useMapEditor.commitDock({...editor.dock, ...patch})` (so they
+  ride the same undo/redo as a geometry edit), and nothing reaches the mower until the existing
+  Save-map flow's `rpc.map.replace(zonesToMapData(...))` — which SESSION 7 already proved
+  round-trips `heading`/`approach_distance` losslessly, this sheet is just what finally lets the
+  user CHANGE them. Entry points: tapping the dock marker in live view (new `MapCanvas.tsx`
+  `onDockClick` prop, wired only while `!editing` so it can't fight the drag handler) and a
+  "Dock settings…" command-palette action (always enabled, exactly one dock always exists).
+- **GeoJSON import/export (`map/geojsonIO.ts`)** reuses `area-converter.ts`'s existing
+  `mapToFeatures`/`featuresToMap` (the same conversion the backend's own `map.geojson` and v1's
+  `DownloadButton`/`UploadButton`/`UploadModal` already trust) rather than re-deriving geometry
+  logic. Export (command palette) serializes the mower's CURRENT real map (`useSelectedMower`'s
+  `.map`, not the local unsaved editor draft) to a downloaded `.geojson` file, same naming
+  convention as v1's `DownloadButton`. Import: a hidden file input parses + lightly validates
+  (`parseMapGeoJson` — a loose zod `FeatureCollection` shape check, not a full GeoJSON validator;
+  drops geometry types it doesn't understand and errors out if NOTHING recognizable is left)
+  before anything happens, then a confirm Sheet ("this replaces the whole map") gates the actual
+  `featuresToMap` → `rpc.map.replace` call, since import overwrites every area and dock. A
+  malformed/non-JSON/wrong-shape file always toasts and stops there — never throws into the render
+  tree.
+- **Tests**: `mowersStore.recordDocking.test.ts` (7 — publish payloads via a real `Mower`
+  instance, `recordDockingStatusSchema` parse/defaults/reject, mirrors `mowersStore.
+  recordArea.test.ts` even though the store side predates this session), `RecordDockingFlow.
+  test.tsx` (12 — the state-machine table headlessly + start/status/cancel wiring + the
+  no-Done-button/auto-finish behavior), `DockSettingsSheet.test.tsx` (8 — every field's `onUpdate`
+  patch shape, incl. the heading stepper's wrap-not-clamp math), `realData.test.ts` gained 2 cases
+  (a `{...dock, heading, approach_distance}`-shaped edit patch round-trips through
+  `zonesToMapData` untouched on every other field — the exact shape `DockSettingsSheet.onUpdate`
+  produces), `geojsonIO.test.ts` (9 — export shape, parse/validate incl. malformed-JSON and
+  no-recognizable-geometry rejection, and the export→import round trip). Full suite: 143 tests
+  passing (`npx vitest run`); `npx tsc --noEmit` and `npm run build` both clean.
+- **Resolved ambiguity**: the task brief assumed Record dock would drive the same teleop pad as
+  Record area (by analogy) and that `DockingStationMarker.tsx`/`DockingStationItem.tsx` already
+  existed under `components/v2/map/` — neither held up under the actual protocol/repo. Went with
+  the verified real behavior (autonomous docking, no teleop) and the dock's existing inline
+  MapCanvas rendering (added `onDockClick` there rather than inventing marker components v2 never
+  had).
+- **Not touched / spotted but out of scope**: `Map.tsx`'s Save/Version-history mount still carries
+  a stale `{/* ... UNWIRED PLACEHOLDER ... */}` comment left over from before SESSION 7 wired
+  those up — noted, not fixed (comment-only, unrelated to this session's files).
+
 ## ✅ SESSION 8 (2026-07-18) — "Record area" against the new `record_area/*` gateway bridge
 Branch **`feature/w9-app2`** (worktree, off `personal`). Closes SESSION 7's "NOT this wave" gap:
 area-boundary recording, against the `record_area/*` gateway bridge built in parallel.
@@ -553,9 +616,10 @@ Design docs + the 1:1 visual source are on the **`feature/app-ux-research`** wor
       routing, Map's Pause/Resume/Stop/Dock. **Manual teleop + map save/versioning are now real too
       (W9 Lane A2b, SESSION 7)**: ManualControl's drive input publishes real `teleop{vx,vz}` and its
       Dock/Stop use the real command client; Map's Save sheet calls `rpc.map.replace`, Version
-      history lists/restores `query/mapversions`/`query/mapversion`. Remaining: area recording
-      (needs a backend gateway bridge) — everything else on this screen-by-screen list is still
-      mock data.
+      history lists/restores `query/mapversions`/`query/mapversion`. **Record area (SESSION 8) and
+      Record dock / Dock settings / GeoJSON import-export (SESSION 9) are real too** — every map
+      write-path named in earlier passes is now wired. Everything else on this screen-by-screen
+      list is still mock data.
 - [ ] Cut over: v2 → `/`, delete v1 + MUI + the Tailwind-preflight workaround
 
 ## The rhythm (per screen)
