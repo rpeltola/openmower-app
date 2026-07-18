@@ -2,6 +2,44 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 8 (2026-07-18) — "Record area" against the new `record_area/*` gateway bridge
+Branch **`feature/w9-app2`** (worktree, off `personal`). Closes SESSION 7's "NOT this wave" gap:
+area-boundary recording, against the `record_area/*` gateway bridge built in parallel.
+
+- **Store wiring (`mowersStore.ts`/`schemas.ts`) mirrors `record_docking/*` exactly**: `Mower.
+  publishRecordAreaStart(name, type)` / `publishRecordAreaFinish()` / `publishRecordAreaCancel()`
+  publish `record_area/start` (`{name, type}`, type 0=obstacle/2=mow — `auto_recording`/
+  `distance_threshold` are left to the gateway's own defaults), `/finish` (`{}`), `/cancel`
+  (empty); a new `record_area/status` subscription parses into `Mower.recordAreaStatus` via the
+  new `recordAreaStatusSchema` (`phase`/`point_count`/`polygon: [[x,y],...]`/`message`/`code?`,
+  defensive defaults + an `'idle'` phase not in the spec so a cleared retained message still
+  parses).
+- **`RecordAreaFlow.tsx`** (`components/v2/map/record/`) is the new control — distinct from the
+  existing S8 `RecordBriefingSheet`/`RecordDriveOverlay`/`RecordCloseSheet` mock flow (which
+  drives a local physics loop, no backend). Picking → recording → done/error state machine
+  (`nextRecordAreaStep`, exported standalone and unit-tested headlessly, same split as
+  `ManualControl.tsx`'s `directionToVelocity`): pick name+type, Start publishes `record_area/
+  start`, the recording view shows the live point count + phase chip and drives with the REAL
+  `teleop{vx,vz}` topic (`useTeleop` + `directionToVelocity`, reused straight from
+  `ManualControl.tsx` — same Joystick glyph, same math), Done publishes `finish`, Discard
+  publishes `cancel` and closes. A `success` status toasts "Area saved" and closes (the new area
+  arrives on `map/json` on its own); a `failed` status toasts the message and stays open so the
+  user can retry Done or Discard.
+- **Map.tsx entry points**: a live-view-only FAB (`Disc` icon, next to Recenter) and a command-
+  palette action ("Record area…"), both routed through a new `openRecordArea()` that exits edit
+  mode and closes every other sheet first (same pattern `beginDriving()` uses for the mock flow).
+  `RecordAreaFlow` is always mounted (visibility gated internally by `open`), matching how the S8
+  mock sheets are wired.
+- **NOT done**: the live polygon isn't drawn on the map yet (MapCanvas's `recording` prop, which
+  the S8 mock flow already feeds, could take the real `record_area/status.polygon` too — left for
+  a follow-up rather than risking Map.tsx's edit-mode/recording-state interplay in this pass).
+- **Tests**: `mowersStore.recordArea.test.ts` (8 — publish payloads via a real `Mower` instance +
+  a fake mqtt client, schema parse/defaults/reject), `RecordAreaFlow.test.tsx` (13 — start/finish/
+  cancel publish wiring, success→toast+close, failed→toast+stays-open, the state machine table
+  headlessly). `Map.commands.test.tsx`'s mowersStore mock gained a `useMowersStore.getState` stub
+  (RecordAreaFlow's `useTeleop()` now reads it on every Map.tsx render). Full suite: 101 tests
+  passing (`npx vitest run`); `npx tsc --noEmit` and `npm run build` both clean.
+
 ## ✅ SESSION 7 (2026-07-17) — W9 Lane A2b: app write-paths (manual teleop + map save/versioning)
 Branch **`feature/w9-app2`** (worktree, off `personal`). Completes what SESSION 6 deferred: the two
 domains that actually WRITE to the mower, not just display it.
