@@ -7,7 +7,13 @@ import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {MiniMap} from '@/components/v2/ui/MiniMap';
 import {isFeatureSupported} from '@/lib/v2/featureSupport';
 import {Maximize, Minimize} from 'lucide-react';
+import dynamic from 'next/dynamic';
 import {useState} from 'react';
+
+const LiveFollowMap = dynamic(() => import('@/components/v2/ui/LiveFollowMap').then((m) => m.LiveFollowMap), {
+  ssr: false,
+  loading: () => <div className="absolute inset-0 flex items-center justify-center bg-map text-[.78rem] text-ink-faint">Map loading…</div>,
+});
 
 export interface MainViewportProps {
   /** Whether a front camera exists (per-camera capability, L1) — without one this is just the
@@ -22,6 +28,11 @@ export interface MainViewportProps {
    *  component just reflects/toggles it. */
   fullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  /** When the map is the main view, render the real Leaflet follow-cam (LiveFollowMap) instead
+   *  of the static SVG MiniMap. The PiP thumbnail (see below) always stays the lightweight
+   *  MiniMap regardless -- a full Leaflet map is too heavy for that tiny corner. Defaults to
+   *  false so existing MiniMap callers (e.g. Home) are unaffected. */
+  liveMap?: boolean;
 }
 
 /** DJI Fly-style viewport: one large view (camera FPV or map) with the other inset as a
@@ -32,6 +43,7 @@ export function MainViewport({
   className,
   fullscreen,
   onToggleFullscreen,
+  liveMap = false,
 }: MainViewportProps) {
   const [main, setMain] = useState<'camera' | 'map'>('camera');
   // L1 (hardware exists) AND L3 (streaming is actually wired up) — a camera-equipped mower
@@ -44,6 +56,8 @@ export function MainViewport({
     <div className={cn('relative overflow-hidden rounded-[var(--radius-card)]', className)}>
       {active === 'camera' ? (
         <CameraFeed className="absolute inset-0" />
+      ) : liveMap ? (
+        <LiveFollowMap className="absolute inset-0" />
       ) : (
         <MiniMap className="absolute inset-0" />
       )}

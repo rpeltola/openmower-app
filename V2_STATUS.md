@@ -2,6 +2,72 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 14 (2026-07-18) — real-mower map-recording UX + teleop-safety + connection pass (11 fixes)
+Branch **`feature/manual-drive-ux`** (new worktree off `personal`). Eleven fixes from a live
+recording/driving session, delegated across coder agents + independently validated by
+`opus-validator` (verdict PASS-WITH-FIXES). `tsc` clean, full suite **200 passing**.
+
+- **Record-area name field clipping** — the Sheet's `overflow-y-auto` also clips x, shaving the
+  input's focus ring; switched to an inset ring (`focus-visible:ring-inset`). `RecordAreaFlow.tsx`.
+- **Emergency reset in the GLOBAL banner** — `reset_emergency` was only reachable on the control
+  page. Added a "Clear & resume" action to `PausedBanner.tsx` + a "Reset emergency" to
+  `PausedBlockerScreen.tsx` (blocking EMERGENCY/COLLISION only), same `sendCommand('reset_emergency')`.
+- **Resume an in-progress recording** — navigating away unmounted the flow and lost it while the
+  backend kept recording (retained `record_area/status`). `Map.tsx` now re-opens on the RISING edge
+  into `phase==='recording'` (`prevRecordAreaPhaseRef`, survives Discard), and `RecordAreaFlow`'s
+  open-effect resumes straight into the driving view (name/type already committed at start).
+- **Connection: fast degraded-detection + always-visible Reconnect** — `keepalive:5`/
+  `reconnectPeriod:2000` (were 60s/30s), a per-mower `lastRxAt` bumped on every inbound message,
+  and a derived `'degraded'` status when a 'connected' link goes >3s stale → `ConnectionBanner`
+  shows with a warn tone + Reconnect. NOTE: `connectionStatus==='connected'` gates are cosmetic
+  (chips/dots) — degraded does NOT lock out manual drive (gated by unlock + `run('manual_drive')`).
+- **Teleop delayed-stop MITIGATION** — release now repeats zero-twist at 10Hz for `STOP_REPEAT_MS
+  =1200` (was fire-once) so the 1s firmware watchdog reliably catches the stop over a laggy link.
+  `useTeleop.ts`. (validator fix: only arm the teardown timer when `stopTimeout.current===null`,
+  else telemetry-cadence re-renders reset it forever and it republishes zeros indefinitely.)
+- **Page-zoom lock** — `layout.tsx` viewport `maximumScale:1`/`userScalable:false` + body
+  `touch-action:manipulation`. Leaflet's own pinch-zoom is unaffected (it sets `touch-action:none`).
+- **Toast redesign** — top-center, dedicated X, circular countdown ring (restarts per message,
+  respects reduced-motion), auto-dismiss unchanged. `Toast.tsx` + `tailwind.css`.
+- **LiveFollowMap on the control page** — real vanilla-Leaflet follow-cam replaces the static SVG
+  MiniMap main view (`MainViewport` gets a `liveMap` prop; PiP stays the cheap SVG). Follows the
+  mower recentering at the user's current zoom, user drag pauses follow, `LocateFixed` reset button
+  re-centers at `DEFAULT_ZOOM=20`, ResizeObserver `invalidateSize`. `LiveFollowMap.tsx` (new).
+- **Closer zoom** — `maxZoom` 22→24 on the editor (`MapCanvas.tsx`) and follow map. (Minimal canvas
+  basemap is already unbounded; the cap only bit on the satellite basemaps.)
+- **Map-editor "Discard changes" wired** — was a placeholder toast. Added `editor.discardChanges()`
+  (`useMapEditor.ts`) — one-shot revert to `history[0]` baseline, clears undo+redo — behind a
+  confirm Sheet in `Map.tsx` (reused the GeoJSON-import confirm pattern).
+- **Record-area "Done" watchdog** — Done gave no feedback if a terminal status never arrived.
+  Immediate "Saving…" (disables Done, blocks double-publish) + a `FINISH_TIMEOUT_MS=15000` watchdog
+  that surfaces "Still saving… may already be saved — check the map" + a non-destructive Close.
+  ROOT CAUSE of the field report was a **stale mower deploy** (the gateway on `OpenMowerNext main`
+  already emits a retained `phase:"success"`; the `map_recorder` `base_link` TF fix landed the same
+  day) — **redeploy the ROS2 stack** — but the UI now can't silently hang regardless.
+
+**Deploy/HW to verify next:** (1) **redeploy OpenMowerNext** so record-area Done reports success.
+(2) Confirm `robot_state` keeps ~5Hz while parked at the dock, else the 3s `degraded` threshold may
+flap the banner (benign — cosmetic only). 
+
+**Cross-repo follow-ups (NOT this app pass):** ⑤b the STRUCTURAL teleop fix = coalesce-to-latest
+@50Hz in the MQTT→`cmd_vel_joy` bridge (OpenMowerNext app_gateway); and the full dual-mode app over
+the Pi's Bluetooth (pluggable `mowersStore` transport + Pi BLE GATT tunnel, Capacitor native BLE
+client). See `openmower_knowledgebase/teleop-wifi-lag-and-bluetooth-control.md`.
+
+### 📋 DESIGN BACKLOG (from the same session — designed, NOT built)
+- **Area recording: drive-to-start before capture.** Today "Start recording" begins capturing
+  points immediately — no way to drive to the boundary's start corner first. Planned flow:
+  picking (name/type) → **new "position" step** (live DriveConsole, blade off, NOTHING captured) →
+  **"Begin recording"** (only now calls `record_area/start`) → recording → Done. UI-only and
+  low-risk: teleop runs independently of the record_area bridge, so it's an inserted step before
+  `publishRecordAreaStart`. Nice-to-haves: start-point marker, distance-back-to-start hint.
+- **Navigation "corridor" tool (connect areas).** Placing a nav path today drops a fixed square
+  polygon whose shape can't be reshaped (esp. on touch). Chosen model = a **corridor between
+  areas**: draw a line from area A to area B, auto-buffer it to a drivable-width **navigation area
+  (type 1)** that connects them — directly addresses the reported ~1.8m gap between mow areas so
+  Nav2 can route across. Distinct primitive from area polygons (a routed line + width, not a
+  drawn square). Also fix touch vertex-editing regardless (large ~44px hit targets). Bigger build.
+
 ## ✅ SESSION 13 (2026-07-18) — 3 more real-mower Manual Control fixes: top speed, clear-emergency, landscape unlock
 Branch **`feature/w9-gate`**. `MAX_LINEAR_MPS` raised 0.35 → 0.5 (the real ~0.5 m/s wheel max, vs.
 the 0.4 m/s autonomous mow speed) so "Fast" reaches actual top speed; angular left untouched.

@@ -23,10 +23,15 @@ import type {Mower} from '@/stores/mowersStore';
 import {useSelectedMower} from '@/stores/mowersStore';
 import type {RecordAreaPhase} from '@/stores/schemas';
 import {Check, Play, X} from 'lucide-react';
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 
 export type RecordAreaKind = 'mow' | 'obstacle';
 export type RecordAreaStep = 'idle' | 'picking' | 'recording' | 'done' | 'error';
+
+// If Done is tapped but no terminal record_area/status ever arrives (a stale mower deploy, a
+// dropped MQTT message, a broker restart), the flow must never leave the user stuck staring at a
+// dialog with no way out -- see the watchdog effect below.
+const FINISH_TIMEOUT_MS = 15000;
 
 const TYPE_OPTIONS: {value: RecordAreaKind; label: string}[] = [
   {value: 'mow', label: 'Mowing area'},
@@ -80,22 +85,68 @@ export function RecordAreaFlow({open, onClose, onToast}: RecordAreaFlowProps) {
   const [name, setName] = useState('');
   const [kind, setKind] = useState<RecordAreaKind>('mow');
 
-  // A fresh open always re-enters at `picking` with a blank draft -- mirrors RecordCloseSheet's
-  // own reset-on-open effect.
+  // `finishing`: local "I tapped Done" flag, true from the tap until a terminal status arrives --
+  // gives immediate "Saving…" feedback (and disables Done) even before the gateway's own
+  // processing/saving phase shows up, and covers the gap if it never does. `finishTimedOut`:
+  // FINISH_TIMEOUT_MS watchdog fired with no terminal status -- see the effect below.
+  const [finishing, setFinishing] = useState(false);
+  const [finishTimedOut, setFinishTimedOut] = useState(false);
+  const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearFinishTimer = () => {
+    if (finishTimerRef.current) {
+      clearTimeout(finishTimerRef.current);
+      finishTimerRef.current = null;
+    }
+  };
+
+  // A fresh open re-enters at `picking` with a blank draft (mirrors RecordCloseSheet's own
+  // reset-on-open effect) -- UNLESS the backend is already mid-recording (the user navigated away
+  // and came back, and Map re-opened us to resume). In that case jump straight to the driving
+  // view: the name/type were committed at startRecording and finish()/discard() need no further
+  // input, so there's nothing to re-pick. recordAreaStatus is read as an open-time snapshot on
+  // purpose (not a dep) -- later phase changes are handled by the status effect below, and adding
+  // it here would wrongly re-run this reset when the phase moves to processing/saving/success.
   useEffect(() => {
     if (open) {
-      setStep((prev) => nextRecordAreaStep(prev, {type: 'open'}));
-      setName('');
-      setKind('mow');
+      if (recordAreaStatus?.phase === 'recording') {
+        setStep('recording');
+      } else {
+        setStep((prev) => nextRecordAreaStep(prev, {type: 'open'}));
+        setName('');
+        setKind('mow');
+      }
     } else {
       setStep((prev) => nextRecordAreaStep(prev, {type: 'close'}));
     }
+    // Every (re-)open or close starts a clean slate for the Done watchdog -- the flow stays
+    // mounted across open/close (Map.tsx controls it via `open`), so this state would otherwise
+    // leak from one recording session into the next.
+    clearFinishTimer();
+    setFinishing(false);
+    setFinishTimedOut(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
     if (!recordAreaStatus) return;
     setStep((prev) => nextRecordAreaStep(prev, {type: 'status', phase: recordAreaStatus.phase}));
   }, [recordAreaStatus]);
+
+  // Once a terminal status arrives, the watchdog has done its job (or was never needed) -- clear
+  // it. 'error' also re-enables Done so the user can retry a failed finish; 'done' unmounts via
+  // onClose below so it doesn't matter either way.
+  useEffect(() => {
+    if (step !== 'done' && step !== 'error') return;
+    clearFinishTimer();
+    setFinishTimedOut(false);
+    if (step === 'error') setFinishing(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  // Unmount cleanup -- belt-and-suspenders alongside the open-effect above, in case the flow is
+  // ever torn down mid-recording instead of just closed.
+  useEffect(() => clearFinishTimer, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (step !== 'done') return;
@@ -115,17 +166,30 @@ export function RecordAreaFlow({open, onClose, onToast}: RecordAreaFlowProps) {
     setStep((prev) => nextRecordAreaStep(prev, {type: 'start'}));
   };
 
-  const finish = () => mower?.publishRecordAreaFinish();
+  const finish = () => {
+    if (finishing) return; // Done already tapped -- don't double-publish
+    mower?.publishRecordAreaFinish();
+    setFinishing(true);
+    setFinishTimedOut(false);
+    clearFinishTimer();
+    finishTimerRef.current = setTimeout(() => setFinishTimedOut(true), FINISH_TIMEOUT_MS);
+  };
 
   const discard = () => {
     mower?.publishRecordAreaCancel();
+    clearFinishTimer();
+    setFinishing(false);
+    setFinishTimedOut(false);
     setStep((prev) => nextRecordAreaStep(prev, {type: 'cancel'}));
     onClose();
   };
 
   if (!open) return null;
 
-  const busy = recordAreaStatus?.phase === 'processing' || recordAreaStatus?.phase === 'saving';
+  // `finishing` folds in as soon as Done is tapped, ahead of the gateway's own processing/saving
+  // phase, so the busy affordance (chip + disabled Done/drive) covers the gap between the tap and
+  // the first status update, not just the phases we've actually heard back about.
+  const busy = finishing || recordAreaStatus?.phase === 'processing' || recordAreaStatus?.phase === 'saving';
   const driving = step === 'recording' || step === 'error';
 
   return (
@@ -138,7 +202,10 @@ export function RecordAreaFlow({open, onClose, onToast}: RecordAreaFlowProps) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={DEFAULT_NAME[kind]}
-              className="h-10 w-full rounded-[var(--radius-control)] border border-border bg-surface-2 px-2.5 text-sm text-ink"
+              // The Sheet's scroll body clips on the x-axis too (overflow-y-auto forces
+              // overflow-x to auto per spec), so an outside-drawn focus outline gets shaved at
+              // the edges -- draw the ring inset instead, inside the input's own border box.
+              className="h-10 w-full rounded-[var(--radius-control)] border border-border bg-surface-2 px-2.5 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
             />
           </FormField>
 
@@ -166,7 +233,7 @@ export function RecordAreaFlow({open, onClose, onToast}: RecordAreaFlowProps) {
               <span className="text-danger">●</span> REC
             </OverlayChip>
             <OverlayChip>{recordAreaStatus?.point_count ?? 0} pts</OverlayChip>
-            {busy && <OverlayChip>{recordAreaStatus?.phase === 'saving' ? 'Saving…' : 'Processing…'}</OverlayChip>}
+            {busy && <OverlayChip>{recordAreaStatus?.phase === 'processing' ? 'Processing…' : 'Saving…'}</OverlayChip>}
             <Button
               variant="soft"
               size="icon"
@@ -195,6 +262,11 @@ export function RecordAreaFlow({open, onClose, onToast}: RecordAreaFlowProps) {
                 {recordAreaStatus?.message || 'Recording failed'}
               </div>
             )}
+            {finishTimedOut && (
+              <div className="mt-2 rounded-[10px] bg-warn-wash px-2.5 py-1.5 text-center text-[.76rem] font-semibold text-warn">
+                Still saving… the area may already be saved — check the map.
+              </div>
+            )}
             <div className="mt-2.5 flex items-center gap-2">
               <Button variant="ghost" size="sm" className="flex-1" onClick={discard}>
                 Discard
@@ -203,6 +275,14 @@ export function RecordAreaFlow({open, onClose, onToast}: RecordAreaFlowProps) {
                 <Check size={14} /> Done
               </Button>
             </div>
+            {/* The watchdog fired (FINISH_TIMEOUT_MS with no terminal status) -- never leave the
+                user trapped in the dialog: a plain, non-destructive way out. Doesn't auto-close or
+                auto-discard, since the area may well have saved successfully server-side. */}
+            {finishTimedOut && (
+              <Button variant="ghost" size="sm" className="mt-2 w-full justify-center" onClick={onClose}>
+                Close
+              </Button>
+            )}
           </Card>
         </>
       )}

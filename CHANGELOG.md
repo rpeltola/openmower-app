@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-18 (5)
+- Real-mower map-recording UX + teleop-safety + connection pass (11 fixes). Emergency reset is
+  now reachable from the GLOBAL paused banner + blocker screen (was control-page only). An
+  in-progress area recording now RESUMES its driving view after navigating away and back (reads
+  the retained `record_area/status`). Connection loss surfaces fast now — MQTT `keepalive` 5s /
+  `reconnectPeriod` 2s, plus a `degraded` state when a "connected" link goes >3s without a
+  message — and the Reconnect banner stays visible whenever the link isn't healthy (degraded is
+  cosmetic and does not lock out manual drive). Teleop stop is hardened against poor wifi: on
+  joystick release the app now repeats the zero-twist at 10Hz for ~1.2s so the mower's 1s
+  watchdog reliably catches the stop instead of the mower coasting on a drained command backlog.
+  Accidental browser page-zoom is disabled (the Leaflet map keeps its own pinch-zoom). Toasts
+  moved top-center with an X and a circular countdown ring. The Manual-control viewport map is
+  now a real Leaflet follow-cam (follows the mower, pinch-zoom, reset-view button) instead of the
+  static SVG mini-map; map max zoom raised 22→24. The map editor's "Discard changes" is wired up
+  (revert to the loaded-map baseline, behind a confirm) — it was a placeholder. Area-recording
+  "Done" now shows immediate "Saving…" feedback and a 15s watchdog that offers a safe Close if no
+  save result arrives, so the dialog can never silently hang.
+
 ## 2026-07-18 (4)
 - Three more Manual Control fixes found on real-mower testing: "Fast" now reaches the mower's
   actual ~0.5 m/s wheel top speed (was throttled to 0.35 m/s); a big "EMERGENCY — Clear & resume"

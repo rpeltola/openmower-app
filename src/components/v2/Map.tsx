@@ -332,12 +332,29 @@ export function Map() {
   // W9 — mission composer wiring (mow_mission/* — see the "Mission composer" block below).
   const mower = useSelectedMower<Mower | undefined>();
   const missionState = useSelectedMower((s) => s?.missionState ?? null);
+  const recordAreaPhase = useSelectedMower((s) => s?.recordAreaStatus?.phase ?? null);
   const realDatumLat = realMap?.datum?.lat;
   const realDatumLng = realMap?.datum?.long;
   const origin: Origin = useMemo(
     () => (realDatumLat !== undefined && realDatumLng !== undefined ? {lat: realDatumLat, lng: realDatumLng} : MOCK_ORIGIN),
     [realDatumLat, realDatumLng],
   );
+
+  // Resume an in-progress area recording after this Map was unmounted (e.g. the user navigated to
+  // the Manual-control page to clear an emergency and came back). The backend keeps recording and
+  // republishes a retained record_area/status, so re-open the flow straight into the driving view
+  // (RecordAreaFlow enters `recording` directly when it sees phase==='recording') so Done/Discard
+  // are reachable again. Fire only on the RISING edge into 'recording' (or first mount seeing an
+  // already-recording backend), never continuously: an explicit Discard closes the sheet before the
+  // backend flips to 'canceled', and a level-triggered reopen would immediately bounce it back open.
+  const prevRecordAreaPhaseRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevRecordAreaPhaseRef.current;
+    prevRecordAreaPhaseRef.current = recordAreaPhase;
+    if (recordAreaPhase === 'recording' && prev !== 'recording' && !recordAreaOpen) {
+      setRecordAreaOpen(true);
+    }
+  }, [recordAreaPhase, recordAreaOpen]);
 
   // Live robot pose + footprint — same composition as MowerMap.tsx: x/y prefer the driven-track
   // position topic (falls back to the 5 Hz robot_state pose), heading always comes from the live
@@ -527,13 +544,17 @@ export function Map() {
     if (!next) closeAllEditSheets();
   };
 
-  // "Discard changes" (unsaved-edits affordance, edit mode) — PLACEHOLDER. Winding the undo stack
-  // back to baseline would need looping `editor.undo()` while `editor.canUndo`, but `canUndo` is a
-  // value captured at render time: it can't flip mid-loop before React re-renders, so that loop
-  // never terminates. Rather than risk that, this stays an honest no-op pointing at the (working)
-  // Undo button in the edit dock.
-  const discardChanges = () => {
-    setToastMessage("Discarding changes isn't wired up yet — use Undo in the tool dock to step back.");
+  // "Discard changes" (unsaved-edits affordance, edit mode) -- reverting ALL unsaved edits back
+  // to the baseline in one step is destructive and clears redo too, so it's gated behind the same
+  // confirm-sheet pattern GeoJSON import uses below (see `importFeatures`/`confirmImport`).
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+
+  const discardChanges = () => setDiscardConfirmOpen(true);
+
+  const confirmDiscardChanges = () => {
+    editor.discardChanges();
+    setDiscardConfirmOpen(false);
+    setToastMessage('Changes discarded');
   };
 
   // --- Save / version history (W9 A2b) ---------------------------------------------------------
@@ -1105,8 +1126,9 @@ export function Map() {
             <Pencil size={12} className="text-accent" /> Editing map
           </OverlayChip>
           {/* Unsaved-changes + save affordance — canUndo means the undo stack holds forward edits
-              past the seeded baseline. Both buttons here are placeholders (see MapVersioning.tsx /
-              discardChanges above); nothing is saved or discarded yet. */}
+              past the seeded baseline. Save is still a placeholder (see MapVersioning.tsx);
+              Discard opens the confirm sheet below and reverts to the baseline via
+              editor.discardChanges(). */}
           {editor.canUndo && (
             <>
               <OverlayChip>Unsaved changes</OverlayChip>
@@ -2063,6 +2085,24 @@ export function Map() {
             </Button>
             <Button variant="primary" size="sm" className="flex-1" onClick={confirmImport} disabled={importing}>
               {importing ? 'Importing…' : 'Import & replace'}
+            </Button>
+          </div>
+        </div>
+      </Sheet>
+
+      {/* "Discard changes" confirm — discarding reverts to the baseline AND clears the redo
+          stack, so (like GeoJSON import above) the actual revert waits for this confirm. */}
+      <Sheet open={discardConfirmOpen} onClose={() => setDiscardConfirmOpen(false)} title="Discard changes?">
+        <div className="space-y-3.5">
+          <p className="m-0 text-[.8rem] leading-[1.4] text-ink-soft">
+            This reverts every unsaved edit back to the last saved map. This can&apos;t be undone.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="flex-1" onClick={() => setDiscardConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" className="flex-1" onClick={confirmDiscardChanges}>
+              Discard changes
             </Button>
           </div>
         </div>

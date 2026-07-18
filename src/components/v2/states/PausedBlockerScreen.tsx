@@ -11,6 +11,7 @@ import {Toast} from '@/components/v2/ui/Toast';
 import {REASON_COPY, REJECT_COPY, type PausedReason, type Tone} from '@/lib/v2/robotState';
 import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
 import {useRobotStateSnapshot} from '@/lib/v2/useRobotStateSnapshot';
+import {type Mower, useSelectedMower} from '@/stores/mowersStore';
 import {Home as DockIcon, Play, TriangleAlert} from 'lucide-react';
 import {useId, useState} from 'react';
 
@@ -19,6 +20,11 @@ const MOW = {area: 'Etupiha', batteryPct: 71};
 // Demo reason for the /v2/states dev gallery + as a last-resort default (no mower selected, or
 // PAUSED with an empty reasons array).
 const DEMO_REASONS: PausedReason[] = ['GPS_LOSS'];
+
+// EMERGENCY/COLLISION -- the "red-blocking" reasons (same danger tone PausedBanner.tsx keys its
+// own "Clear & resume" action off of) -- get a Reset emergency action here too, since this is
+// the dedicated blocked view, not just its compact banner echo.
+const DANGER_REASONS = new Set<PausedReason>(['EMERGENCY', 'COLLISION']);
 
 // StatePill's tone vocabulary is accent/warn/info/neutral only (no danger variant) — danger
 // reasons (EMERGENCY/COLLISION) read as their next-most-severe equivalent, same fallback
@@ -89,12 +95,18 @@ function ReasonBanners({reasons, className}: {reasons: PausedReason[]; className
 
 function BlockerControls({
   primaryReason,
+  blocking,
+  onReset,
+  resetting,
   onDock,
   dockDisabled,
   dockLabel,
   className,
 }: {
   primaryReason?: PausedReason;
+  blocking: boolean;
+  onReset: () => void;
+  resetting: boolean;
   onDock: () => void;
   dockDisabled: boolean;
   dockLabel: string;
@@ -116,6 +128,12 @@ function BlockerControls({
           </Chip>
         ) : null}
       </div>
+      {blocking ? (
+        <Button variant="danger-solid" className="justify-center" onClick={onReset} disabled={resetting}>
+          <TriangleAlert size={15} strokeWidth={2.2} />
+          {resetting ? 'Resetting…' : 'Reset emergency'}
+        </Button>
+      ) : null}
       <Button variant="ghost" className="justify-center" onClick={onDock} disabled={dockDisabled}>
         <DockIcon size={15} strokeWidth={2.2} />
         {dockLabel}
@@ -138,6 +156,7 @@ export function PausedBlockerScreen({reasons}: PausedBlockerScreenProps) {
   const live = useRobotStateSnapshot().reasons;
   const activeReasons = reasons ?? (live.length > 0 ? live : DEMO_REASONS);
   const primary = activeReasons[0] as PausedReason | undefined;
+  const blocking = activeReasons.some((r) => DANGER_REASONS.has(r));
 
   // Dock goes through the real `cmd/req`→`cmd/res` protocol (useCommand.ts, same client
   // Home.tsx/ManualControl.tsx use) — no fire-and-forget (R2): every press resolves to a known
@@ -152,6 +171,19 @@ export function PausedBlockerScreen({reasons}: PausedBlockerScreenProps) {
   };
   const dockDisabled = pending === 'dock' || !dockAvailability.allowed;
   const dockLabel = pending === 'dock' ? 'Docking…' : 'Dock';
+
+  // Reset emergency -- the same legacy fire-and-forget `command:reset_emergency` path
+  // ManualControl.tsx's own emergency banner uses (mowersStore.ts's `sendCommand`), not the
+  // `cmd/req`→`cmd/res` protocol above: no accept/reject round-trip, it either clears or the
+  // cause (e.g. a still-lifted wheel) just re-latches it.
+  const mower = useSelectedMower<Mower | undefined>((s) => s);
+  const [resetting, setResetting] = useState(false);
+  const handleReset = () => {
+    mower?.sendCommand('reset_emergency');
+    setToast('Emergency reset sent');
+    setResetting(true);
+    setTimeout(() => setResetting(false), 1500);
+  };
 
   return (
     <div className="flex min-h-full flex-col p-4 md:h-full md:min-h-0 md:p-6">
@@ -171,7 +203,15 @@ export function PausedBlockerScreen({reasons}: PausedBlockerScreenProps) {
         <ReasonBanners reasons={activeReasons} className="absolute inset-x-3 top-[3.1rem] z-10" />
 
         <StatCard className="absolute inset-x-3 bottom-3 z-10">
-          <BlockerControls primaryReason={primary} onDock={handleDock} dockDisabled={dockDisabled} dockLabel={dockLabel} />
+          <BlockerControls
+            primaryReason={primary}
+            blocking={blocking}
+            onReset={handleReset}
+            resetting={resetting}
+            onDock={handleDock}
+            dockDisabled={dockDisabled}
+            dockLabel={dockLabel}
+          />
         </StatCard>
       </div>
 
@@ -183,7 +223,15 @@ export function PausedBlockerScreen({reasons}: PausedBlockerScreenProps) {
         </Card>
 
         <Card className="flex flex-col gap-[.9rem] p-4">
-          <BlockerControls primaryReason={primary} onDock={handleDock} dockDisabled={dockDisabled} dockLabel={dockLabel} />
+          <BlockerControls
+            primaryReason={primary}
+            blocking={blocking}
+            onReset={handleReset}
+            resetting={resetting}
+            onDock={handleDock}
+            dockDisabled={dockDisabled}
+            dockLabel={dockLabel}
+          />
         </Card>
       </div>
     </div>

@@ -413,3 +413,27 @@
     opacity: 0.3;
   }
 }
+
+/* ---- Toast (ui/Toast.tsx) — the countdown ring around the close button, depleting over the
+   toast's `durationMs` (set per-instance via inline `animation-duration`, since that varies by
+   call site). The circle's `stroke-dasharray` is set inline to its own circumference, so the
+   `to` keyframe just offsets by that same value regardless of the ring's exact size. ---- */
+.v2-root .toast-ring-progress {
+  animation-name: toast-ring-deplete;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes toast-ring-deplete {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: var(--toast-ring-circumference);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v2-root .toast-ring-progress {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

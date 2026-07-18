@@ -28,6 +28,11 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: '#4CAF50',
+  // Blocks accidental page-zoom (double-tap/pinch) on the page chrome -- the map keeps its
+  // own pinch-to-zoom since MapLibre/Leaflet sets `touch-action: none` on its own canvas,
+  // independent of this viewport-level lock.
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default async function RootLayout({

@@ -15,6 +15,7 @@ const COPY: Partial<Record<ConnectionStatus, {tone: 'warn' | 'danger'; message: 
   reconnecting: {tone: 'warn', message: 'Reconnecting…'},
   disconnected: {tone: 'danger', message: 'Disconnected from mower'},
   offline: {tone: 'warn', message: "You're offline"},
+  degraded: {tone: 'warn', message: 'Weak connection to mower'},
 };
 
 /** Global, non-dismissible connection-problem strip — mounted once in AppShell, above every

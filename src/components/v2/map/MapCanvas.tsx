@@ -589,7 +589,7 @@ export function MapCanvas({
       container.style.background = '';
       tileLayerRef.current = L.tileLayer(basemap.url, {
         attribution: basemap.attribution,
-        maxZoom: 22,
+        maxZoom: 24,
         maxNativeZoom: basemap.maxNativeZoom ?? 19,
       }).addTo(map);
     } else {

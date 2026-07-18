@@ -3,6 +3,7 @@
 import {cn} from '@/components/v2/lib/cn';
 import {Button} from '@/components/v2/ui/Button';
 import {REASON_COPY, type PausedReason} from '@/lib/v2/robotState';
+import {type Mower, useSelectedMower} from '@/stores/mowersStore';
 import {TriangleAlert, X} from 'lucide-react';
 import {useEffect, useState} from 'react';
 
@@ -21,10 +22,15 @@ const DANGER_REASONS = new Set<PausedReason>(['EMERGENCY', 'COLLISION']);
  *  only ever applies to the exact reason combo it was shown for, so it resurfaces the instant the
  *  active reasons change (a new reason appears, one clears, or the severity tier changes), even
  *  though the screen never fully leaves PAUSED. This is the compact, always-visible echo of the
- *  full states/PausedBlockerScreen.tsx surface (reserved for a dedicated blocked view). */
+ *  full states/PausedBlockerScreen.tsx surface (reserved for a dedicated blocked view). Blocking
+ *  reasons swap the dismiss X for a "Clear & resume" action -- the same fire-and-forget
+ *  `reset_emergency` command ManualControl.tsx's own emergency banner uses -- since this banner
+ *  is the one surface guaranteed to be on screen no matter which /v2 page the user is on. */
 export function PausedBanner({reasons, className}: PausedBannerProps) {
   const key = reasons.join(',');
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const mower = useSelectedMower<Mower | undefined>((s) => s);
 
   useEffect(() => {
     setDismissedKey((prev) => (prev !== null && prev !== key ? null : prev));
@@ -33,6 +39,15 @@ export function PausedBanner({reasons, className}: PausedBannerProps) {
   if (reasons.length === 0 || dismissedKey === key) return null;
 
   const blocking = reasons.some((r) => DANGER_REASONS.has(r));
+
+  const handleReset = () => {
+    mower?.sendCommand('reset_emergency');
+    // Brief disable to swallow a double-tap -- re-enabled shortly after regardless of whether
+    // the reason actually cleared, since a still-active cause (e.g. a lifted wheel) just
+    // re-latches it and the user needs to be able to try again.
+    setResetting(true);
+    setTimeout(() => setResetting(false), 1500);
+  };
 
   return (
     <div
@@ -45,7 +60,11 @@ export function PausedBanner({reasons, className}: PausedBannerProps) {
     >
       <TriangleAlert size={14} strokeWidth={2.4} className="flex-none" />
       <span className="min-w-0 flex-1">{reasons.map((r) => REASON_COPY[r].label).join(' · ')}</span>
-      {blocking ? null : (
+      {blocking ? (
+        <Button variant="danger-solid" size="sm" disabled={resetting} onClick={handleReset} className="flex-none">
+          {resetting ? 'Resetting…' : 'Clear & resume'}
+        </Button>
+      ) : (
         <Button
           variant="ghost"
           size="sm"

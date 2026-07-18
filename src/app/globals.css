@@ -8,6 +8,10 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   scrollbar-color: rgba(128,128,128,0.4) transparent;
+  /* Kills accidental double-tap page zoom without touching gesture handling -- the map
+     library sets its own `touch-action: none` on its canvas/container, so this has no effect
+     there and pinch-to-zoom on the map keeps working. */
+  touch-action: manipulation;
 }
 
 * {

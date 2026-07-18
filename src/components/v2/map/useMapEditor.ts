@@ -165,6 +165,9 @@ export interface MapEditor {
    *  re-seed the editor once real map data arrives (see Map.tsx). Callers are responsible for
    *  not calling this over in-progress user edits (guard on `canUndo`). */
   reset: (zones: Zone[], dock: Dock) => void;
+  /** Revert every unsaved edit back to the baseline (history[0]) in one step, discarding the
+   *  undo AND redo stacks. Used by the edit-mode "Discard changes" affordance. */
+  discardChanges: () => void;
 }
 
 // History + pointer live in ONE state atom (not two useState calls) so a commit is a single
@@ -530,6 +533,11 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     setMultiSelectedState(new Set());
   }, []);
 
+  const discardChanges = useCallback(() => {
+    const baseline = historyState.history[0];
+    reset(baseline.zones, baseline.dock);
+  }, [historyState, reset]);
+
   // Keyboard: tool shortcuts (V/A/B/S/M/R/O/G), Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+D duplicate
   // zone, arrow-key vertex nudge (select tool, a vertex selected), and Delete/Backspace to remove
   // the current selection (single vertex, or the whole multi-select set). Ignored while focus is
@@ -646,5 +654,6 @@ export function useMapEditor(initialZones: Zone[], initialDock: Dock): MapEditor
     undo,
     redo,
     reset,
+    discardChanges,
   };
 }

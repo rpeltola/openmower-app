@@ -347,6 +347,7 @@ export function ManualControl() {
             className="min-w-0 flex-1"
             fullscreen={fullscreen}
             onToggleFullscreen={fullscreenSupported ? toggleFullscreen : undefined}
+            liveMap
           />
         ) : null}
 
@@ -365,6 +366,7 @@ export function ManualControl() {
                 className="min-w-0 flex-1"
                 fullscreen={fullscreen}
                 onToggleFullscreen={fullscreenSupported ? toggleFullscreen : undefined}
+                liveMap
               />
               <div className="flex w-[236px] flex-none flex-col items-center gap-1 overflow-y-auto">
                 <HoldToUnlock
@@ -540,6 +542,7 @@ export function ManualControl() {
                   className="aspect-video w-full flex-none"
                   fullscreen={fullscreen}
                   onToggleFullscreen={fullscreenSupported ? toggleFullscreen : undefined}
+                  liveMap
                 />
               ) : null}
               {portraitConsole}

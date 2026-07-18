@@ -194,6 +194,11 @@ export type MowerCommand = 'start' | 'stop' | 'dock' | 'record_on' | 'record_off
 interface MowersStore {
   mowers: Mower[];
   mqttStatuses: Record<string, MqttStatus>;
+  // Wall-clock time (ms, Date.now()) of the last MQTT message received for a mower, keyed by
+  // mower id -- updated on ANY subscribed topic regardless of parse success. Lets
+  // useConnectionStatus notice a link that's technically 'connected' but has gone quiet
+  // (a degraded wifi connection) faster than mqtt.js's own close/offline events would.
+  lastRxAt: Record<string, number>;
   selected: number;
   loadMowers: () => void;
   fetchEventsForDate: (mowerId: string, date: string) => Promise<void>;
@@ -204,6 +209,7 @@ export const useMowersStore = create<MowersStore>()(
   immer((set, get) => ({
     mowers: [],
     mqttStatuses: {},
+    lastRxAt: {},
     selected: 0,
     loadMowers: () => {
       for (const oldMower of get().mowers) {
@@ -219,7 +225,11 @@ export const useMowersStore = create<MowersStore>()(
           username: urlObj.username,
           password: urlObj.password,
           clean: true,
-          reconnectPeriod: 30000,
+          // Short keepalive + fast reconnect attempts so a stalled-but-open link (bad wifi)
+          // surfaces within a few seconds instead of mqtt.js's 60s default keepalive / the
+          // previous 30s reconnectPeriod.
+          keepalive: 5,
+          reconnectPeriod: 2000,
         });
         const clientMowers: {prefix: string; idx: number}[] = [];
         for (const config of mowerConfigs) {
@@ -335,6 +345,9 @@ export const useMowersStore = create<MowersStore>()(
           if (clientMower === undefined) {
             return;
           }
+          set((state) => {
+            state.lastRxAt[mowers[clientMower.idx].id] = Date.now();
+          });
           // Parse defensively: a single malformed/unexpected payload on ANY topic
           // (e.g. a schema mismatch after a firmware/gateway change, or a field the
           // hardware reports in a new shape) must NOT throw to the top and take down
