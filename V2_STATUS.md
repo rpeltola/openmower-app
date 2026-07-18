@@ -2,6 +2,53 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 11 (2026-07-18) — Manual Control blade on/off, E2E (W9 manual-blade)
+Branch **`feature/w9-gate`** (same worktree/branch as SESSION 10). SESSION 10 deliberately left
+ManualControl's blade toggle UI in place but ungated/unwired ("another workstream owns that E2E").
+That workstream is this session, against the backend contract shipped on OpenMowerNext
+`feature/manual-blade`: 4 new command verbs (`manual_drive`/`manual_stop`/`blade_on`/`blade_off`)
+riding the existing W9 `cmd/req`→`cmd/res` protocol, with blade state surfaced on
+`robot_state/json` at `sensors.mower.mow_enabled`.
+
+- **Command vocabulary** (`lib/v2/robotState.ts`): extended `CommandName`/`ALL_COMMAND_NAMES`
+  with the 4 new verbs — no new `RejectCode`/`REJECT_COPY` rows needed (they reuse `NOT_READY`
+  etc). `useRobotStateSnapshot.ts`'s `legacyCommandGate` switch got matching cases (TS's
+  exhaustiveness check over the switch forces this whenever `CommandName` grows) so an old
+  gateway without a live `commands` map still renders a sane gate: `manual_drive` allowed unless
+  already `MANUAL_DRIVE` or busy, `manual_stop`/`blade_on`/`blade_off` only allowed while
+  `MANUAL_DRIVE`.
+- **`useRobotState.ts`**: added `mowEnabled` (from `sensors.mower.mow_enabled`) to the hook's
+  return — the one place the blade toggle (and the "BLADE SPINNING" banner) reads real blade
+  state from, never a local optimistic flag.
+- **`ManualControl.tsx`**: mount/unmount of the page itself is the manual-mode entry/exit
+  affordance — a `useEffect` with an empty dep array sends `manual_drive` on mount and
+  `manual_stop` on unmount (mirrors `useTeleop`'s own unmount-zeroes-velocity cleanup pattern).
+  This is a judgment call: the brief allowed either "entering the page" or an explicit "Manual
+  mode" affordance; page-mount was chosen since `/v2/control` IS the manual-drive surface (its
+  drive input/gamepad only make sense in that mode) and there's no other page content that would
+  make sense pre-manual-drive. The blade `ActionRow` button now calls `useCommand('blade_on'
+  |'blade_off')` (picking the verb off the real `mowEnabled`, not a local toggle), is disabled via
+  `useCommandAvailability('blade_on'|'blade_off')` (`bladeDisabled = !unlocked || gate-blocked ||
+  command-pending`), and shows a small warn `Chip` reason (`REJECT_COPY`) once unlocked but still
+  gate-blocked (the hold-to-unlock caption already covers the merely-locked case, so the reason
+  chip is reserved for "unlocked but the backend still says no"). A pulsing, `role="alert"` red
+  "BLADE SPINNING" banner renders across every layout (desktop/landscape/portrait) whenever
+  `mowEnabled` is true, above the header.
+- **`featureSupport.ts`**: `bladeToggle` flipped to `supported: true` (dropped its `reason` — no
+  longer meaningful once supported). It was never wrapped in a `FeatureGate` to begin with, so no
+  gate to remove.
+- **Tests**: `ManualControl.test.tsx` gained a manual-mode entry/exit test (asserts `manual_drive`
+  on mount, `manual_stop` on unmount) and a blade-toggle describe block (sends `blade_on`/
+  `blade_off` through the command client once unlocked, reflects `mow_enabled` including the
+  BLADE SPINNING alert, disables with a reason chip when the command gate rejects it). Had to mock
+  `HoldToUnlock` with a plain button (its real gesture isn't practical to drive headlessly, same
+  reasoning as the module's existing comment about not testing through the full unlock flow) and
+  switch those new tests to `fireEvent.click` instead of raw `.click()` — two sequential
+  state-dependent clicks (unlock, then blade) need `fireEvent`'s `act()` wrapping to flush the
+  first click's re-render before the second one queries the DOM; plain `.click()` raced it (the
+  second click landed on the still-disabled button). Full suite 177 passing; `tsc`/`build` both
+  clean.
+
 ## ✅ SESSION 10 (2026-07-18) — R1 honesty pass: gate every unbacked control (W9 completeness audit)
 Branch **`feature/w9-gate`** (worktree, off `personal`). A completeness audit found `FeatureGate`
 wired to exactly ONE control (Backup) despite ~30 mock/unbacked controls rendering bare — the

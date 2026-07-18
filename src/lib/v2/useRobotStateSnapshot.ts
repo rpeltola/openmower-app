@@ -78,6 +78,14 @@ function legacyCommandGate(state: RobotState, cmd: CommandName): CommandAvailabi
         : {allowed: false, reasons: ['NOT_READY']};
     case 'undock':
       return state === 'DOCKED' || state === 'DOCKED_CHARGING' ? {allowed: true, reasons: []} : {allowed: false, reasons: ['NOT_READY']};
+    case 'manual_drive':
+      return state === 'MANUAL_DRIVE' || busy ? {allowed: false, reasons: ['NOT_READY']} : {allowed: true, reasons: []};
+    case 'manual_stop':
+      return state === 'MANUAL_DRIVE' ? {allowed: true, reasons: []} : {allowed: false, reasons: ['NOT_READY']};
+    case 'blade_on':
+    case 'blade_off':
+      // command_gate only accepts these while MANUAL_DRIVE (see robotState.ts's CommandName doc).
+      return state === 'MANUAL_DRIVE' ? {allowed: true, reasons: []} : {allowed: false, reasons: ['NOT_READY']};
   }
 }
 

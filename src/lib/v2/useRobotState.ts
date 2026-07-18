@@ -25,6 +25,9 @@ export interface RobotStateView {
   /** Straight passthrough of the snapshot's `state_detail` (progress/phase/eta) -- lets a caller
    *  render "Planning… area 2/5" or a RECOVERING phase line without the hook re-deriving it. */
   stateDetail: StateDetail | undefined;
+  /** The mow blade's actual on/off state (`sensors.mower.mow_enabled`, W9 manual-blade feature) --
+   *  read here rather than a local toggle so a blade switch always reflects reality, not optimism. */
+  mowEnabled: boolean;
 }
 
 /** THE display hook every state-rendering surface (Home, AppShell, Map) reads from -- the W9 B5
@@ -41,6 +44,7 @@ export function useRobotState(): RobotStateView {
   const batteryPercentage = useSelectedMower((s) => s?.state.battery_percentage ?? 0);
   const currentAreaName = useSelectedMower((s) => s?.state.current_area_name);
   const currentActionProgress = useSelectedMower((s) => s?.state.current_action_progress ?? 0);
+  const mowEnabled = useSelectedMower((s) => s?.state.sensors?.mower?.mow_enabled ?? false);
 
   const state = snapshot.state;
   const onLawn = isOnLawn(state);
@@ -62,5 +66,6 @@ export function useRobotState(): RobotStateView {
         )
       : undefined,
     stateDetail: snapshot.stateDetail,
+    mowEnabled,
   };
 }

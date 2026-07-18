@@ -100,7 +100,6 @@ export function ManualControl() {
   const [unlocked, setUnlocked] = useState(false);
   const [speed, setSpeed] = useState('normal');
   const [bladeHeight, setBladeHeight] = useState(45);
-  const [bladeOn, setBladeOn] = useState(false);
   const [hasError] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -182,18 +181,39 @@ export function ManualControl() {
     setVelocity(vx, vz);
   }, [unlocked, inputMode, driveDirection, driveVector, speed, setVelocity]);
 
-  // Dock/Stop go through the real `cmd/req`→`cmd/res` protocol (useCommand.ts, same client
-  // Home.tsx uses) -- NOT fire-and-forget: every press resolves to a known accept/reject, toasted
-  // either way (W9 A2b; see robotState.ts's REJECT_COPY for the nack copy table).
+  // Dock/Stop/manual-mode/blade all go through the real `cmd/req`→`cmd/res` protocol
+  // (useCommand.ts, same client Home.tsx uses) -- NOT fire-and-forget: every press resolves to a
+  // known accept/reject, toasted either way (W9 A2b; see robotState.ts's REJECT_COPY for the nack
+  // copy table).
   const {run, pending: pendingCmd} = useCommand();
   const stopAvailability = useCommandAvailability('stop');
   const dockAvailability = useCommandAvailability('dock');
+  const bladeOnAvailability = useCommandAvailability('blade_on');
+  const bladeOffAvailability = useCommandAvailability('blade_off');
 
   // Real battery/connection chips (data-wiring pass) -- same sources Home.tsx/Settings.tsx read,
-  // replacing the "71% / Connected" mock header (R1).
-  const {batteryPct} = useRobotState();
+  // replacing the "71% / Connected" mock header (R1). `mowEnabled` is the blade's REAL state
+  // (sensors.mower.mow_enabled) -- the toggle below reflects this, never a local optimistic flag,
+  // so it can't show "on" while the mower disagrees.
+  const {batteryPct, mowEnabled} = useRobotState();
   const {status: connectionStatus} = useConnectionStatus();
   const connected = connectionStatus === 'connected';
+
+  // Entering this page puts the robot into MANUAL_DRIVE so `/joy_vel` teleop actually reaches the
+  // wheels and blade_on/blade_off are accepted (the backend command_gate rejects them in any other
+  // state); leaving returns it to IDLE and turns the blade off. Mount/unmount, not the unlock
+  // gesture -- HoldToUnlock only gates the drive input UI, it isn't a mode switch.
+  useEffect(() => {
+    void run('manual_drive').then((result) => {
+      if (!result.accepted) {
+        setToast((result.reason && REJECT_COPY[result.reason]?.label) || 'Manual mode rejected');
+      }
+    });
+    return () => {
+      void run('manual_stop');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleStop = () => {
     setUnlocked(false);
@@ -208,10 +228,29 @@ export function ManualControl() {
     });
   };
 
-  const handleToggleBlade = () => setBladeOn((v) => !v);
+  const handleToggleBlade = () => {
+    const cmd = mowEnabled ? 'blade_off' : 'blade_on';
+    void run(cmd).then((result) => {
+      setToast(
+        result.accepted
+          ? cmd === 'blade_on'
+            ? 'Blade on'
+            : 'Blade off'
+          : (result.reason && REJECT_COPY[result.reason]?.label) || 'Blade command rejected',
+      );
+    });
+  };
 
   const dockDisabled = pendingCmd === 'dock' || !dockAvailability.allowed;
   const stopDisabled = pendingCmd === 'stop' || !stopAvailability.allowed;
+  // The command gate (not just the hold-to-unlock lock) can block the blade -- e.g. `manual_drive`
+  // hasn't been acked yet. Only surface that as a reason once the user has actually unlocked (the
+  // "slide to unlock" caption already explains the locked case).
+  const bladeAvailability = mowEnabled ? bladeOffAvailability : bladeOnAvailability;
+  const bladeGateBlocked = !bladeAvailability.allowed;
+  const bladePendingCmd = pendingCmd === 'blade_on' || pendingCmd === 'blade_off';
+  const bladeDisabled = !unlocked || bladeGateBlocked || bladePendingCmd;
+  const bladeReason = unlocked && bladeGateBlocked ? REJECT_COPY[bladeAvailability.reasons[0]]?.label : undefined;
 
   // Rising-edge detection so a held gamepad button fires an action once per press, not
   // once per animation frame — mirrors what a click/tap already does for the touch UI.
@@ -283,8 +322,9 @@ export function ManualControl() {
 
       <ActionRow
         hasError={hasError}
-        bladeOn={bladeOn}
-        bladeDisabled={!unlocked}
+        bladeOn={mowEnabled}
+        bladeDisabled={bladeDisabled}
+        bladeReason={bladeReason}
         onToggleBlade={handleToggleBlade}
         onDock={handleDock}
         onStop={handleStop}
@@ -299,6 +339,18 @@ export function ManualControl() {
   return (
     <div className="relative mx-auto flex w-full max-w-[1400px] flex-col md:h-dvh">
       <Toast message={toast} onDismiss={() => setToast(null)} />
+      {/* Safety UX (W9 manual-blade): the one thing on this page that must be impossible to miss --
+          a spinning blade under manual control, driven off the REAL `mow_enabled` sensor, not the
+          optimistic toggle state. */}
+      {mowEnabled ? (
+        <div
+          role="alert"
+          className="flex flex-none animate-pulse items-center justify-center gap-2 bg-danger px-3 py-2 text-[.8rem] font-bold uppercase tracking-wide text-white"
+        >
+          <Sprout size={15} strokeWidth={2.6} />
+          Blade spinning
+        </div>
+      ) : null}
       <header className="flex flex-none flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:gap-4 md:px-6 md:py-4">
         <div className="flex items-center justify-between md:block">
           <div>
@@ -407,8 +459,9 @@ export function ManualControl() {
                 </div>
                 <ActionRow
                   hasError={hasError}
-                  bladeOn={bladeOn}
-                  bladeDisabled={!unlocked}
+                  bladeOn={mowEnabled}
+                  bladeDisabled={bladeDisabled}
+                  bladeReason={bladeReason}
                   onToggleBlade={handleToggleBlade}
                   onDock={handleDock}
                   onStop={handleStop}
@@ -460,8 +513,9 @@ export function ManualControl() {
                   column of 4 action buttons would run off the bottom of the viewport. */}
               <ActionRow
                 hasError={hasError}
-                bladeOn={bladeOn}
-                bladeDisabled={!unlocked}
+                bladeOn={mowEnabled}
+                bladeDisabled={bladeDisabled}
+                bladeReason={bladeReason}
                 onToggleBlade={handleToggleBlade}
                 onDock={handleDock}
                 onStop={handleStop}
@@ -525,8 +579,9 @@ export function ManualControl() {
 
               <ActionRow
                 hasError={hasError}
-                bladeOn={bladeOn}
-                bladeDisabled={!unlocked}
+                bladeOn={mowEnabled}
+                bladeDisabled={bladeDisabled}
+                bladeReason={bladeReason}
                 onToggleBlade={handleToggleBlade}
                 onDock={handleDock}
                 onStop={handleStop}
@@ -692,6 +747,7 @@ function ActionRow({
   hasError,
   bladeOn,
   bladeDisabled,
+  bladeReason,
   onToggleBlade,
   onDock,
   onStop,
@@ -703,6 +759,10 @@ function ActionRow({
   hasError: boolean;
   bladeOn: boolean;
   bladeDisabled: boolean;
+  /** Why the blade toggle is disabled beyond the hold-to-unlock lock -- e.g. the backend
+   *  command_gate rejecting blade_on/blade_off because manual_drive hasn't been acked yet
+   *  (REJECT_COPY's label for the gate's reject_code). Undefined while merely locked. */
+  bladeReason?: string;
   onToggleBlade: () => void;
   onDock: () => void;
   onStop: () => void;
@@ -742,6 +802,7 @@ function ActionRow({
         active={bladeOn}
         onClick={onToggleBlade}
         badge={gamepadLabels?.x}
+        reason={bladeReason}
       />
     </div>
   );
@@ -755,6 +816,7 @@ function ActionItem({
   active,
   onClick,
   badge,
+  reason,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -763,6 +825,9 @@ function ActionItem({
   active?: boolean;
   onClick?: () => void;
   badge?: string;
+  /** Short reason the control is disabled -- rendered as a small warn chip under the label
+   *  (REJECT_COPY's text). Undefined shows nothing. */
+  reason?: string;
 }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
@@ -786,6 +851,11 @@ function ActionItem({
       >
         {label}
       </span>
+      {reason ? (
+        <Chip variant="warn" className="px-1.5 py-0.5 text-[.6rem] leading-none whitespace-normal text-center">
+          {reason}
+        </Chip>
+      ) : null}
     </div>
   );
 }
