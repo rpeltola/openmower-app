@@ -11,7 +11,7 @@ import {AreaSettingsSheet} from '@/components/v2/map/AreaSettingsSheet';
 import {BASEMAPS, DEFAULT_BASEMAP_ID} from '@/components/v2/map/basemaps';
 import {coverageLines, outlineLaps} from '@/components/v2/map/coverage';
 import {DockSettingsSheet} from '@/components/v2/map/DockSettingsSheet';
-import {polygonArea, polygonPerimeter, principalAngleDeg} from '@/components/v2/map/geometry';
+import {principalAngleDeg} from '@/components/v2/map/geometry';
 import {exportMapGeoJson, geoJsonExportFilename, geoJsonToMapData, parseMapGeoJson} from '@/components/v2/map/geojsonIO';
 import type {TrackPolyline} from '@/components/v2/map/MapCanvas';
 import {SaveMapSheet, VersionHistorySheet} from '@/components/v2/map/MapVersioning';
@@ -19,10 +19,7 @@ import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements'
 import {mapDataToDock, mapDataToZones, versionFeaturesToZonesAndDock, zonesToMapData} from '@/components/v2/map/realData';
 import {MissionComposerSheet} from '@/components/v2/mission/MissionComposerSheet';
 import {RecordAreaFlow} from '@/components/v2/map/record/RecordAreaFlow';
-import {RecordBriefingSheet} from '@/components/v2/map/record/RecordBriefingSheet';
-import {RecordCloseSheet} from '@/components/v2/map/record/RecordCloseSheet';
 import {RecordDockingFlow} from '@/components/v2/map/record/RecordDockingFlow';
-import {RecordDriveOverlay, type RecordSpeed} from '@/components/v2/map/record/RecordDriveOverlay';
 import {
   GLOBAL_DEFAULTS,
   isMowableType,
@@ -55,6 +52,7 @@ import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
 import {CommandPalette, type CommandPaletteAction} from '@/components/v2/ui/CommandPalette';
 import {Fab} from '@/components/v2/ui/Fab';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {FormField} from '@/components/v2/ui/FormField';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
 import {ListRow} from '@/components/v2/ui/ListRow';
@@ -134,10 +132,10 @@ const MapCanvas = dynamic(() => import('@/components/v2/map/MapCanvas').then((m)
   loading: () => <div className="absolute inset-0 bg-map" />,
 });
 
-// Still mocked: the "Areas" rail's own per-zone active/queued status (renderAreaRow) and the
-// mowed-so-far lane painting (mowedLanesData) — a separate per-zone scheduling feature, not the
-// live robot-state display wired below (useRobotState). Fixing that is a later pass.
-const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24};
+// Still mocked: the S6 "simulate RTK lost" dev-only overlay (mockBlocked, toggled from the
+// command palette) has no real area to label itself with, since it isn't tied to a live mission —
+// this is its placeholder, not the live robot-state display wired below (useRobotState).
+const MOW = {area: 'Etupiha'};
 
 // W9 mission composer — a mission is "in progress" while running OR paused-but-preserved (mirrors
 // MissionComposerSheet.tsx's own ACTIVE_STATES, used here to decide Start-vs-Add).
@@ -288,28 +286,12 @@ export function Map() {
   // the map is still selectable from the list (the panel shows only mowable zones by default).
   const [showObstacles, setShowObstacles] = useState(false);
   const [coverage, setCoverage] = useState(DEFAULT_COVERAGE_SETTINGS);
-  // S4 — which mowable zone the live view treats as "currently mowing" (the per-area Mow button
-  // in the desktop Areas panel changes this). MOW.coverage/timeLeftMin stay fixed mock numbers
-  // regardless of which area is active — a deliberate simplification, not real per-area progress.
-  const [activeMowZoneId, setActiveMowZoneId] = useState(() => MOCK_ZONES.find((z) => z.name === MOW.area)?.id ?? null);
   // S6 — mock "blockers as data": an involuntary RTK-lost pause (distinct from S5's voluntary
   // Pause). No real trigger exists yet, so it's toggled from the command palette for now — reuses
   // states/PausedBlockerScreen.tsx's visual language, rendered as the Map's own live-view state.
   const [mockBlocked, setMockBlocked] = useState(false);
-  // S8 — boundary-recording journey (R1 briefing -> R2 drive-the-edge -> R3 close & name). The
-  // drive simulation (recordPose/recordDirection) is the one place in the app where the shared
-  // Joystick primitive actually moves anything — everywhere else it's decorative (ManualControl.tsx)
-  // since there's no real drive backend yet, but a live trace with nothing moving would defeat the
-  // point of this specific screen, so it gets a small mock physics loop (see the effect below).
-  const [recordStep, setRecordStep] = useState<'r1' | 'r2' | 'r3' | null>(null);
-  const [recordPoints, setRecordPoints] = useState<Meters[]>([]);
-  const [recordMarks, setRecordMarks] = useState<Meters[]>([]);
-  const [recordPose, setRecordPose] = useState<Pose>({x: 0, y: 0, heading: 0});
-  const [recordDirection, setRecordDirection] = useState<'up' | 'down' | 'left' | 'right' | null>(null);
-  const [recordSpeed, setRecordSpeed] = useState<RecordSpeed>('normal');
-  const [recordType, setRecordType] = useState<ZoneType>('mow');
   // "Record area" (real) -- drives the actual `record_area/*` gateway bridge + real teleop (see
-  // RecordAreaFlow.tsx), distinct from the S8 mock drive-the-edge flow above.
+  // RecordAreaFlow.tsx).
   const [recordAreaOpen, setRecordAreaOpen] = useState(false);
   // "Record dock" (real) -- drives the `record_docking/*` gateway bridge (RecordDockingFlow.tsx);
   // unlike record-area, the mower drives itself, no teleop pad here.
@@ -367,8 +349,8 @@ export function Map() {
   const isDocked = currentState === 'DOCKED' || isCharging;
 
   // Real display state for the top overlay pill + the live-view stat card below (data-wiring
-  // pass) — separate from the mock `MOW`/`mowAreaName` the "Areas" rail still uses for its own
-  // per-zone scheduling display.
+  // pass) — separate from the mock `MOW` the "Areas" rail still uses for its own per-zone
+  // scheduling display.
   const {state: displayState, isMowing, isPaused, areaName: liveAreaName, coveragePct: liveCoveragePct} = useRobotState();
   const stateCopy = STATE_COPY[displayState];
 
@@ -378,6 +360,7 @@ export function Map() {
   // PAUSED (the mower left MOWING the moment it actually paused), so the controls stay reachable
   // across that transition instead of only while `isMowing`.
   const {run: runCommand, pending: pendingCmd} = useCommand();
+  const mowAvailability = useCommandAvailability('mow');
   const pauseAvailability = useCommandAvailability('pause');
   const resumeAvailability = useCommandAvailability('resume');
   const stopAvailability = useCommandAvailability('stop');
@@ -765,14 +748,8 @@ export function Map() {
     showOpResult(result, 'Could not subtract these areas.');
   };
 
-  // --- S8 boundary recording -----------------------------------------------------------------
-  const startRecordBoundary = () => {
-    setAddObjectSheetOpen(false);
-    setRecordStep('r1');
-  };
-
-  // "Record area" (real) -- exits edit mode / closes other sheets first, same as beginDriving()
-  // does for the S8 mock flow, so the recording chrome doesn't stack on top of another sheet.
+  // "Record area" (real) -- exits edit mode / closes other sheets first so the recording chrome
+  // doesn't stack on top of another sheet.
   const openRecordArea = () => {
     editor.setEditing(false);
     closeAllEditSheets();
@@ -788,113 +765,8 @@ export function Map() {
     setRecordDockingOpen(true);
   };
 
-  const drawOnMapInstead = () => {
-    setRecordStep(null);
-    editor.setEditing(true);
-    setAddObjectSheetOpen(true);
-  };
-
-  const beginDriving = () => {
-    // "Mower on the lawn, near the edge" — seed the trace from the dock, a plausible edge-adjacent
-    // starting point, facing east.
-    const start = {x: MOCK_DOCK.position.x, y: MOCK_DOCK.position.y};
-    setRecordPoints([start]);
-    setRecordMarks([]);
-    setRecordType('mow');
-    setRecordPose({x: start.x, y: start.y, heading: 0});
-    setRecordDirection(null);
-    recordDistSinceLastPointRef.current = 0;
-    editor.setEditing(false);
-    closeAllEditSheets();
-    closePlanPreview();
-    setMockBlocked(false);
-    setRecordStep('r2');
-  };
-
-  const cancelRecording = () => {
-    setRecordStep(null);
-    setRecordPoints([]);
-    setRecordMarks([]);
-    setRecordDirection(null);
-  };
-
-  const markNoGo = () => setRecordMarks((m) => [...m, {x: recordPose.x, y: recordPose.y}]);
-  const undoRecordPoint = () => setRecordPoints((pts) => (pts.length > 1 ? pts.slice(0, -1) : pts));
-  const closeRecordLoop = () => setRecordStep('r3');
-
-  const saveRecording = (name: string, fineTune: boolean) => {
-    // Name it in the SAME createZone commit — a separate renameZone call right after would close
-    // over the pre-create `zones` snapshot (no re-render in between) and silently drop the new
-    // zone, since its `.map` wouldn't find the just-created id in that stale array.
-    const id = editor.createZone(recordPoints, recordType, name);
-    setRecordStep(null);
-    setRecordPoints([]);
-    setRecordMarks([]);
-    if (fineTune) {
-      editor.setEditing(true);
-      editor.setTool('select');
-    } else {
-      openZoneSettings(id);
-    }
-  };
-
-  // Mock drive-the-edge physics: while a Joystick direction is held, up/down translate at the
-  // chosen speed and left/right rotate in place (a d-pad, not an analog stick — matches what the
-  // shared Joystick primitive actually reports). A new trace point is appended every ~0.35m
-  // traveled; the map recenters on the mower each time. Speeds are well above real mow speed
-  // (0.15-0.35 m/s) — driving this by hand at real mow speed would feel unresponsive.
-  const recordPoseRef = useRef(recordPose);
-  recordPoseRef.current = recordPose;
-  const recordDirectionRef = useRef(recordDirection);
-  recordDirectionRef.current = recordDirection;
-  const recordSpeedRef = useRef(recordSpeed);
-  recordSpeedRef.current = recordSpeed;
-  const recordDistSinceLastPointRef = useRef(0);
-
-  useEffect(() => {
-    if (recordStep !== 'r2') return;
-    const TURN_RATE_RAD_S = Math.PI / 2;
-    const RECORD_STEP_M = 0.35;
-    const SPEED_MPS: Record<RecordSpeed, number> = {slow: 0.5, normal: 0.9, fast: 1.5};
-    let raf = 0;
-    let last = performance.now();
-    const tick = (now: number) => {
-      const dt = Math.min(0.1, (now - last) / 1000);
-      last = now;
-      const dir = recordDirectionRef.current;
-      if (dir) {
-        const pose = recordPoseRef.current;
-        if (dir === 'left' || dir === 'right') {
-          const turn = (dir === 'left' ? 1 : -1) * TURN_RATE_RAD_S * dt;
-          setRecordPose({...pose, heading: pose.heading + turn});
-        } else {
-          const sign = dir === 'up' ? 1 : -1;
-          const speedMps = SPEED_MPS[recordSpeedRef.current];
-          const dx = Math.cos(pose.heading) * speedMps * dt * sign;
-          const dy = Math.sin(pose.heading) * speedMps * dt * sign;
-          const next = {x: pose.x + dx, y: pose.y + dy, heading: pose.heading};
-          setRecordPose(next);
-          recordDistSinceLastPointRef.current += Math.hypot(dx, dy);
-          if (recordDistSinceLastPointRef.current >= RECORD_STEP_M) {
-            recordDistSinceLastPointRef.current = 0;
-            setRecordPoints((pts) => [...pts, {x: next.x, y: next.y}]);
-            mapRef.current?.panTo(metersToLatLng(next, origin), {animate: false});
-          }
-        }
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [recordStep]);
-
-  const recordAreaM2 = polygonArea(recordPoints);
-  const recordPerimeterM = polygonPerimeter(recordPoints);
-
   const selectedZone = editor.zones.find((z) => z.id === editor.selectedZoneId);
   const selectedZoneIndex = editor.zones.findIndex((z) => z.id === editor.selectedZoneId);
-  const activeMowZone = editor.zones.find((z) => z.id === activeMowZoneId);
-  const mowAreaName = activeMowZone?.name ?? MOW.area;
 
   // Selecting a zone (zone-list picker, or tapping it on the map) opens the settings editor for
   // it — the zone-list Sheet itself stays around as a quick way to switch which zone that is.
@@ -970,11 +842,6 @@ export function Map() {
 
   const closePlanPreview = () => setPlanPreviewZoneId(null);
 
-  const startThisPlan = () => {
-    if (planPreviewZoneId) setActiveMowZoneId(planPreviewZoneId);
-    closePlanPreview();
-  };
-
   useEffect(() => {
     if (!planPreviewZoneId) return;
     setPlanPreviewProgress(0);
@@ -1017,18 +884,6 @@ export function Map() {
 
   const planPreviewEstimate = planPreviewZone ? estimateMowPreview(planPreviewZone) : null;
 
-  // Mowed-so-far lanes (MAP_SCREEN_SPEC S1) — mock progress painting for the live view (hidden
-  // while editing, same as the real robot wouldn't repaint the map mid-edit). Reuses the coverage-
-  // line generator at a fixed lane spacing, independent of the edit-mode coverage-preview settings,
-  // and shows only the leading MOW.coverage% of lines so it visually matches the existing "62%
-  // mowed" stat in the live-view card.
-  const mowedLanesData = useMemo(() => {
-    if (editor.editing || !activeMowZone) return null;
-    const obstacles = editor.zones.filter((z) => z.type === 'obstacle' && z.outline.length >= 3).map((z) => z.outline);
-    const lines = coverageLines(activeMowZone.outline, obstacles, MOWED_LANE_SPACING_M, principalAngleDeg(activeMowZone.outline));
-    return lines.slice(0, Math.round((lines.length * MOW.coverage) / 100));
-  }, [editor.editing, editor.zones, activeMowZone]);
-
   const goToIssue = (issue: MapIssue) => {
     // Select (not open settings for) the zone so the tool dock reflects it without stacking a
     // second sheet on top of the one the user is browsing issues from.
@@ -1064,8 +919,7 @@ export function Map() {
       onRun: editor.deleteSelection,
     },
     {id: 'add-to-map', label: 'Add to map…', disabled: !editor.editing, onRun: () => setAddObjectSheetOpen(true)},
-    {id: 'record-boundary', label: 'Record a boundary…', icon: <Footprints size={15} />, onRun: () => setRecordStep('r1')},
-    {id: 'record-area', label: 'Record area…', icon: <Disc size={15} />, onRun: openRecordArea},
+    {id: 'record-area', label: 'Record a boundary…', icon: <Footprints size={15} />, onRun: openRecordArea},
     {id: 'record-dock', label: 'Record dock…', icon: <Compass size={15} />, onRun: openRecordDocking},
     {id: 'place-dock', label: 'Place dock', disabled: !editor.editing, onRun: () => setPlacingDock(true)},
     {id: 'dock-settings', label: 'Dock settings…', icon: <MapPin size={15} />, onRun: openDockSettings},
@@ -1168,19 +1022,13 @@ export function Map() {
   const cancelMission = () => mower?.publishMissionCancel();
 
   // S4 — per-area row (name, size, status): shared by the desktop Areas rail and the mobile Areas
-  // sheet so the two can't diverge. Mowable zones get a "Mow" action; a no-go zone gets a "Select"
-  // action that opens it, so a too-small-to-tap obstacle is still reachable from the list.
+  // sheet so the two can't diverge. There's no per-area "mow just this one now" or live progress
+  // backend yet (R1 gate audit) -- every row just opens the zone's settings; "Mow all now" below
+  // is the one real way to start mowing from this screen.
   const renderAreaRow = (z: Zone) => {
     const mowable = isMowableType(z.type);
-    const isActive = z.id === activeMowZoneId;
     const areaM2 = measureZone(z, editor.zones).areaM2;
-    const status = mowable
-      ? isActive
-        ? `Mowing · ${MOW.coverage}%`
-        : z.active === false
-          ? 'Inactive'
-          : 'Queued'
-      : ZONE_TYPE_LABELS[z.type];
+    const status = mowable ? (z.active === false ? 'Inactive' : 'Active') : ZONE_TYPE_LABELS[z.type];
     return (
       <div key={z.id} className="flex items-center gap-2.5 rounded-[10px] px-1.5 py-2">
         <div className="min-w-0 flex-1">
@@ -1189,20 +1037,9 @@ export function Map() {
             {areaM2.toFixed(0)} m² · {status}
           </div>
         </div>
-        {mowable ? (
-          <Button
-            variant={isActive ? 'primary' : 'soft'}
-            size="sm"
-            disabled={isActive || z.active === false}
-            onClick={() => setActiveMowZoneId(z.id)}
-          >
-            Mow
-          </Button>
-        ) : (
-          <Button variant="soft" size="sm" onClick={() => openZoneSettings(z.id)}>
-            Select
-          </Button>
-        )}
+        <Button variant="soft" size="sm" onClick={() => openZoneSettings(z.id)}>
+          Select
+        </Button>
       </div>
     );
   };
@@ -1255,10 +1092,8 @@ export function Map() {
         }}
         onDockClick={openDockSettings}
         coveragePreview={planPreviewZoneId ? planPreviewRevealed : coveragePreviewData}
-        mowedLanes={mowedLanesData}
         robotAccuracyM={mockBlocked ? 1.4 : 0.35}
         robotBlocked={mockBlocked}
-        recording={recordStep === 'r2' ? {points: recordPoints, pose: recordPose, marks: recordMarks} : null}
         cutLine={editor.tool === 'split' ? cutLinePoints : null}
         onAddCutLinePoint={(p) => setCutLinePoints((pts) => [...pts, p])}
       />
@@ -1289,7 +1124,7 @@ export function Map() {
           <OverlayChip>
             <span className="text-warn">●</span> RTK lost
           </OverlayChip>
-          <OverlayChip className="ml-auto">{mowAreaName}</OverlayChip>
+          <OverlayChip className="ml-auto">{MOW.area}</OverlayChip>
         </div>
       ) : (
         <div className="pointer-events-none absolute inset-x-3 top-3 z-[500] flex flex-wrap items-center gap-2">
@@ -1300,9 +1135,11 @@ export function Map() {
           </OverlayChip>
           {liveAreaName ? <OverlayChip>{liveAreaName}</OverlayChip> : null}
           {isMowing ? (
-            <OverlayChip className="ml-auto">
-              <span className="text-accent">●</span> RTK fixed
-            </OverlayChip>
+            <FeatureGate feature="positionTrust" className="ml-auto">
+              <OverlayChip>
+                <span className="text-accent">●</span> RTK fixed
+              </OverlayChip>
+            </FeatureGate>
           ) : null}
         </div>
       )}
@@ -1646,13 +1483,25 @@ export function Map() {
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2 border-t border-border p-2.5">
-              <Button variant="primary" className="flex-1 justify-center">
-                <Play size={13} fill="currentColor" /> Mow all now
-              </Button>
-              <Button variant="soft" className="flex-1 justify-center" onClick={() => setMissionSheetOpen(true)}>
-                <ListOrdered size={13} /> Mission
-              </Button>
+            <div className="flex flex-col gap-1.5 border-t border-border p-2.5">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  className="flex-1 justify-center"
+                  onClick={() => void dispatchCommand('mow', 'Mowing started')}
+                  disabled={pendingCmd === 'mow' || !mowAvailability.allowed}
+                >
+                  <Play size={13} fill="currentColor" /> {pendingCmd === 'mow' ? 'Starting…' : 'Mow all now'}
+                </Button>
+                <Button variant="soft" className="flex-1 justify-center" onClick={() => setMissionSheetOpen(true)}>
+                  <ListOrdered size={13} /> Mission
+                </Button>
+              </div>
+              {!mowAvailability.allowed ? (
+                <Chip variant="warn" className="w-fit">
+                  {REJECT_COPY[mowAvailability.reasons[0]]?.label ?? 'Not available'}
+                </Chip>
+              ) : null}
             </div>
           </Card>
         </>
@@ -1679,14 +1528,14 @@ export function Map() {
             </Button>
           </div>
           <StatCard className="absolute inset-x-3 bottom-3 z-[900] md:left-3 md:right-auto md:w-[320px]">
+            {/* No per-area "start just this plan now" backend exists yet (R1 gate audit) --
+                this card is a pure route/time/area preview; "Mow all now" is the one real way
+                to start mowing. */}
             <div className="grid grid-cols-3 gap-2">
               <KpiTile value={planPreviewEstimate.minutes} unit=" min" label="Est. time" />
               <KpiTile value={planPreviewEstimate.areaM2.toFixed(0)} unit=" m²" label="Area" />
               <KpiTile value={planPreviewEstimate.passes} label="Passes" />
             </div>
-            <Button variant="primary" className="mt-2.5 w-full justify-center" onClick={startThisPlan}>
-              <Play size={14} fill="currentColor" /> Start this plan
-            </Button>
           </StatCard>
         </>
       )}
@@ -1731,20 +1580,35 @@ export function Map() {
             {showObstacles && obstacleZones.map(renderAreaRow)}
           </div>
         )}
-        <div className="mt-2 flex items-center gap-2">
-          <Button variant="primary" className="flex-1 justify-center">
-            <Play size={13} fill="currentColor" /> Mow all now
-          </Button>
-          <Button
-            variant="soft"
-            className="flex-1 justify-center"
-            onClick={() => {
-              setAreasSheetOpen(false);
-              setMissionSheetOpen(true);
-            }}
-          >
-            <ListOrdered size={13} /> Mission
-          </Button>
+        <div className="mt-2 flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="primary"
+              className="flex-1 justify-center"
+              onClick={() => {
+                setAreasSheetOpen(false);
+                void dispatchCommand('mow', 'Mowing started');
+              }}
+              disabled={pendingCmd === 'mow' || !mowAvailability.allowed}
+            >
+              <Play size={13} fill="currentColor" /> {pendingCmd === 'mow' ? 'Starting…' : 'Mow all now'}
+            </Button>
+            <Button
+              variant="soft"
+              className="flex-1 justify-center"
+              onClick={() => {
+                setAreasSheetOpen(false);
+                setMissionSheetOpen(true);
+              }}
+            >
+              <ListOrdered size={13} /> Mission
+            </Button>
+          </div>
+          {!mowAvailability.allowed ? (
+            <Chip variant="warn" className="w-fit">
+              {REJECT_COPY[mowAvailability.reasons[0]]?.label ?? 'Not available'}
+            </Chip>
+          ) : null}
         </div>
       </Sheet>
 
@@ -1775,7 +1639,7 @@ export function Map() {
             sub={item.sub}
             onClick={() => {
               if (item.type === 'dock') addDockStation();
-              else if (item.type === 'record') startRecordBoundary();
+              else if (item.type === 'record') openRecordArea();
               else addObjectAtCenter(item.type, item.sizeM);
             }}
           />
@@ -2164,47 +2028,7 @@ export function Map() {
         </div>
       </Sheet>
 
-      {/* S8 — boundary recording (R1 briefing, R2 drive-the-edge, R3 close & name). R2 renders
-          above the normal chrome (z-900, like the plan preview) since it takes over the map;
-          beginDriving() already exited edit mode + closed every sheet before it opens. */}
-      <RecordBriefingSheet
-        open={recordStep === 'r1'}
-        onClose={() => setRecordStep(null)}
-        onStart={beginDriving}
-        onDrawOnMapInstead={drawOnMapInstead}
-      />
-
-      {recordStep === 'r2' && (
-        <RecordDriveOverlay
-          pointCount={recordPoints.length}
-          areaM2={recordAreaM2}
-          perimeterM={recordPerimeterM}
-          speed={recordSpeed}
-          onSpeedChange={setRecordSpeed}
-          onDirectionChange={setRecordDirection}
-          onMarkNoGo={markNoGo}
-          onUndo={undoRecordPoint}
-          canUndo={recordPoints.length > 1}
-          onCloseLoop={closeRecordLoop}
-          canCloseLoop={recordPoints.length >= 3}
-          onCancel={cancelRecording}
-        />
-      )}
-
-      <RecordCloseSheet
-        open={recordStep === 'r3'}
-        onClose={() => setRecordStep(null)}
-        areaM2={recordAreaM2}
-        perimeterM={recordPerimeterM}
-        pointCount={recordPoints.length}
-        type={recordType}
-        onTypeChange={setRecordType}
-        defaultName={`New ${ZONE_TYPE_LABELS[recordType].toLowerCase()}`}
-        onSave={saveRecording}
-      />
-
-      {/* "Record area" (real) -- the live counterpart to the S8 mock flow above; talks to the
-          record_area/* gateway bridge + real teleop instead of a local physics loop. */}
+      {/* "Record area" (real) -- talks to the record_area/* gateway bridge + real teleop. */}
       <RecordAreaFlow open={recordAreaOpen} onClose={() => setRecordAreaOpen(false)} onToast={setToastMessage} />
 
       {/* "Record dock" (real) -- talks to the record_docking/* gateway bridge; the mower drives

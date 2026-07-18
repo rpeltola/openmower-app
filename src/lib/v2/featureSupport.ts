@@ -23,7 +23,15 @@ export type FeatureId =
   | 'turningMode'
   | 'perimeterPasses'
   | 'rotateBetweenSessions'
-  | 'mowNgzEdges';
+  | 'mowNgzEdges'
+  | 'mowingOrder'
+  // R1 completeness pass (W9 gate audit) — every control below was rendering bare (no L3 gate
+  // at all), presenting mock/unbacked state as real. See each entry's `reason` for what's
+  // actually missing.
+  | 'positionTrust'
+  | 'basemapPicker'
+  | 'deviceHome'
+  | 'onboarding';
 
 export interface FeatureSupportEntry {
   /** False = the backend doesn't implement this yet. Every entry here is `false` today —
@@ -103,6 +111,31 @@ export const FEATURE_SUPPORT: Record<FeatureId, FeatureSupportEntry> = {
     supported: false,
     label: 'Mow no-go-zone edges',
     reason: "Mowing along no-go/obstacle edges isn't implemented on the mower yet.",
+  },
+  mowingOrder: {
+    supported: false,
+    label: 'Mowing order',
+    reason: "Perimeter-first vs. infill-first ordering isn't sent to the mower's coverage planner yet.",
+  },
+  positionTrust: {
+    supported: false,
+    label: 'Position accuracy',
+    reason: "Position-accuracy reporting isn't available from your mower yet.",
+  },
+  basemapPicker: {
+    supported: false,
+    label: 'Map basemap picker',
+    reason: 'The satellite basemap is set by your mower server, not per-user yet — picking one here does nothing.',
+  },
+  deviceHome: {
+    supported: false,
+    label: 'Device home',
+    reason: "Device info (firmware, serial, runtime hours) isn't wired to the mower yet.",
+  },
+  onboarding: {
+    supported: false,
+    label: 'Guided setup',
+    reason: "Guided onboarding (datum, first area, dock recording as one flow) isn't wired up yet — use Map and Settings directly.",
   },
 };
 

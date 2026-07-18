@@ -7,6 +7,7 @@ import {ActivityFeedCard} from '@/components/v2/ui/ActivityFeedCard';
 import {Button, buttonVariants} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
 import {MapCard} from '@/components/v2/ui/MapCard';
 import {MowingHero} from '@/components/v2/ui/MowingHero';
@@ -226,9 +227,11 @@ export function Home() {
             <Link href="/v2/control" aria-label="Manual control" className={buttonVariants({variant: 'soft', size: 'icon'})}>
               <Gamepad2 size={17} strokeWidth={2} />
             </Link>
-            <Button variant="soft" size="icon" aria-label="Notifications" onClick={() => setNotificationsOpen(true)}>
-              <Bell size={17} strokeWidth={2} />
-            </Button>
+            <FeatureGate feature="pushNotifications">
+              <Button variant="soft" size="icon" aria-label="Notifications" onClick={() => setNotificationsOpen(true)}>
+                <Bell size={17} strokeWidth={2} />
+              </Button>
+            </FeatureGate>
             <Button
               variant="danger-solid"
               size="md"
@@ -309,7 +312,9 @@ export function Home() {
           Stop
         </Button>
 
-        <PositionTrustCard state="RTK fixed · GPS strong" detail="Position trusted to ±2 cm" className="mt-auto" />
+        <FeatureGate feature="positionTrust" className="mt-auto">
+          <PositionTrustCard state="RTK fixed · GPS strong" detail="Position trusted to ±2 cm" />
+        </FeatureGate>
       </div>
 
       {/* ===== Desktop: multi-pane dashboard ("one screen, the whole state") ===== */}
@@ -323,7 +328,11 @@ export function Home() {
               label={isMowing && areaName ? `${stateCopy.label} ${areaName}` : stateCopy.label}
               sub={isPlanning && stateDetail?.phase ? stateDetail.phase : stateCopy.sub}
             />
-            {isMowing ? <Chip variant="ok">● RTK fixed</Chip> : null}
+            {isMowing ? (
+              <FeatureGate feature="positionTrust">
+                <Chip variant="ok">● RTK fixed</Chip>
+              </FeatureGate>
+            ) : null}
           </div>
           <MowingHero className="h-[150px]" state={heroState} planning={isPlanning} />
         </Card>
@@ -369,7 +378,9 @@ export function Home() {
 
         <div className="col-start-2 row-start-1 row-span-2 flex min-h-0 flex-col gap-4">
           <MapCard className="flex-1" zones={mapZones} dock={mapDock} pose={mapPose} chipLabel={mapChipLabel} />
-          <NextScheduledCard when="Wed 10:00 · All areas" detail="~1 h 40 min · rain-skip on" />
+          <FeatureGate feature="schedules">
+            <NextScheduledCard when="Wed 10:00 · All areas" detail="~1 h 40 min · rain-skip on" />
+          </FeatureGate>
         </div>
       </div>
 

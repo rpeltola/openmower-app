@@ -16,6 +16,7 @@ vi.mock('@/stores/mowersStore', () => ({
 }));
 
 import {AppShell} from '@/components/v2/AppShell';
+import {setShowUnsupportedFeatures} from '@/lib/v2/featureSupport';
 import {useMowersStore, useSelectedMower} from '@/stores/mowersStore';
 
 function mockMowerState(state: Record<string, unknown>) {
@@ -26,9 +27,10 @@ function mockMowerState(state: Record<string, unknown>) {
   // useConnectionStatus reads `s.mowers[s.selected]`/`s.mqttStatuses`/`s.reconnectNow` off this
   // same store -- an empty roster resolves to 'connecting', which ConnectionBanner renders as
   // nothing (COPY has no 'connecting' row), so it never interferes with the assertions below.
+  // MowerSelector also reads `s.mowers` as an array (real store shape) for its own roster list.
   vi.mocked(useMowersStore).mockImplementation(
     ((selector?: (s: unknown) => unknown) =>
-      selector?.({mowers: {}, selected: '', mqttStatuses: {}, reconnectNow: vi.fn()})) as typeof useMowersStore,
+      selector?.({mowers: [], selected: 0, mqttStatuses: {}, reconnectNow: vi.fn()})) as typeof useMowersStore,
   );
 }
 
@@ -97,5 +99,37 @@ describe('AppShell state routing (W9 A2a)', () => {
     expect(screen.getByText('route content')).toBeInTheDocument();
     expect(screen.getByText('Diagnostics')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+// R1 gate audit (W9): Schedule is 100% mock (no backend) -- its nav entry (not just the screen
+// behind it) must be gated, so the dev toggle is the only way to even see a path to it.
+describe('AppShell nav — schedules gate (R1)', () => {
+  afterEach(() => {
+    cleanup();
+    setShowUnsupportedFeatures(false);
+  });
+
+  it('hides the Schedule nav entry by default (dev toggle off)', () => {
+    setShowUnsupportedFeatures(false);
+    mockMowerState({state: 'IDLE', current_state: 'IDLE', is_charging: false});
+    render(
+      <AppShell>
+        <div>route content</div>
+      </AppShell>,
+    );
+    expect(screen.queryByText('Schedule')).not.toBeInTheDocument();
+  });
+
+  it('reveals the Schedule nav entry greyed + tagged once the dev toggle is on', () => {
+    setShowUnsupportedFeatures(true);
+    mockMowerState({state: 'IDLE', current_state: 'IDLE', is_charging: false});
+    render(
+      <AppShell>
+        <div>route content</div>
+      </AppShell>,
+    );
+    expect(screen.getAllByText('Schedule').length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Not supported by your mower's software yet").length).toBeGreaterThan(0);
   });
 });

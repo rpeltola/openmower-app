@@ -3,6 +3,7 @@
 import {MowerSelector} from '@/components/v2/MowerSelector';
 import {SettingsGroup} from '@/components/v2/settings/SettingsGroup';
 import {ChevronRight} from 'lucide-react';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
 import {Gamepad2, Gauge, Info, Settings as SettingsIcon, Sprout, Tractor, Wand2} from 'lucide-react';
@@ -39,13 +40,15 @@ export function MoreScreen() {
         </SettingsGroup>
 
         <SettingsGroup>
-          <ListRow
-            icon={<Tractor size={15} strokeWidth={2} className="text-ink-soft" />}
-            title="Mower"
-            sub="Device home"
-            href="/v2/mower"
-            trailing={<DrillChevron />}
-          />
+          <FeatureGate feature="deviceHome">
+            <ListRow
+              icon={<Tractor size={15} strokeWidth={2} className="text-ink-soft" />}
+              title="Mower"
+              sub="Device home"
+              href="/v2/mower"
+              trailing={<DrillChevron />}
+            />
+          </FeatureGate>
           <ListRow
             icon={<Gamepad2 size={15} strokeWidth={2} className="text-ink-soft" />}
             title="Manual control"
@@ -69,13 +72,15 @@ export function MoreScreen() {
             href="/v2/settings"
             trailing={<DrillChevron />}
           />
-          <ListRow
-            icon={<Wand2 size={15} strokeWidth={2} className="text-ink-soft" />}
-            title="Setup / onboarding"
-            sub="Re-run the guided setup"
-            href="/v2/onboarding"
-            trailing={<DrillChevron />}
-          />
+          <FeatureGate feature="onboarding">
+            <ListRow
+              icon={<Wand2 size={15} strokeWidth={2} className="text-ink-soft" />}
+              title="Setup / onboarding"
+              sub="Re-run the guided setup"
+              href="/v2/onboarding"
+              trailing={<DrillChevron />}
+            />
+          </FeatureGate>
           <ListRow
             icon={<Info size={15} strokeWidth={2} className="text-ink-soft" />}
             title="About"

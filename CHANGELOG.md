@@ -1,6 +1,18 @@
 # Changelog
 
 ## 2026-07-18
+- R1 honesty pass: wired `FeatureGate` onto every mock/unbacked v2 control (previously only
+  Backup & Restore used it). With the Settings → General "Show controls not yet supported"
+  toggle off, unbacked controls (Schedule, push notifications, safety-toggle writes, the camera
+  feed, cutting-height controls, per-area planner params, position-accuracy/RTK readouts, the
+  basemap picker, Device home, onboarding) now hide entirely instead of rendering bare; the
+  toggle reveals them greyed + labelled. Wired Map's "Mow all now" buttons and
+  `PausedBlockerScreen`'s Dock button to the real command client, and ManualControl's battery/
+  connection chips to real state. Retired the mock boundary-recording flow in favor of the
+  already-real `RecordAreaFlow`. Removed several controls that fabricated live state with no
+  backend to represent (per-area "Mow" + fake per-zone progress, mowed-so-far lane painting,
+  Diagnostics' decorative sparklines, RunDetail's GPX export + always-empty event feed,
+  MowerSelector's fake multi-mower picker, the Activity tab's fake unread dot).
 - Added three more real map features (W9 Lane A2b follow-up), all on `/v2/map`: **Record dock** — name a new docking station, then watch it record end-to-end against the existing `record_docking/*` gateway bridge; unlike Record area the mower drives itself (`driving`/`waiting_for_charging`/`recording`/`saving` are the robot's own docking-approach phases, confirmed against `RecordDockingStation.action` and v1's working `MowerControls.tsx` reference), so there's no teleop pad, just a live phase readout that auto-completes on `success` (or stays open with the reason on `failed`). **Dock settings** — a new sheet (tap the dock marker, or "Dock settings…" in the command palette) finally lets the user edit the physical dock's `heading` and `approach_distance`, not just drag its position; edits commit through the same `useMapEditor` undo history as a zone edit and ride the existing Save-map path to `rpc.map.replace` unchanged. **GeoJSON import/export** — Export (command palette) downloads the mower's current map as a GeoJSON file via the same `mapToFeatures` conversion the backend's own map.geojson uses; Import parses + lightly validates a picked file, shows a "this replaces the whole map" confirm sheet, then converts it back with `featuresToMap` and calls `rpc.map.replace` — a malformed or non-GeoJSON file toasts an error instead of crashing.
 - Ported the mission composer (W9, largest remaining v1→v2 cutover-parity blocker): a multi-area ordered mow-job queue reachable from the Map screen (a "Mission" FAB + a matching entry on the Areas rail/sheet) alongside the existing single "Mow all now". Reuses v1's `useMissionComposer`/`mission-utils.ts` (already ROS/MUI-free) and the real `mow_mission/start|add|continue|cancel` store publishers untouched — only the presentation (`components/v2/mission/`) is new, ported from MUI to the v2 kit with dnd-kit drag-reorder, a per-job direction/repeats control, and a live `mow_mission/state` progress readout.
 - Surfaced the robot's capabilities (previously a v1-only `/debug` page badge list) on v2's Diagnostics screen as a "Capabilities" card — reuses the existing live `capabilities/json` store data and schema, degrading to an explicit empty state on an old gateway instead of hiding or crashing.

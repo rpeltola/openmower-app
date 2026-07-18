@@ -4,6 +4,7 @@ import {AnalogStick, type StickVector} from '@/components/v2/ui/AnalogStick';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {GamepadTip} from '@/components/v2/ui/GamepadTip';
 import {HoldToUnlock} from '@/components/v2/ui/HoldToUnlock';
 import {Direction, Joystick} from '@/components/v2/ui/Joystick';
@@ -17,7 +18,9 @@ import {useCapabilities} from '@/lib/v2/capabilities';
 import {gamepadButtonLabels, type GamepadButtonLabels, useGamepad} from '@/lib/v2/useGamepad';
 import {REJECT_COPY} from '@/lib/v2/robotState';
 import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
-import {Bluetooth, Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
+import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
+import {useRobotState} from '@/lib/v2/useRobotState';
+import {Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 
 const SPEED_OPTIONS = [
@@ -186,6 +189,12 @@ export function ManualControl() {
   const stopAvailability = useCommandAvailability('stop');
   const dockAvailability = useCommandAvailability('dock');
 
+  // Real battery/connection chips (data-wiring pass) -- same sources Home.tsx/Settings.tsx read,
+  // replacing the "71% / Connected" mock header (R1).
+  const {batteryPct} = useRobotState();
+  const {status: connectionStatus} = useConnectionStatus();
+  const connected = connectionStatus === 'connected';
+
   const handleStop = () => {
     setUnlocked(false);
     void run('stop').then((result) => {
@@ -262,7 +271,9 @@ export function ManualControl() {
           vectorOverride={driveVector}
         />
         {caps.mowHeightAdjustment ? (
-          <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
+          <FeatureGate feature="cuttingHeight">
+            <BladeColumn height={bladeHeight} onChange={setBladeHeight} disabled={!unlocked} />
+          </FeatureGate>
         ) : null}
       </div>
 
@@ -302,13 +313,11 @@ export function ManualControl() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 md:ml-auto">
-          <Chip variant="ok">● RTK fixed</Chip>
-          <Chip variant="ok" className="md:hidden">
-            <Bluetooth size={11} strokeWidth={2.4} />
-            Bluetooth
-          </Chip>
-          <Chip variant="info" className="hidden md:inline-flex">
-            Connected
+          <FeatureGate feature="positionTrust">
+            <Chip variant="ok">● RTK fixed</Chip>
+          </FeatureGate>
+          <Chip variant={connected ? 'info' : 'danger'} className="hidden md:inline-flex">
+            {connected ? 'Connected' : 'Disconnected'}
           </Chip>
           {gamepad.connected ? (
             <Chip variant="ok">
@@ -316,7 +325,7 @@ export function ManualControl() {
               {controllerName(gamepad.brand)}
             </Chip>
           ) : null}
-          <Chip variant="ok">🔋 71%</Chip>
+          <Chip variant={connected ? 'ok' : 'neutral'}>🔋 {batteryPct}%</Chip>
           <Button variant="ghost" size="sm" className="hidden md:inline-flex">
             <X size={14} strokeWidth={2.4} />
             Close
@@ -488,17 +497,19 @@ export function ManualControl() {
                   vectorOverride={driveVector}
                 />
                 {caps.mowHeightAdjustment ? (
-                  <Stepper
-                    label="Blade"
-                    value={bladeHeight}
-                    unit=" mm"
-                    min={20}
-                    max={60}
-                    step={5}
-                    disabled={!unlocked}
-                    onChange={setBladeHeight}
-                    orientation="column"
-                  />
+                  <FeatureGate feature="cuttingHeight">
+                    <Stepper
+                      label="Blade"
+                      value={bladeHeight}
+                      unit=" mm"
+                      min={20}
+                      max={60}
+                      step={5}
+                      disabled={!unlocked}
+                      onChange={setBladeHeight}
+                      orientation="column"
+                    />
+                  </FeatureGate>
                 ) : null}
               </div>
 

@@ -371,7 +371,6 @@ export function Activity() {
                   statusVariant={selectedRun.statusVariant}
                   timeRange={`${selectedRun.dayLabel} ${selectedRun.startTime} – ${selectedRun.endTime} · ${selectedRun.scope}`}
                   metrics={selectedRun.metrics}
-                  events={[]}
                   className="flex-1"
                 />
               )}
@@ -402,7 +401,6 @@ export function Activity() {
                 statusVariant={selectedRun.statusVariant}
                 timeRange={`${selectedRun.dayLabel} ${selectedRun.startTime} – ${selectedRun.endTime} · ${selectedRun.scope}`}
                 metrics={selectedRun.metrics}
-                events={[]}
                 className="flex-1"
               />
             </div>

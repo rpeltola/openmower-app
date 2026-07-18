@@ -3,13 +3,18 @@
 import {Button} from '@/components/v2/ui/Button';
 import {cn} from '@/components/v2/lib/cn';
 import {CameraFeed} from '@/components/v2/ui/CameraFeed';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {MiniMap} from '@/components/v2/ui/MiniMap';
+import {isFeatureSupported} from '@/lib/v2/featureSupport';
 import {Maximize, Minimize} from 'lucide-react';
 import {useState} from 'react';
 
 export interface MainViewportProps {
-  /** Whether a front camera exists (per-camera capability) — without one this is just the
-   *  map, full-size, no PiP and nothing to swap to. */
+  /** Whether a front camera exists (per-camera capability, L1) — without one this is just the
+   *  map, full-size, no PiP and nothing to swap to. Actually showing the camera feed also
+   *  requires the L3 `cameras` feature (streaming isn't wired up yet — see `CameraFeed`'s
+   *  doc), so a hardware-capable mower still degrades to map-only until that ships; the dev
+   *  toggle reveals a greyed, inert PiP in its place. */
   showCamera: boolean;
   headingDeg?: number;
   className?: string;
@@ -31,7 +36,11 @@ export function MainViewport({
   onToggleFullscreen,
 }: MainViewportProps) {
   const [main, setMain] = useState<'camera' | 'map'>('camera');
-  const active = showCamera ? main : 'map';
+  // L1 (hardware exists) AND L3 (streaming is actually wired up) — a camera-equipped mower
+  // still shows map-only, no PiP, until the backend can serve a real feed (R1: CameraFeed's
+  // "live" pill would otherwise lie about a stream that doesn't exist).
+  const camerasReady = showCamera && isFeatureSupported('cameras');
+  const active = camerasReady ? main : 'map';
 
   return (
     <div className={cn('relative overflow-hidden rounded-[var(--radius-card)]', className)}>
@@ -53,7 +62,7 @@ export function MainViewport({
         </Button>
       ) : null}
 
-      {showCamera ? (
+      {camerasReady ? (
         <button
           type="button"
           onClick={() => setMain(active === 'camera' ? 'map' : 'camera')}
@@ -66,6 +75,12 @@ export function MainViewport({
             <CameraFeed compact className="h-full w-full" />
           )}
         </button>
+      ) : showCamera ? (
+        <FeatureGate feature="cameras" className="absolute bottom-3 right-3 w-28">
+          <div className="h-20 w-28 overflow-hidden rounded-lg border-2 border-surface shadow-[var(--shadow-m)]">
+            <CameraFeed compact className="h-full w-full" />
+          </div>
+        </FeatureGate>
       ) : null}
     </div>
   );

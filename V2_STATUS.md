@@ -2,6 +2,73 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+## ✅ SESSION 10 (2026-07-18) — R1 honesty pass: gate every unbacked control (W9 completeness audit)
+Branch **`feature/w9-gate`** (worktree, off `personal`). A completeness audit found `FeatureGate`
+wired to exactly ONE control (Backup) despite ~30 mock/unbacked controls rendering bare — the
+"Show controls not yet supported" dev toggle hid almost nothing. This pass makes the goal state
+real: toggle OFF shows only controls that work end-to-end; toggle ON shows the rest greyed +
+tagged with why. No code change to the `FeatureGate`/`featureSupport.ts` mechanism itself (already
+correct) — this was entirely wiring + a few new registry keys + removing/fixing what had no honest
+gate-or-wire answer.
+
+- **Gated (existing keys)**: `schedules` — Schedule's nav entry (mobile tab + desktop sidebar) AND
+  its `/v2/schedule` route (not per-control — the whole screen is mock, gating at the nav/route
+  level avoids an empty-shell page) + Home's `NextScheduledCard`. `pushNotifications` —
+  `NotificationCenter`, Settings' notifications status card + 5 switches, Home's bell entry.
+  `safetyWrites` — Settings Geofence + Tilt/lift switches. `cameras` — ManualControl's camera
+  viewport/PiP, gated inside `MainViewport.tsx` itself (ANDs the existing L1 `caps.cameras.front`
+  hardware check with the new L3 support check, so a camera-equipped mower still degrades to
+  map-only, with a greyed PiP behind the dev toggle, instead of a fake "live" feed). `cuttingHeight`
+  — `HeightConfirmScreen`'s two buttons, `AreaSettingsSheet`'s cutting-height slider, ManualControl's
+  blade-HEIGHT stepper (NOT the blade on/off toggle — another workstream owns that E2E). Six D7
+  per-area planner params in `AreaSettingsSheet` (`routePattern`/`mowSpeed`/`turningMode`/
+  `perimeterPasses`/`rotateBetweenSessions`/`mowNgzEdges`).
+- **New registry keys**: `positionTrust` (highest-priority gap — Home's `PositionTrustCard`
+  "±2 cm" + both Home's and ManualControl's "● RTK fixed" chips, all hardcoded; also caught the
+  same literal on Map.tsx's live-view overlay, not explicitly called out in the brief but the
+  identical violation), `mowingOrder` (AreaSettings' perimeter-first/infill-first toggle),
+  `basemapPicker` (Settings' basemap picker — real basemap is a server env var, the picker is a
+  pure no-op), `deviceHome` (gates `/v2/mower`'s nav entry + route — the whole screen is
+  hardcoded, no-op buttons), `onboarding` (gates `/v2/onboarding`'s nav entry + route — static
+  mock checklist).
+- **Wired to the real backend (not gated)**: Map's two "Mow all now" buttons →
+  `useCommand`/`useCommandAvailability('mow')`, disabled + reason chip when blocked, same pattern
+  Home's Mow button already used. `PausedBlockerScreen`'s Dock button → real `dock` command +
+  toast. ManualControl's battery-% and Connected chips now read `useRobotState`/
+  `useConnectionStatus` instead of hardcoded "71%"/"Connected"; the Bluetooth chip (no
+  Bluetooth backend — the app only ever talks MQTT) was removed outright.
+- **Retired the mock "record a boundary" flow** (`RecordBriefingSheet`/`RecordDriveOverlay`/
+  `RecordCloseSheet` + their local physics-sim drive loop in `Map.tsx`) — both entry points
+  (command palette, "Add to map" sheet) now open the real `RecordAreaFlow` (already E2E from
+  SESSION 8). Deleted the three now-dead components.
+- **Neutralized (no backend, not worth building one for this pass)**: `Map.tsx`'s per-area "Mow"
+  button + fake "Mowing · 62%" per-zone status (there's no per-area mow-now command — every
+  mowable row now just opens zone settings, same as a no-go zone's "Select"); the fabricated
+  mowed-so-far lane painting (`mowedLanesData`, deleted outright — a lie about live progress);
+  "Start this plan" on the route-preview card (deleted the button, kept the honest time/area/
+  passes preview). Diagnostics' 4 decorative sparkline trend lines (deleted, incl. the "Charge
+  trend"/"Accuracy trend" labels over them — no telemetry-history source exists). `RunDetail`'s
+  "Export GPX" button and per-run event feed (deleted — every caller passed `events={[]}`, so the
+  feed only ever rendered "No events recorded"; no GPX RPC exists). `MowerSelector`'s mock 2-mower
+  roster + fake click-to-switch (there's no store action to actually change the selected mower —
+  now lists the real configured roster read-only, current-mower checkmark, no picker). AppShell's
+  Activity tab `alert:true` unread dot (no real unread-count source — removed rather than left
+  lying).
+- **Tests**: new `FeatureGate.test.tsx` (the hide/reveal/pass-through contract itself), plus
+  toggle-off/toggle-on pairs added to `ManualControl.test.tsx` (RTK chip) and `AppShell.test.tsx`
+  (Schedule nav entry) exercising real wired gates end-to-end. Fixed `AppShell.test.tsx`'s
+  `useMowersStore` mock (`mowers: {}` → `mowers: []`) and `ManualControl.test.tsx`'s (made it a
+  callable hook, not just a `.getState()` stub) — both now load-bearing since `MowerSelector`/
+  `useConnectionStatus`/`useRobotState` read the store as a real hook in more places than before.
+  Full suite 172 passing; `tsc`/`build` both clean.
+- **Judgment calls**: the Map.tsx live-view "RTK fixed" chip (gated under `positionTrust` though
+  not named in the brief — same literal violation as the two that were named); MainViewport's
+  camera gate lives inside the shared component rather than at ManualControl's call sites, since
+  it's the only consumer and keeps the AND-with-L1-capability logic in one place;
+  `MowerSelector`'s "Add a mower" button still navigates to `/v2/onboarding` even though that
+  route is now gated (a real, honest navigation — landing on a gated/empty page toggle-off is a
+  minor rough edge, not a fabrication).
+
 ## ✅ SESSION 9 (2026-07-18) — Record dock, dock settings, GeoJSON import/export
 Branch **`feature/w9-app2`** (worktree, off `personal`). Three independent Map-screen features,
 all landed in one pass since they share no files beyond `Map.tsx`'s wiring.
