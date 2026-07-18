@@ -15,6 +15,7 @@ import type {TrackPolyline} from '@/components/v2/map/MapCanvas';
 import {SaveMapSheet, VersionHistorySheet} from '@/components/v2/map/MapVersioning';
 import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements';
 import {mapDataToDock, mapDataToZones, versionFeaturesToZonesAndDock, zonesToMapData} from '@/components/v2/map/realData';
+import {MissionComposerSheet} from '@/components/v2/mission/MissionComposerSheet';
 import {RecordAreaFlow} from '@/components/v2/map/record/RecordAreaFlow';
 import {RecordBriefingSheet} from '@/components/v2/map/record/RecordBriefingSheet';
 import {RecordCloseSheet} from '@/components/v2/map/record/RecordCloseSheet';
@@ -35,13 +36,15 @@ import {useHeatmap} from '@/hooks/useHeatmap';
 import {useHeatmapMetrics} from '@/hooks/useHeatmapMetrics';
 import {useJobPlannedPath} from '@/hooks/useJobPlannedPath';
 import {useMapVersions} from '@/hooks/useMapVersions';
+import {useMissionComposer} from '@/hooks/useMissionComposer';
 import {REJECT_COPY, STATE_COPY, type CommandName, type Tone} from '@/lib/v2/robotState';
 import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
 import {useRobotState} from '@/lib/v2/useRobotState';
-import {useSelectedMower} from '@/stores/mowersStore';
-import type {DiscoveredObstacle} from '@/stores/schemas';
+import {type Mower, useSelectedMower} from '@/stores/mowersStore';
+import type {DiscoveredObstacle, MissionStateStatus} from '@/stores/schemas';
 import {mapVersionToFeatures} from '@/utils/area-converter';
 import {datumToRelative} from '@/utils/coordinates';
+import {buildMissionPayload} from '@/utils/mission-utils';
 import type {TrackSegment} from '@/utils/track-pipeline';
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
@@ -82,6 +85,7 @@ import {
   History,
   Home,
   Layers,
+  ListOrdered,
   Locate,
   MapPin,
   MapPinned,
@@ -127,6 +131,10 @@ const MapCanvas = dynamic(() => import('@/components/v2/map/MapCanvas').then((m)
 // mowed-so-far lane painting (mowedLanesData) — a separate per-zone scheduling feature, not the
 // live robot-state display wired below (useRobotState). Fixing that is a later pass.
 const MOW = {area: 'Etupiha', coverage: 62, timeLeftMin: 24};
+
+// W9 mission composer — a mission is "in progress" while running OR paused-but-preserved (mirrors
+// MissionComposerSheet.tsx's own ACTIVE_STATES, used here to decide Start-vs-Add).
+const MISSION_ACTIVE_STATES = new Set<MissionStateStatus>(['queued', 'planning', 'mowing', 'paused']);
 
 // Same tone -> color mapping as Home.tsx's TONE_DOT_CLASS, for the top overlay pill's dot.
 const TONE_DOT_CLASS: Record<Tone, string> = {
@@ -266,6 +274,9 @@ export function Map() {
   // S4 — mobile counterpart to the desktop Areas rail (md:flex only); opens a Sheet with the
   // same per-area rows + Mow all now so live-view area switching isn't a desktop-only feature.
   const [areasSheetOpen, setAreasSheetOpen] = useState(false);
+  // W9 — mission composer (multi-area ordered mow-job queue): the richer path alongside the
+  // existing single "Mow all now". See MissionComposerSheet.tsx.
+  const [missionSheetOpen, setMissionSheetOpen] = useState(false);
   // Also list no-go (obstacle) zones in the Areas panel so an obstacle that's too small to tap on
   // the map is still selectable from the list (the panel shows only mowable zones by default).
   const [showObstacles, setShowObstacles] = useState(false);
@@ -318,6 +329,9 @@ export function Map() {
   const realMap = useSelectedMower((s) => s?.map);
   const rpc = useSelectedMower((s) => s?.rpc);
   const queryClient = useSelectedMower((s) => s?.queryClient);
+  // W9 — mission composer wiring (mow_mission/* — see the "Mission composer" block below).
+  const mower = useSelectedMower<Mower | undefined>();
+  const missionState = useSelectedMower((s) => s?.missionState ?? null);
   const realDatumLat = realMap?.datum?.lat;
   const realDatumLng = realMap?.datum?.long;
   const origin: Origin = useMemo(
@@ -496,6 +510,7 @@ export function Map() {
     setIssuesSheetOpen(false);
     setAddObjectSheetOpen(false);
     setAreasSheetOpen(false);
+    setMissionSheetOpen(false);
     setMergePickerOpen(false);
     setSubtractPickerOpen(false);
     setCutLinePoints([]);
@@ -983,6 +998,7 @@ export function Map() {
       onRun: openSubtractPicker,
     },
     {id: 'choose-zone', label: 'Choose zone…', onRun: () => setZoneSheetOpen(true)},
+    {id: 'mission', label: 'Plan mission…', icon: <ListOrdered size={15} />, onRun: () => setMissionSheetOpen(true)},
     {id: 'validation', label: `Validation issues (${issues.length})`, onRun: () => setIssuesSheetOpen(true)},
     {
       id: 'save-map',
@@ -1011,6 +1027,35 @@ export function Map() {
     },
     {id: 'cheat-sheet', label: 'Keyboard shortcuts', hint: '?', icon: <HelpCircle size={15} />, onRun: () => setCheatSheetOpen(true)},
   ];
+
+  // --- Mission composer (W9) -------------------------------------------------------------------
+  // Multi-area ordered mow-job queue — the richer path alongside the single "Mow all now" above.
+  // useMissionComposer/buildMissionPayload/mow_mission publishing are reused as-is from the v1
+  // port (ROS/MUI-free); only the presentation (MissionComposerSheet + kit rows) is v2-native.
+  const missionComposer = useMissionComposer();
+  const missionInProgress = missionState !== null && MISSION_ACTIVE_STATES.has(missionState.state);
+  // "Add to mission" offers every saved mowable zone (mow + spot) — v2 already persists spot-mow
+  // regions as first-class Zones (unlike v1's ephemeral free-drawn spot polygon), so referencing
+  // one by id via a `type: 'area'` job covers the same use case without a second draw-tool.
+  const missionAreas = useMemo(
+    () => editor.zones.filter((z) => isMowableType(z.type)).map((z) => ({id: z.id, name: z.name})),
+    [editor.zones],
+  );
+
+  const startMission = () => {
+    if (!mower || missionComposer.jobs.length === 0 || missionInProgress) return;
+    mower.publishMissionStart(buildMissionPayload(missionComposer.jobs));
+    missionComposer.clearJobs();
+  };
+
+  const addToMission = () => {
+    if (!mower || missionComposer.jobs.length === 0 || !missionInProgress) return;
+    mower.publishMissionAdd(buildMissionPayload(missionComposer.jobs, missionState?.mission_id));
+    missionComposer.clearJobs();
+  };
+
+  const continueMission = () => mower?.publishMissionContinue();
+  const cancelMission = () => mower?.publishMissionCancel();
 
   // S4 — per-area row (name, size, status): shared by the desktop Areas rail and the mobile Areas
   // sheet so the two can't diverge. Mowable zones get a "Mow" action; a no-go zone gets a "Select"
@@ -1170,6 +1215,14 @@ export function Map() {
             onClick={() => setAreasSheetOpen(true)}
             className="md:hidden"
           />
+        )}
+        {!editor.editing && !mockBlocked && (
+          <div className="relative">
+            <Fab aria-label="Mission" icon={<ListOrdered size={18} />} onClick={() => setMissionSheetOpen(true)} />
+            {missionInProgress && (
+              <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-accent" />
+            )}
+          </div>
         )}
         {!editor.editing && (
           <Fab aria-label="Recenter on robot" icon={<Locate size={18} />} onClick={() => mapRef.current?.setZoom(19)} />
@@ -1479,9 +1532,12 @@ export function Map() {
                 </>
               )}
             </div>
-            <div className="border-t border-border p-2.5">
-              <Button variant="primary" className="w-full justify-center">
+            <div className="flex items-center gap-2 border-t border-border p-2.5">
+              <Button variant="primary" className="flex-1 justify-center">
                 <Play size={13} fill="currentColor" /> Mow all now
+              </Button>
+              <Button variant="soft" className="flex-1 justify-center" onClick={() => setMissionSheetOpen(true)}>
+                <ListOrdered size={13} /> Mission
               </Button>
             </div>
           </Card>
@@ -1561,10 +1617,40 @@ export function Map() {
             {showObstacles && obstacleZones.map(renderAreaRow)}
           </div>
         )}
-        <Button variant="primary" className="mt-2 w-full justify-center">
-          <Play size={13} fill="currentColor" /> Mow all now
-        </Button>
+        <div className="mt-2 flex items-center gap-2">
+          <Button variant="primary" className="flex-1 justify-center">
+            <Play size={13} fill="currentColor" /> Mow all now
+          </Button>
+          <Button
+            variant="soft"
+            className="flex-1 justify-center"
+            onClick={() => {
+              setAreasSheetOpen(false);
+              setMissionSheetOpen(true);
+            }}
+          >
+            <ListOrdered size={13} /> Mission
+          </Button>
+        </div>
       </Sheet>
+
+      <MissionComposerSheet
+        open={missionSheetOpen}
+        onClose={() => setMissionSheetOpen(false)}
+        areas={missionAreas}
+        jobs={missionComposer.jobs}
+        onAddAreaJob={missionComposer.addAreaJob}
+        onRemoveJob={missionComposer.removeJob}
+        onUpdateJob={missionComposer.updateJob}
+        onReorderJobs={missionComposer.reorderJobs}
+        onClearJobs={missionComposer.clearJobs}
+        missionState={missionState}
+        onStart={startMission}
+        onAdd={addToMission}
+        onContinue={continueMission}
+        onCancel={cancelMission}
+        disabled={!mower}
+      />
 
       <Sheet open={addObjectSheetOpen} onClose={() => setAddObjectSheetOpen(false)} title="Add to map">
         {ADD_TO_MAP_ITEMS.map((item) => (
