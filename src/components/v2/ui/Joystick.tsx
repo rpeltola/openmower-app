@@ -50,7 +50,7 @@ export function Joystick({size = 140, disabled, onDirectionChange, activeOverrid
       viewBox="0 0 148 148"
       role="group"
       aria-label="Directional joystick"
-      className={cn(disabled && 'opacity-40', className)}
+      className={cn('touch-none select-none', disabled && 'opacity-40', className)}
     >
       <circle cx="74" cy="74" r="70" fill="var(--surface-2)" stroke="var(--border)" strokeWidth="1.5" />
       <circle cx="74" cy="74" r="26" fill="var(--surface)" stroke="var(--border)" />
