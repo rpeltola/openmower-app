@@ -16,7 +16,6 @@ export interface MainViewportProps {
    *  doc), so a hardware-capable mower still degrades to map-only until that ships; the dev
    *  toggle reveals a greyed, inert PiP in its place. */
   showCamera: boolean;
-  headingDeg?: number;
   className?: string;
   /** Current fullscreen state — only meaningful (and only rendered as a corner button)
    *  when `onToggleFullscreen` is also given; the caller owns the Fullscreen API, this
@@ -30,7 +29,6 @@ export interface MainViewportProps {
  *  `showCamera` — so a mower with no camera never shows an empty/fake feed. */
 export function MainViewport({
   showCamera,
-  headingDeg = 0,
   className,
   fullscreen,
   onToggleFullscreen,
@@ -47,7 +45,7 @@ export function MainViewport({
       {active === 'camera' ? (
         <CameraFeed className="absolute inset-0" />
       ) : (
-        <MiniMap headingDeg={headingDeg} className="absolute inset-0" />
+        <MiniMap className="absolute inset-0" />
       )}
 
       {onToggleFullscreen ? (
@@ -70,7 +68,7 @@ export function MainViewport({
           className="absolute bottom-3 right-3 h-20 w-28 overflow-hidden rounded-lg border-2 border-surface shadow-[var(--shadow-m)] transition-transform active:scale-95"
         >
           {active === 'camera' ? (
-            <MiniMap headingDeg={headingDeg} chipLabel="" className="h-full w-full" />
+            <MiniMap chipLabel="" className="h-full w-full" />
           ) : (
             <CameraFeed compact className="h-full w-full" />
           )}

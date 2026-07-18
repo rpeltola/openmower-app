@@ -21,6 +21,7 @@ import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
 import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
 import {useRobotState} from '@/lib/v2/useRobotState';
 import {Gamepad2, Home, RotateCcw, Sprout, Square, X} from 'lucide-react';
+import {useRouter} from 'next/navigation';
 import {useEffect, useRef, useState} from 'react';
 
 const SPEED_OPTIONS = [
@@ -97,6 +98,7 @@ export function vectorToVelocity(vec: StickVector | null, factor: number): {vx: 
 // control (component-library.md §7 build order item 1). Canonical mock world values per
 // design-language.md: Kotipiha / Etupiha, RTK fixed, battery 71%.
 export function ManualControl() {
+  const router = useRouter();
   const [unlocked, setUnlocked] = useState(false);
   const [speed, setSpeed] = useState('normal');
   const [bladeHeight, setBladeHeight] = useState(45);
@@ -122,6 +124,15 @@ export function ManualControl() {
   const toggleFullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.documentElement.requestFullscreen();
+  };
+
+  // Close always lands somewhere real -- drop fullscreen first if it's active, then prefer
+  // going back in history (so the user returns to wherever they came from), falling back to
+  // the /v2 home when there's no history to unwind (e.g. this page was opened directly).
+  const closeManualControl = () => {
+    if (typeof document !== 'undefined' && document.fullscreenElement) void document.exitFullscreen();
+    if (window.history.length > 1) router.back();
+    else router.push('/v2');
   };
 
   // A phone turned sideways can be WIDER than the `md` breakpoint (e.g. 844px), so the
@@ -359,7 +370,7 @@ export function ManualControl() {
             </div>
             <h1 className="text-lg font-bold text-ink md:text-xl">Manual control</h1>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Close" className="md:hidden">
+          <Button variant="ghost" size="icon" aria-label="Close" className="md:hidden" onClick={closeManualControl}>
             <X size={16} strokeWidth={2.4} />
           </Button>
         </div>
@@ -378,7 +389,7 @@ export function ManualControl() {
             </Chip>
           ) : null}
           <Chip variant={connected ? 'ok' : 'neutral'}>🔋 {batteryPct}%</Chip>
-          <Button variant="ghost" size="sm" className="hidden md:inline-flex">
+          <Button variant="ghost" size="sm" className="hidden md:inline-flex" onClick={closeManualControl}>
             <X size={14} strokeWidth={2.4} />
             Close
           </Button>
@@ -405,7 +416,6 @@ export function ManualControl() {
         {isDesktop ? (
           <MainViewport
             showCamera={caps.cameras.front}
-            headingDeg={-18}
             className="min-w-0 flex-1"
             fullscreen={fullscreen}
             onToggleFullscreen={fullscreenSupported ? toggleFullscreen : undefined}
@@ -424,7 +434,6 @@ export function ManualControl() {
             <div className="flex flex-1 gap-3 overflow-hidden">
               <MainViewport
                 showCamera
-                headingDeg={-18}
                 className="min-w-0 flex-1"
                 fullscreen={fullscreen}
                 onToggleFullscreen={fullscreenSupported ? toggleFullscreen : undefined}
@@ -600,7 +609,6 @@ export function ManualControl() {
               {caps.cameras.front ? (
                 <MainViewport
                   showCamera
-                  headingDeg={-18}
                   className="aspect-video w-full flex-none"
                   fullscreen={fullscreen}
                   onToggleFullscreen={fullscreenSupported ? toggleFullscreen : undefined}

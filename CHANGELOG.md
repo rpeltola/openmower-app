@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-18 (3)
+- Fixed three real-hardware bugs on the v2 UI: Manual control's Close buttons (mobile icon +
+  desktop) were wired to nothing, now they exit fullscreen if active and navigate back (or to
+  `/v2` with no history to return to). Manual control's viewport map (`MiniMap`) was a static
+  mock SVG with a hardcoded heading — it now renders the real garden outline(s), dock, and live
+  mower pose/heading from the store, fit to bounds, with a position-uncertainty ring only when a
+  real `sensors.gps.position_accuracy` reading exists (never fabricated), degrading to a "Map
+  loading…" placeholder with no map/pose yet. Settings no longer shows nav entries for the three
+  fully-gated categories (Backup & Restore, Notifications, Safety) when unsupported — they were
+  reachable but landed on an empty gated pane; hidden behind the same `isFeatureSupported`/dev-
+  toggle mechanism as everything else.
+
 ## 2026-07-18 (2)
 - Wired Manual control's blade on/off toggle E2E against the new OpenMowerNext
   `feature/manual-blade` backend: entering `/v2/control` sends `manual_drive` (robot state
