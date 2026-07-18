@@ -84,13 +84,23 @@ function PressHold({
   return (
     <button
       type="button"
-      onPointerDown={start}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        start();
+      }}
       onPointerUp={cancel}
       onPointerLeave={cancel}
+      onContextMenu={(e) => e.preventDefault()}
       className={cn(
-        'relative h-11 w-full touch-none overflow-hidden rounded-full border border-border bg-surface-2 text-sm font-semibold text-ink-soft',
+        'relative h-11 w-full touch-none select-none overflow-hidden rounded-full border border-border bg-surface-2 text-sm font-semibold text-ink-soft',
         className,
       )}
+      style={{
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
+        touchAction: 'none',
+        WebkitTouchCallout: 'none',
+      }}
     >
       <span
         aria-hidden
@@ -117,6 +127,7 @@ function SlideToUnlock({onUnlock, className}: {onUnlock: () => void; className?:
   const KNOB = 36;
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
     draggingRef.current = true;
     setDragging(true);
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -142,9 +153,11 @@ function SlideToUnlock({onUnlock, className}: {onUnlock: () => void; className?:
     <div
       ref={trackRef}
       className={cn(
-        'relative flex h-11 w-full items-center rounded-full border border-border bg-surface-2 px-1',
+        'relative flex h-11 w-full select-none items-center rounded-full border border-border bg-surface-2 px-1',
         className,
       )}
+      style={{WebkitUserSelect: 'none', userSelect: 'none', touchAction: 'none', WebkitTouchCallout: 'none'}}
+      onContextMenu={(e) => e.preventDefault()}
     >
       <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-semibold text-ink-soft">
         slide to unlock ›››
@@ -154,10 +167,15 @@ function SlideToUnlock({onUnlock, className}: {onUnlock: () => void; className?:
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        className="relative z-10 grid h-9 w-9 flex-none touch-none place-items-center rounded-full bg-ink text-surface shadow-sm"
+        onContextMenu={(e) => e.preventDefault()}
+        className="relative z-10 grid h-9 w-9 flex-none touch-none select-none place-items-center rounded-full bg-ink text-surface shadow-sm"
         style={{
           transform: `translateX(${translatePx}px)`,
           transition: dragging ? 'none' : 'transform 150ms ease-out',
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+          touchAction: 'none',
+          WebkitTouchCallout: 'none',
         }}
       >
         <Lock size={15} strokeWidth={2.2} />

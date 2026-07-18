@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-18 (4)
+- Three more Manual Control fixes found on real-mower testing: "Fast" now reaches the mower's
+  actual ~0.5 m/s wheel top speed (was throttled to 0.35 m/s); a big "EMERGENCY — Clear & resume"
+  button now appears on the page whenever an emergency is active (`state.emergency`, or
+  `ERROR`/`PAUSED`+`EMERGENCY`), sending the legacy `reset_emergency` command without leaving the
+  page; and the hold-to-unlock control no longer triggers browser text-selection/callout in
+  landscape (was blocking the unlock gesture entirely on some devices).
+
 ## 2026-07-18 (3)
 - Fixed three real-hardware bugs on the v2 UI: Manual control's Close buttons (mobile icon +
   desktop) were wired to nothing, now they exit fullscreen if active and navigate back (or to

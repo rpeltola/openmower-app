@@ -67,16 +67,18 @@ function mockMower(
   stateOverrides: Record<string, unknown> = {},
 ) {
   const publishTeleop = vi.fn();
+  const sendCommand = vi.fn();
   const fakeMower = {
     state: {commands: {stop: {allowed: true, reasons: []}, dock: {allowed: true, reasons: []}}, ...stateOverrides},
     commandClient: {send},
     publishTeleop,
+    sendCommand,
   };
   vi.mocked(useSelectedMower).mockImplementation(
     ((selector?: (mower?: unknown) => unknown) => selector?.(fakeMower)) as typeof useSelectedMower,
   );
   vi.mocked(useMowersStore.getState).mockReturnValue({mowers: [fakeMower], selected: 0} as never);
-  return {publishTeleop};
+  return {publishTeleop, sendCommand};
 }
 
 describe('ManualControl (W9 A2b)', () => {
@@ -197,6 +199,44 @@ describe('ManualControl — blade toggle (manual-blade feature)', () => {
   });
 });
 
+// Fix 2 (post-real-mower-testing): a wheel-lift/E-stop latch mid-drive used to strand the user
+// on this page with no way to clear it. The banner + reset action must appear whenever the
+// emergency signal fires, from any of the signals it can arrive on, and send the legacy
+// `reset_emergency` command (mowersStore.ts's fire-and-forget `sendCommand`, same one v1's map
+// toolbar uses) when tapped.
+describe('ManualControl — Clear emergency (post real-mower-testing fix)', () => {
+  afterEach(cleanup);
+
+  it('stays hidden with no emergency signal', () => {
+    mockMower(() => Promise.resolve({accepted: true}));
+    render(<ManualControl />);
+    expect(screen.queryByText('Emergency stop active')).not.toBeInTheDocument();
+  });
+
+  it('shows the Clear & resume button when state.emergency is set and sends reset_emergency on tap', async () => {
+    const {sendCommand} = mockMower(() => Promise.resolve({accepted: true}), {emergency: true});
+    render(<ManualControl />);
+
+    expect(screen.getByText('Emergency stop active')).toBeInTheDocument();
+    const clearButton = screen.getByRole('button', {name: /EMERGENCY.*Clear.*resume/i});
+    fireEvent.click(clearButton);
+
+    expect(sendCommand).toHaveBeenCalledWith('reset_emergency');
+  });
+
+  it('also shows when the canonical state is ERROR', () => {
+    mockMower(() => Promise.resolve({accepted: true}), {state: 'ERROR'});
+    render(<ManualControl />);
+    expect(screen.getByText('Emergency stop active')).toBeInTheDocument();
+  });
+
+  it('also shows when PAUSED carries the EMERGENCY reason', () => {
+    mockMower(() => Promise.resolve({accepted: true}), {state: 'PAUSED', paused_reasons: ['EMERGENCY']});
+    render(<ManualControl />);
+    expect(screen.getByText('Emergency stop active')).toBeInTheDocument();
+  });
+});
+
 // Close button dead-button fix: both the mobile icon button and the desktop text button must
 // navigate away rather than sit there doing nothing. Forcing `window.history.length` picks a
 // deterministic branch of closeManualControl's back()-vs-push('/v2') fallback so each test only
@@ -272,9 +312,9 @@ describe('ManualControl — positionTrust gate (R1)', () => {
 // gesture (press-and-hold on desktop, slide on mobile) isn't practical to drive headlessly, so
 // this is tested directly rather than through the full unlock -> drive UI flow.
 describe('directionToVelocity / vectorToVelocity (drive-command math)', () => {
-  it('maps d-pad directions to vx/vz at full ("fast") factor, capped at VirtualJoystick\'s proven max', () => {
-    expect(directionToVelocity('up', 1)).toEqual({vx: 0.35, vz: 0});
-    expect(directionToVelocity('down', 1)).toEqual({vx: -0.35, vz: 0});
+  it('maps d-pad directions to vx/vz at full ("fast") factor, capped at the mower\'s real wheel max', () => {
+    expect(directionToVelocity('up', 1)).toEqual({vx: 0.5, vz: 0});
+    expect(directionToVelocity('down', 1)).toEqual({vx: -0.5, vz: 0});
     expect(directionToVelocity('left', 1)).toEqual({vx: 0, vz: 1.6});
     expect(directionToVelocity('right', 1)).toEqual({vx: 0, vz: -1.6});
     expect(directionToVelocity(null, 1)).toEqual({vx: 0, vz: 0});
@@ -282,13 +322,13 @@ describe('directionToVelocity / vectorToVelocity (drive-command math)', () => {
 
   it('scales down for the Slow speed factor', () => {
     const {vx, vz} = directionToVelocity('up', 0.4);
-    expect(vx).toBeCloseTo(0.14, 10);
+    expect(vx).toBeCloseTo(0.2, 10);
     expect(vz).toBe(0);
   });
 
   it('maps an analog stick vector (screen-space y, down=positive) to forward/turn velocity', () => {
     // Full deflection "up" (negative y) -> max forward, no turn.
-    expect(vectorToVelocity({x: 0, y: -1}, 1)).toEqual({vx: 0.35, vz: -0});
+    expect(vectorToVelocity({x: 0, y: -1}, 1)).toEqual({vx: 0.5, vz: -0});
     // Full deflection right (positive x) -> turn right (negative vz), no forward.
     expect(vectorToVelocity({x: 1, y: 0}, 1)).toEqual({vx: -0, vz: -1.6});
     expect(vectorToVelocity(null, 1)).toEqual({vx: 0, vz: 0});
