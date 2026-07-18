@@ -15,6 +15,7 @@ import type {TrackPolyline} from '@/components/v2/map/MapCanvas';
 import {SaveMapSheet, VersionHistorySheet} from '@/components/v2/map/MapVersioning';
 import {estimateMowPreview, measureZone} from '@/components/v2/map/measurements';
 import {mapDataToDock, mapDataToZones, versionFeaturesToZonesAndDock, zonesToMapData} from '@/components/v2/map/realData';
+import {RecordAreaFlow} from '@/components/v2/map/record/RecordAreaFlow';
 import {RecordBriefingSheet} from '@/components/v2/map/record/RecordBriefingSheet';
 import {RecordCloseSheet} from '@/components/v2/map/record/RecordCloseSheet';
 import {RecordDriveOverlay, type RecordSpeed} from '@/components/v2/map/record/RecordDriveOverlay';
@@ -72,6 +73,7 @@ import {
   CirclePlus,
   Command,
   Copy,
+  Disc,
   Eraser,
   Expand,
   Flame,
@@ -288,6 +290,9 @@ export function Map() {
   const [recordDirection, setRecordDirection] = useState<'up' | 'down' | 'left' | 'right' | null>(null);
   const [recordSpeed, setRecordSpeed] = useState<RecordSpeed>('normal');
   const [recordType, setRecordType] = useState<ZoneType>('mow');
+  // "Record area" (real) -- drives the actual `record_area/*` gateway bridge + real teleop (see
+  // RecordAreaFlow.tsx), distinct from the S8 mock drive-the-edge flow above.
+  const [recordAreaOpen, setRecordAreaOpen] = useState(false);
   // Boolean area operations (MAP_BOOLEAN_OPS_SPEC.md) — merge/split/subtract live in the Transform
   // sheet's "Area operations" section rather than a new tool-row icon or dock row.
   const [mergePickerOpen, setMergePickerOpen] = useState(false);
@@ -495,6 +500,7 @@ export function Map() {
     setSubtractPickerOpen(false);
     setCutLinePoints([]);
     setSaveSheetOpen(false);
+    setRecordAreaOpen(false);
   };
 
   const toggleEditing = () => {
@@ -659,6 +665,15 @@ export function Map() {
   const startRecordBoundary = () => {
     setAddObjectSheetOpen(false);
     setRecordStep('r1');
+  };
+
+  // "Record area" (real) -- exits edit mode / closes other sheets first, same as beginDriving()
+  // does for the S8 mock flow, so the recording chrome doesn't stack on top of another sheet.
+  const openRecordArea = () => {
+    editor.setEditing(false);
+    closeAllEditSheets();
+    closePlanPreview();
+    setRecordAreaOpen(true);
   };
 
   const drawOnMapInstead = () => {
@@ -929,6 +944,7 @@ export function Map() {
     },
     {id: 'add-to-map', label: 'Add to map…', disabled: !editor.editing, onRun: () => setAddObjectSheetOpen(true)},
     {id: 'record-boundary', label: 'Record a boundary…', icon: <Footprints size={15} />, onRun: () => setRecordStep('r1')},
+    {id: 'record-area', label: 'Record area…', icon: <Disc size={15} />, onRun: openRecordArea},
     {id: 'place-dock', label: 'Place dock', disabled: !editor.editing, onRun: () => setPlacingDock(true)},
     {
       id: 'duplicate-zone',
@@ -1157,6 +1173,9 @@ export function Map() {
         )}
         {!editor.editing && (
           <Fab aria-label="Recenter on robot" icon={<Locate size={18} />} onClick={() => mapRef.current?.setZoom(19)} />
+        )}
+        {!editor.editing && !mockBlocked && (
+          <Fab aria-label="Record area" icon={<Disc size={18} />} onClick={openRecordArea} />
         )}
         <Fab aria-label="Base map" icon={<Layers size={18} />} onClick={() => setBasemapSheetOpen(true)} />
         <Fab
@@ -1976,6 +1995,10 @@ export function Map() {
         defaultName={`New ${ZONE_TYPE_LABELS[recordType].toLowerCase()}`}
         onSave={saveRecording}
       />
+
+      {/* "Record area" (real) -- the live counterpart to the S8 mock flow above; talks to the
+          record_area/* gateway bridge + real teleop instead of a local physics loop. */}
+      <RecordAreaFlow open={recordAreaOpen} onClose={() => setRecordAreaOpen(false)} onToast={setToastMessage} />
 
       {/* Map saving + version history — UNWIRED PLACEHOLDER (see MapVersioning.tsx). */}
       <SaveMapSheet

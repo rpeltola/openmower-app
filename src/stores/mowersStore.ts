@@ -34,6 +34,7 @@ import {
   missionStateSchema,
   plannedPathSignalSchema,
   positionSchema,
+  recordAreaStatusSchema,
   recordDockingStatusSchema,
   stateDefaults,
   stateSchema,
@@ -47,6 +48,7 @@ import {
   type MissionState,
   type PlannedPathSignal,
   type PositionWithAttributes,
+  type RecordAreaStatus,
   type RecordDockingStatus,
   type StateOptionalPose,
   type Stats,
@@ -80,6 +82,9 @@ export class Mower {
   events: MowerEventState = mowerEventDefaults;
   missionState: MissionState | null = null;
   recordDockingStatus: RecordDockingStatus | null = null;
+  // Area/obstacle boundary recording (record_area/*, the "Record area" map control) -- same
+  // retained-status pattern as recordDockingStatus above.
+  recordAreaStatus: RecordAreaStatus | null = null;
   // Always-on persistence topics (see persistence/DESIGN.md "MQTT contract"): lifetime
   // stats + blade wear (retained, on-change), and recent-window mini-histograms (~2-5s).
   stats: Stats | null = null;
@@ -152,6 +157,22 @@ export class Mower {
 
   publishRecordDockingCancel() {
     this.mqttClient.publish(this.mqttPrefix + 'record_docking/cancel', '');
+  }
+
+  // Area/obstacle boundary recording -> app_gateway's `record_area/*` MQTT bridge (the "Record
+  // area" map control). Progress streams back on record_area/status (see the message handler
+  // below -> Mower.recordAreaStatus). type: 0 = obstacle (exclusion), 2 = mowing area (operation);
+  // auto_recording/distance_threshold are left to the gateway's own defaults (true / 0.05m).
+  publishRecordAreaStart(name: string, type: number) {
+    this.mqttClient.publish(this.mqttPrefix + 'record_area/start', JSON.stringify({name, type}));
+  }
+
+  publishRecordAreaFinish() {
+    this.mqttClient.publish(this.mqttPrefix + 'record_area/finish', '{}');
+  }
+
+  publishRecordAreaCancel() {
+    this.mqttClient.publish(this.mqttPrefix + 'record_area/cancel', '');
   }
 
   // High-level control -> app_gateway -> mower_logic mower_service/high_level_control
@@ -243,6 +264,7 @@ export const useMowersStore = create<MowersStore>()(
             client.subscribe(clientMower.prefix + 'params/json');
             client.subscribe(clientMower.prefix + 'mow_mission/state');
             client.subscribe(clientMower.prefix + 'record_docking/status');
+            client.subscribe(clientMower.prefix + 'record_area/status');
             client.subscribe(clientMower.prefix + 'position/json');
             client.subscribe(clientMower.prefix + 'params/json');
             client.subscribe(clientMower.prefix + 'events/json');
@@ -374,6 +396,10 @@ export const useMowersStore = create<MowersStore>()(
                 state.mowers[idx].recordDockingStatus = recordDockingStatusSchema.parse(
                   JSON.parse(payload.toString()),
                 );
+              });
+            } else if (partialTopic === 'record_area/status') {
+              set((state) => {
+                state.mowers[idx].recordAreaStatus = recordAreaStatusSchema.parse(JSON.parse(payload.toString()));
               });
             } else if (partialTopic === 'map_layers/planned_path/json') {
               set((state) => {

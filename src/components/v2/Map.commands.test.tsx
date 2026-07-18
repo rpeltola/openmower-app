@@ -4,9 +4,12 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 // Map.tsx's own stat-card command surfaces (Pause/Resume/Stop/Dock) now go through the real
 // `useCommand`/`useCommandAvailability` client (same protocol Home.tsx uses), replacing the old
 // local `mockPaused` toggle -- fake the mowersStore selector so `commandClient.send` is
-// controllable and assert the wiring, not the whole map-editor surface.
+// controllable and assert the wiring, not the whole map-editor surface. `useMowersStore` is
+// mocked too because Map.tsx now always mounts RecordAreaFlow, whose useTeleop() reads it
+// directly via `.getState()` (a vanilla-store escape hatch, not a hook subscription).
 vi.mock('@/stores/mowersStore', () => ({
   useSelectedMower: vi.fn(),
+  useMowersStore: {getState: vi.fn().mockReturnValue({mowers: [], selected: 0})},
 }));
 
 import {Map} from '@/components/v2/Map';

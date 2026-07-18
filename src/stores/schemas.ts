@@ -350,6 +350,30 @@ export const recordDockingStatusSchema = z.object({
 export type RecordDockingStatus = z.infer<typeof recordDockingStatusSchema>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// Area/obstacle boundary recording (record_area/start|finish|cancel -> record_area/status). New
+// gateway `record_area/*` MQTT bridge (built alongside this app change) -- 'idle' is added
+// defensively (not in the spec'd phase list) so a retained-but-cleared status still parses, same
+// as recordDockingPhaseSchema above.
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const recordAreaPhaseSchema = z.enum(['idle', 'recording', 'processing', 'saving', 'success', 'canceled', 'failed']);
+export type RecordAreaPhase = z.infer<typeof recordAreaPhaseSchema>;
+
+// Boundary point, wire format [x, y] map-frame metres -- same tuple shape as the mission/planned-
+// path point schemas below, not the area outline's {x, y} objects.
+const recordAreaPointSchema = z.tuple([z.number(), z.number()]);
+
+export const recordAreaStatusSchema = z.object({
+  phase: recordAreaPhaseSchema,
+  point_count: z.number().default(0),
+  polygon: z.array(recordAreaPointSchema).default([]),
+  message: z.string().default(''),
+  // Present once phase is 'success'/'failed' -- e.g. a too-few-points/invalid-polygon failure code.
+  code: z.number().optional(),
+});
+export type RecordAreaStatus = z.infer<typeof recordAreaStatusSchema>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // Planned path (slic3r planned path map layer)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
