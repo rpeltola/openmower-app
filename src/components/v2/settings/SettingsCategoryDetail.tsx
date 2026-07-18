@@ -15,6 +15,7 @@ import {
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {FormField} from '@/components/v2/ui/FormField';
 import {ListRow} from '@/components/v2/ui/ListRow';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
@@ -176,46 +177,50 @@ export function SettingsCategoryDetail({
       ) : null}
 
       {category === 'basemap' ? (
-        <SettingsGroup>
-          {BASEMAP_OPTIONS.map((opt) => (
-            <ListRow
-              key={opt}
-              title={opt}
-              onClick={() => onBasemapChange(opt)}
-              trailing={
-                opt === basemapChoice ? <Check size={15} strokeWidth={2.6} className="text-accent" /> : undefined
-              }
-            />
-          ))}
-        </SettingsGroup>
+        <FeatureGate feature="basemapPicker">
+          <SettingsGroup>
+            {BASEMAP_OPTIONS.map((opt) => (
+              <ListRow
+                key={opt}
+                title={opt}
+                onClick={() => onBasemapChange(opt)}
+                trailing={
+                  opt === basemapChoice ? <Check size={15} strokeWidth={2.6} className="text-accent" /> : undefined
+                }
+              />
+            ))}
+          </SettingsGroup>
+        </FeatureGate>
       ) : null}
 
       {category === 'safety' ? (
-        <SettingsGroup>
-          <ListRow
-            icon={<Shield size={15} strokeWidth={2} className="text-ink-soft" />}
-            title="Geofence enforcement"
-            sub="Stop if the mower crosses the mapped boundary"
-            trailing={
-              <Switch
-                checked={safetyToggles.geofence}
-                onCheckedChange={(checked) => onSafetyToggleChange('geofence', checked)}
-                aria-label="Geofence enforcement"
-              />
-            }
-          />
-          <ListRow
-            title="Tilt / lift stop"
-            sub="Stop the blade immediately if the mower is tilted or lifted"
-            trailing={
-              <Switch
-                checked={safetyToggles.tiltLift}
-                onCheckedChange={(checked) => onSafetyToggleChange('tiltLift', checked)}
-                aria-label="Tilt / lift stop"
-              />
-            }
-          />
-        </SettingsGroup>
+        <FeatureGate feature="safetyWrites">
+          <SettingsGroup>
+            <ListRow
+              icon={<Shield size={15} strokeWidth={2} className="text-ink-soft" />}
+              title="Geofence enforcement"
+              sub="Stop if the mower crosses the mapped boundary"
+              trailing={
+                <Switch
+                  checked={safetyToggles.geofence}
+                  onCheckedChange={(checked) => onSafetyToggleChange('geofence', checked)}
+                  aria-label="Geofence enforcement"
+                />
+              }
+            />
+            <ListRow
+              title="Tilt / lift stop"
+              sub="Stop the blade immediately if the mower is tilted or lifted"
+              trailing={
+                <Switch
+                  checked={safetyToggles.tiltLift}
+                  onCheckedChange={(checked) => onSafetyToggleChange('tiltLift', checked)}
+                  aria-label="Tilt / lift stop"
+                />
+              }
+            />
+          </SettingsGroup>
+        </FeatureGate>
       ) : null}
 
       {category === 'general' ? (
@@ -298,7 +303,7 @@ export function SettingsCategoryDetail({
       ) : null}
 
       {category === 'notifications' ? (
-        <>
+        <FeatureGate feature="pushNotifications">
           <Card className="flex items-center gap-[.7rem] p-[.85rem]">
             <span className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] bg-accent-wash text-accent">
               <Bell size={17} strokeWidth={2} />
@@ -331,7 +336,7 @@ export function SettingsCategoryDetail({
             On iOS, delivery isn&apos;t guaranteed while Low Power Mode is on — allow OpenMower under Settings →
             Notifications if alerts feel delayed.
           </p>
-        </>
+        </FeatureGate>
       ) : null}
 
       {category === 'backup' ? (<BackupRestore />) : null}

@@ -7,7 +7,9 @@ import {ErrorScreen} from '@/components/v2/states/ErrorScreen';
 import {PausedBanner} from '@/components/v2/states/PausedBanner';
 import {Button} from '@/components/v2/ui/Button';
 import {ConnectionBanner} from '@/components/v2/ui/ConnectionBanner';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
+import type {FeatureId} from '@/lib/v2/featureSupport';
 import {STATE_COPY, type Tone} from '@/lib/v2/robotState';
 import {useConnectionStatus} from '@/lib/v2/useConnectionStatus';
 import {useRobotState} from '@/lib/v2/useRobotState';
@@ -41,8 +43,9 @@ interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  /** Shows the unread-activity dot (design-language.md's Activity tab badge). */
-  alert?: boolean;
+  /** L3 gate (STATE_COMMAND_MODEL.md §4) — set when the destination screen has no working
+   *  backend yet, so the nav entry itself (not an empty screen behind it) is what's hidden. */
+  feature?: FeatureId;
 }
 
 // 5-tab mobile IA (mobile-architecture.md). "More" folds Diagnostics/Settings/everything
@@ -50,8 +53,8 @@ interface NavItem {
 const MOBILE_TABS: NavItem[] = [
   {href: '/v2', label: 'Home', icon: Home},
   {href: '/v2/map', label: 'Map', icon: MapIcon},
-  {href: '/v2/schedule', label: 'Schedule', icon: Calendar},
-  {href: '/v2/activity', label: 'Activity', icon: Activity, alert: true},
+  {href: '/v2/schedule', label: 'Schedule', icon: Calendar, feature: 'schedules'},
+  {href: '/v2/activity', label: 'Activity', icon: Activity},
   {href: '/v2/more', label: 'More', icon: MoreHorizontal},
 ];
 
@@ -59,8 +62,8 @@ const MOBILE_TABS: NavItem[] = [
 const DESKTOP_NAV: NavItem[] = [
   {href: '/v2', label: 'Home', icon: Home},
   {href: '/v2/map', label: 'Map', icon: MapIcon},
-  {href: '/v2/schedule', label: 'Schedule', icon: Calendar},
-  {href: '/v2/activity', label: 'Activity', icon: Activity, alert: true},
+  {href: '/v2/schedule', label: 'Schedule', icon: Calendar, feature: 'schedules'},
+  {href: '/v2/activity', label: 'Activity', icon: Activity},
   {href: '/v2/diagnostics', label: 'Diagnostics', icon: Gauge},
   {href: '/v2/settings', label: 'Settings', icon: Settings},
 ];
@@ -131,19 +134,21 @@ export function AppShell({children}: AppShellProps) {
           {DESKTOP_NAV.map((item) => {
             const active = isActive(pathname, item.href);
             const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-sm font-semibold',
-                  active ? 'bg-accent-wash text-accent' : 'text-ink-soft hover:text-ink',
-                )}
-              >
+            const linkClassName = cn(
+              'flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-sm font-semibold',
+              active ? 'bg-accent-wash text-accent' : 'text-ink-soft hover:text-ink',
+            );
+            return item.feature ? (
+              <FeatureGate key={item.href} feature={item.feature}>
+                <Link href={item.href} aria-current={active ? 'page' : undefined} className={linkClassName}>
+                  <Icon size={18} strokeWidth={2} />
+                  {item.label}
+                </Link>
+              </FeatureGate>
+            ) : (
+              <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} className={linkClassName}>
                 <Icon size={18} strokeWidth={2} />
                 {item.label}
-                {item.alert ? <span className="ml-auto h-[7px] w-[7px] flex-none rounded-full bg-danger" /> : null}
               </Link>
             );
           })}
@@ -193,22 +198,20 @@ export function AppShell({children}: AppShellProps) {
           {MOBILE_TABS.map((item) => {
             const active = isActive(pathname, item.href);
             const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'flex flex-1 flex-col items-center gap-[3px] text-[.6rem] font-semibold',
-                  active ? 'text-accent' : 'text-ink-faint',
-                )}
-              >
-                <span className="relative">
+            const linkClassName = cn(
+              'flex flex-1 flex-col items-center gap-[3px] text-[.6rem] font-semibold',
+              active ? 'text-accent' : 'text-ink-faint',
+            );
+            return item.feature ? (
+              <FeatureGate key={item.href} feature={item.feature} className="flex-1">
+                <Link href={item.href} aria-current={active ? 'page' : undefined} className={linkClassName}>
                   <Icon size={19} strokeWidth={2} />
-                  {item.alert ? (
-                    <span className="absolute -right-[3px] -top-[1px] h-[6px] w-[6px] rounded-full bg-danger" />
-                  ) : null}
-                </span>
+                  {item.label}
+                </Link>
+              </FeatureGate>
+            ) : (
+              <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} className={linkClassName}>
+                <Icon size={19} strokeWidth={2} />
                 {item.label}
               </Link>
             );

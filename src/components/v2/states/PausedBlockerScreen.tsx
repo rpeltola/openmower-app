@@ -7,10 +7,12 @@ import {Chip} from '@/components/v2/ui/Chip';
 import {OverlayChip} from '@/components/v2/ui/OverlayChip';
 import {StatCard} from '@/components/v2/ui/StatCard';
 import {StatePill} from '@/components/v2/ui/StatePill';
-import {REASON_COPY, type PausedReason, type Tone} from '@/lib/v2/robotState';
+import {Toast} from '@/components/v2/ui/Toast';
+import {REASON_COPY, REJECT_COPY, type PausedReason, type Tone} from '@/lib/v2/robotState';
+import {useCommand, useCommandAvailability} from '@/lib/v2/useCommand';
 import {useRobotStateSnapshot} from '@/lib/v2/useRobotStateSnapshot';
 import {Home as DockIcon, Play, TriangleAlert} from 'lucide-react';
-import {useId} from 'react';
+import {useId, useState} from 'react';
 
 const MOW = {area: 'Etupiha', batteryPct: 71};
 
@@ -85,7 +87,19 @@ function ReasonBanners({reasons, className}: {reasons: PausedReason[]; className
   );
 }
 
-function BlockerControls({primaryReason, className}: {primaryReason?: PausedReason; className?: string}) {
+function BlockerControls({
+  primaryReason,
+  onDock,
+  dockDisabled,
+  dockLabel,
+  className,
+}: {
+  primaryReason?: PausedReason;
+  onDock: () => void;
+  dockDisabled: boolean;
+  dockLabel: string;
+  className?: string;
+}) {
   return (
     <div className={cn('flex flex-col gap-[.55rem]', className)}>
       <p className="m-0 text-[.8rem] leading-[1.45] text-ink-soft">
@@ -102,9 +116,9 @@ function BlockerControls({primaryReason, className}: {primaryReason?: PausedReas
           </Chip>
         ) : null}
       </div>
-      <Button variant="ghost" className="justify-center">
+      <Button variant="ghost" className="justify-center" onClick={onDock} disabled={dockDisabled}>
         <DockIcon size={15} strokeWidth={2.2} />
-        Dock
+        {dockLabel}
       </Button>
     </div>
   );
@@ -125,8 +139,23 @@ export function PausedBlockerScreen({reasons}: PausedBlockerScreenProps) {
   const activeReasons = reasons ?? (live.length > 0 ? live : DEMO_REASONS);
   const primary = activeReasons[0] as PausedReason | undefined;
 
+  // Dock goes through the real `cmd/req`→`cmd/res` protocol (useCommand.ts, same client
+  // Home.tsx/ManualControl.tsx use) — no fire-and-forget (R2): every press resolves to a known
+  // accept/reject, toasted either way.
+  const {run, pending} = useCommand();
+  const dockAvailability = useCommandAvailability('dock');
+  const [toast, setToast] = useState<string | null>(null);
+  const handleDock = () => {
+    void run('dock').then((result) => {
+      setToast(result.accepted ? 'Heading to dock' : (result.reason && REJECT_COPY[result.reason]?.label) || 'Dock rejected');
+    });
+  };
+  const dockDisabled = pending === 'dock' || !dockAvailability.allowed;
+  const dockLabel = pending === 'dock' ? 'Docking…' : 'Dock';
+
   return (
     <div className="flex min-h-full flex-col p-4 md:h-full md:min-h-0 md:p-6">
+      <Toast message={toast} onDismiss={() => setToast(null)} />
       {/* ===== Mobile: map fills the screen, controls float as a bottom sheet-style card ===== */}
       <div className="relative min-h-[480px] flex-1 overflow-hidden rounded-[var(--radius-card)] border border-border md:hidden">
         <PausedMapSvg />
@@ -142,7 +171,7 @@ export function PausedBlockerScreen({reasons}: PausedBlockerScreenProps) {
         <ReasonBanners reasons={activeReasons} className="absolute inset-x-3 top-[3.1rem] z-10" />
 
         <StatCard className="absolute inset-x-3 bottom-3 z-10">
-          <BlockerControls primaryReason={primary} />
+          <BlockerControls primaryReason={primary} onDock={handleDock} dockDisabled={dockDisabled} dockLabel={dockLabel} />
         </StatCard>
       </div>
 
@@ -154,7 +183,7 @@ export function PausedBlockerScreen({reasons}: PausedBlockerScreenProps) {
         </Card>
 
         <Card className="flex flex-col gap-[.9rem] p-4">
-          <BlockerControls primaryReason={primary} />
+          <BlockerControls primaryReason={primary} onDock={handleDock} dockDisabled={dockDisabled} dockLabel={dockLabel} />
         </Card>
       </div>
     </div>

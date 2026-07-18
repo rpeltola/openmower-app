@@ -3,23 +3,9 @@
 import {cn} from '@/components/v2/lib/cn';
 import {Button} from '@/components/v2/ui/Button';
 import {Sheet} from '@/components/v2/ui/Sheet';
+import {useMowersStore} from '@/stores/mowersStore';
 import {Check, Plus, Sprout} from 'lucide-react';
 import {useRouter} from 'next/navigation';
-import {useState} from 'react';
-
-interface MockMower {
-  id: string;
-  name: string;
-  area: string;
-  online: boolean;
-}
-
-// Mock roster (component-library.md build order — real data lands with mowersStore wiring).
-// Kotipiha/YardForce is the canonical mock mower used across every other v2 screen.
-const MOWERS: MockMower[] = [
-  {id: 'yardforce-kotipiha', name: 'YardForce', area: 'Kotipiha', online: true},
-  {id: 'yardforce-mokki', name: 'YardForce', area: 'Mökki', online: false},
-];
 
 export interface MowerSelectorProps {
   open: boolean;
@@ -28,16 +14,19 @@ export interface MowerSelectorProps {
 
 /** Sheet opened from every mower chevron in the chrome (desktop sidebar, Settings top row,
  *  More top row) — concept has no dedicated mockup for this, so it follows the app's own
- *  grouped-list language (`Sheet` + `ListRow`-style rows). "Add a mower" hands off to the
- *  onboarding flow, since that's the actual add-a-mower path today. */
+ *  grouped-list language (`Sheet` + `ListRow`-style rows).
+ *
+ *  R1 gate audit: this used to be a mock 2-mower roster with a picker that only set local
+ *  React state. `mowersStore` has no action to actually switch the selected mower (it's fixed
+ *  to `mowers[0]` at load), so this now lists the real configured roster read-only -- rows
+ *  aren't buttons, there's nothing to pick since there's nothing wired to pick it with. "Add a
+ *  mower" still hands off to the onboarding flow, the real (if currently gated) add-a-mower
+ *  path. */
 export function MowerSelector({open, onClose}: MowerSelectorProps) {
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState(MOWERS[0].id);
-
-  function selectMower(id: string) {
-    setSelectedId(id);
-    onClose();
-  }
+  const mowers = useMowersStore((s) => s.mowers);
+  const selected = useMowersStore((s) => s.selected);
+  const mqttStatuses = useMowersStore((s) => s.mqttStatuses);
 
   function addMower() {
     onClose();
@@ -47,32 +36,29 @@ export function MowerSelector({open, onClose}: MowerSelectorProps) {
   return (
     <Sheet open={open} onClose={onClose} title="Mowers" className="gap-2">
       <div className="flex flex-col gap-1">
-        {MOWERS.map((mower) => {
-          const selected = mower.id === selectedId;
-          return (
-            <Button
-              key={mower.id}
-              type="button"
-              variant="soft"
-              onClick={() => selectMower(mower.id)}
-              className="h-auto w-full justify-start gap-3 rounded-none bg-transparent px-0 py-2 text-left"
-            >
-              <span className="grid h-[38px] w-[38px] flex-none place-items-center rounded-[11px] bg-accent-wash text-accent">
-                <Sprout size={19} strokeWidth={2} />
-              </span>
-              <span className="min-w-0 flex-1 leading-tight">
-                <span className="block truncate text-[.9rem] font-semibold text-ink">{mower.name}</span>
-                <span className="flex items-center gap-1.5 text-[.75rem] text-ink-soft">
-                  <span
-                    className={cn('h-[6px] w-[6px] flex-none rounded-full', mower.online ? 'bg-accent' : 'bg-ink-faint')}
-                  />
-                  {mower.area} · {mower.online ? 'Online' : 'Offline'}
+        {mowers.length === 0 ? (
+          <p className="py-2 text-[.82rem] text-ink-faint">No mower configured yet.</p>
+        ) : (
+          mowers.map((mower, i) => {
+            const online = mqttStatuses[mower.id] === 'connected';
+            const isSelected = i === selected;
+            return (
+              <div key={mower.id} className="flex items-center gap-3 py-2">
+                <span className="grid h-[38px] w-[38px] flex-none place-items-center rounded-[11px] bg-accent-wash text-accent">
+                  <Sprout size={19} strokeWidth={2} />
                 </span>
-              </span>
-              {selected ? <Check size={17} strokeWidth={2.6} className="flex-none text-accent" /> : null}
-            </Button>
-          );
-        })}
+                <span className="min-w-0 flex-1 leading-tight">
+                  <span className="block truncate text-[.9rem] font-semibold text-ink">{mower.name}</span>
+                  <span className="flex items-center gap-1.5 text-[.75rem] text-ink-soft">
+                    <span className={cn('h-[6px] w-[6px] flex-none rounded-full', online ? 'bg-accent' : 'bg-ink-faint')} />
+                    {mower.description || (online ? 'Online' : 'Offline')}
+                  </span>
+                </span>
+                {isSelected ? <Check size={17} strokeWidth={2.6} className="flex-none text-accent" /> : null}
+              </div>
+            );
+          })
+        )}
       </div>
 
       <Button

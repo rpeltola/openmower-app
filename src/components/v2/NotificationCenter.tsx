@@ -1,5 +1,6 @@
 'use client';
 
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {Sheet} from '@/components/v2/ui/Sheet';
 import {FeedRow, type FeedRowProps} from '@/components/v2/ui/FeedRow';
 import {BatteryWarning, CheckCircle2, CloudRain, Sprout, TriangleAlert} from 'lucide-react';
@@ -74,18 +75,20 @@ export interface NotificationCenterProps {
 export function NotificationCenter({open, onClose}: NotificationCenterProps) {
   return (
     <Sheet open={open} onClose={onClose} title="Notifications" className="max-h-[75vh] gap-4 overflow-y-auto">
-      {GROUPS.map((group) => (
-        <div key={group.label} className="flex flex-col gap-1">
-          <div className="font-mono text-[.62rem] font-semibold uppercase tracking-[.08em] text-ink-faint">
-            {group.label}
+      <FeatureGate feature="pushNotifications">
+        {GROUPS.map((group) => (
+          <div key={group.label} className="flex flex-col gap-1">
+            <div className="font-mono text-[.62rem] font-semibold uppercase tracking-[.08em] text-ink-faint">
+              {group.label}
+            </div>
+            <div className="divide-y divide-border">
+              {group.items.map((item) => (
+                <FeedRow key={item.text} icon={item.icon} tone={item.tone} text={item.text} time={item.time} />
+              ))}
+            </div>
           </div>
-          <div className="divide-y divide-border">
-            {group.items.map((item) => (
-              <FeedRow key={item.text} icon={item.icon} tone={item.tone} text={item.text} time={item.time} />
-            ))}
-          </div>
-        </div>
-      ))}
+        ))}
+      </FeatureGate>
     </Sheet>
   );
 }

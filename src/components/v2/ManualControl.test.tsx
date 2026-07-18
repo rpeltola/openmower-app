@@ -4,12 +4,18 @@ import {afterEach, beforeAll, describe, expect, it, vi} from 'vitest';
 // Manual control's drive publish (`teleop{vx,vz}`) and Dock/Stop now go through the real store
 // (W9 A2b) -- fake the mowersStore so `Mower.publishTeleop` and `commandClient.send` are
 // controllable and assert the wiring, not the whole gamepad/viewport surface. `useMowersStore` is
-// mocked too because `useTeleop.ts` reads it directly via `.getState()` (a vanilla-store escape
-// hatch, not a hook subscription).
-vi.mock('@/stores/mowersStore', () => ({
-  useSelectedMower: vi.fn(),
-  useMowersStore: {getState: vi.fn()},
-}));
+// mocked as BOTH a callable hook (the header's real battery/Connected chips now read it via
+// useConnectionStatus/useRobotState) and a `.getState()` vanilla-store escape hatch (useTeleop.ts
+// reads it that way, not as a hook subscription).
+vi.mock('@/stores/mowersStore', () => {
+  const useMowersStoreMock = ((selector?: (s: unknown) => unknown) =>
+    selector?.({mowers: [], selected: 0, mqttStatuses: {}, reconnectNow: vi.fn()})) as typeof import('@/stores/mowersStore').useMowersStore;
+  useMowersStoreMock.getState = vi.fn();
+  return {
+    useSelectedMower: vi.fn(),
+    useMowersStore: useMowersStoreMock,
+  };
+});
 
 // jsdom doesn't implement matchMedia -- ManualControl's landscape-cockpit/desktop-width
 // detection (useMediaQuery/useBreakpoint) calls it unconditionally on every render, unlike
@@ -28,6 +34,7 @@ beforeAll(() => {
 });
 
 import {directionToVelocity, ManualControl, vectorToVelocity} from '@/components/v2/ManualControl';
+import {setShowUnsupportedFeatures} from '@/lib/v2/featureSupport';
 import {useMowersStore, useSelectedMower} from '@/stores/mowersStore';
 
 function mockMower(send: (...args: never[]) => Promise<{accepted: boolean; reject_code?: string; state?: string}>) {
@@ -75,6 +82,30 @@ describe('ManualControl (W9 A2b)', () => {
     // useTeleop's cleanup effect always re-publishes the zeroed velocity on unmount (see
     // hooks/useTeleop.ts) -- a safety net so a torn-down control never leaves the mower driving.
     await waitFor(() => expect(publishTeleop).toHaveBeenCalledWith(0, 0));
+  });
+});
+
+// R1 gate audit (W9): the RTK/position-trust chip is mock (hardcoded "RTK fixed" with no real
+// GPS-fix source) -- must stay behind the `positionTrust` L3 gate, same contract every other
+// unbacked control in the app now follows (FeatureGate.test.tsx covers the mechanism itself).
+describe('ManualControl — positionTrust gate (R1)', () => {
+  afterEach(() => {
+    cleanup();
+    setShowUnsupportedFeatures(false);
+  });
+
+  it('hides the RTK chip by default (dev toggle off)', () => {
+    mockMower(() => Promise.resolve({accepted: true}));
+    render(<ManualControl />);
+    expect(screen.queryByText(/RTK fixed/)).not.toBeInTheDocument();
+  });
+
+  it('reveals the RTK chip greyed + tagged once the dev toggle is on', () => {
+    setShowUnsupportedFeatures(true);
+    mockMower(() => Promise.resolve({accepted: true}));
+    render(<ManualControl />);
+    expect(screen.getByText(/RTK fixed/)).toBeInTheDocument();
+    expect(screen.getAllByText("Not supported by your mower's software yet").length).toBeGreaterThan(0);
   });
 });
 

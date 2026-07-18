@@ -5,7 +5,6 @@ import {Chip, type ChipProps} from '@/components/v2/ui/Chip';
 import {DiagCard} from '@/components/v2/ui/DiagCard';
 import {ProgressBar} from '@/components/v2/ui/ProgressBar';
 import {ScreenHeader} from '@/components/v2/ui/ScreenHeader';
-import {Sparkline} from '@/components/v2/ui/Sparkline';
 import {StatRow} from '@/components/v2/ui/StatRow';
 import {useSelectedMower} from '@/stores/mowersStore';
 import type {Capabilities, Sensors} from '@/stores/schemas';
@@ -128,29 +127,6 @@ type PoseRow = {label: string; value: string; unit: string};
 
 type DriveRow = {label: string; l: string; r: string; unit?: string};
 
-// Sparkline path data copied verbatim from the concept's inline SVGs -- purely decorative trend
-// lines (no historical-series source is wired up for this screen yet).
-const GPS_SPARK_MOBILE = {
-  area: 'M0 6 L12 8 L24 9 L36 13 L48 15 L60 17 L72 19 L84 21 L100 22 L100 28 L0 28 Z',
-  line: 'M0 6 L12 8 L24 9 L36 13 L48 15 L60 17 L72 19 L84 21 L100 22',
-  dot: {x: 100, y: 22},
-};
-const GPS_SPARK_DESKTOP = {
-  area: 'M0 6 L10 9 L20 7 L30 12 L40 10 L50 15 L60 13 L70 17 L80 16 L90 19 L100 20 L100 28 L0 28 Z',
-  line: 'M0 6 L10 9 L20 7 L30 12 L40 10 L50 15 L60 13 L70 17 L80 16 L90 19 L100 20',
-  dot: {x: 100, y: 20},
-};
-const MOW_SPARK_MOBILE = {
-  area: 'M0 20 L12 16 L24 19 L36 12 L48 15 L60 9 L72 13 L84 8 L100 11 L100 28 L0 28 Z',
-  line: 'M0 20 L12 16 L24 19 L36 12 L48 15 L60 9 L72 13 L84 8 L100 11',
-  dot: {x: 100, y: 11},
-};
-const BATTERY_SPARK_DESKTOP = {
-  area: 'M0 20 L10 19 L20 17 L30 18 L40 14 L50 15 L60 11 L70 12 L80 8 L90 9 L100 7 L100 28 L0 28 Z',
-  line: 'M0 20 L10 19 L20 17 L30 18 L40 14 L50 15 L60 11 L70 12 L80 8 L90 9 L100 7',
-  dot: {x: 100, y: 7},
-};
-
 export function Diagnostics() {
   const name = useSelectedMower((mower) => mower?.name);
   const state = useSelectedMower((mower) => mower?.state);
@@ -237,7 +213,6 @@ export function Diagnostics() {
             </span>
           </div>
           <StatRow className="mt-[.42rem]" label="Accuracy" value={fmt(gpsAccuracyCm, 1)} unit="cm" />
-          <Sparkline areaPath={GPS_SPARK_MOBILE.area} linePath={GPS_SPARK_MOBILE.line} dot={GPS_SPARK_MOBILE.dot} />
         </DiagCard>
 
         <DiagCard label="Pose & IMU">
@@ -279,7 +254,6 @@ export function Diagnostics() {
             <StatRow label="Current" value={fmt(mower?.esc_current, 1)} unit="A" />
             <StatRow label="Temp" value={fmt(mower?.motor_temperature, 0)} unit="°C" />
           </div>
-          <Sparkline areaPath={MOW_SPARK_MOBILE.area} linePath={MOW_SPARK_MOBILE.line} dot={MOW_SPARK_MOBILE.dot} />
           <div className="mt-[.6rem]">
             <EscFaultChip label="Fault" code={mower?.esc_fault_code} />
           </div>
@@ -309,14 +283,6 @@ export function Diagnostics() {
           <StatRow boxed divider label="Temp" value={fmt(battery?.temperature, 0)} unit="°C" />
           <StatRow boxed divider label="Cycles" value={battery?.cycle_count ?? '—'} />
           <StatRow boxed divider label="Status" value={power?.charger_status || '—'} />
-          <div className="mb-1 mt-3 font-mono text-[.62rem] uppercase tracking-[.08em] text-ink-faint">
-            Charge trend
-          </div>
-          <Sparkline
-            areaPath={BATTERY_SPARK_DESKTOP.area}
-            linePath={BATTERY_SPARK_DESKTOP.line}
-            dot={BATTERY_SPARK_DESKTOP.dot}
-          />
         </DiagCard>
 
         <DiagCard
@@ -325,14 +291,6 @@ export function Diagnostics() {
         >
           <StatRow boxed label="Quality" value={state?.gps_percentage ?? '—'} unit="%" />
           <StatRow boxed divider label="Accuracy" value={fmt(gpsAccuracyCm, 1)} unit="cm" />
-          <div className="mb-1 mt-3 font-mono text-[.62rem] uppercase tracking-[.08em] text-ink-faint">
-            Accuracy trend
-          </div>
-          <Sparkline
-            areaPath={GPS_SPARK_DESKTOP.area}
-            linePath={GPS_SPARK_DESKTOP.line}
-            dot={GPS_SPARK_DESKTOP.dot}
-          />
         </DiagCard>
 
         <DiagCard label="Pose & IMU">

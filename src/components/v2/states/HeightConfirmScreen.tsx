@@ -1,6 +1,7 @@
 import {Button} from '@/components/v2/ui/Button';
 import {Card} from '@/components/v2/ui/Card';
 import {Chip} from '@/components/v2/ui/Chip';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {ArrowRight, Check, MoveVertical} from 'lucide-react';
 
 // Mock world matching the concept's "5 · HEIGHT CONFIRM" slot (openmower-app-concept.html
@@ -38,13 +39,15 @@ export function HeightConfirmScreen() {
           </Chip>
         </div>
 
-        <Button variant="primary" className="justify-center">
-          <Check size={17} strokeWidth={2.6} />
-          Height is set — continue
-        </Button>
-        <Button variant="ghost" className="justify-center">
-          Skip this area
-        </Button>
+        <FeatureGate feature="cuttingHeight">
+          <Button variant="primary" className="justify-center">
+            <Check size={17} strokeWidth={2.6} />
+            Height is set — continue
+          </Button>
+          <Button variant="ghost" className="justify-center">
+            Skip this area
+          </Button>
+        </FeatureGate>
       </Card>
     </div>
   );

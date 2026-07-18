@@ -16,6 +16,7 @@ import {
   type ZoneType,
 } from '@/components/v2/map/mockMap';
 import {Button} from '@/components/v2/ui/Button';
+import {FeatureGate} from '@/components/v2/ui/FeatureGate';
 import {FormField} from '@/components/v2/ui/FormField';
 import {KpiTile} from '@/components/v2/ui/KpiTile';
 import {SegmentedToggle} from '@/components/v2/ui/SegmentedToggle';
@@ -184,13 +185,15 @@ function AreaSettingsContent({
 
           {/* Primary mowing settings — also shown for 'spot' (a one-off mow patch is still a mow
               operation with its own angle/speed/etc). */}
-          <FormField label="Route pattern">
-            <SegmentedToggle
-              options={ROUTE_PATTERN_OPTIONS}
-              value={settings.route_pattern ?? GLOBAL_DEFAULTS.route_pattern}
-              onChange={(v) => onUpdateSettings({route_pattern: v as AreaSettings['route_pattern']})}
-            />
-          </FormField>
+          <FeatureGate feature="routePattern">
+            <FormField label="Route pattern">
+              <SegmentedToggle
+                options={ROUTE_PATTERN_OPTIONS}
+                value={settings.route_pattern ?? GLOBAL_DEFAULTS.route_pattern}
+                onChange={(v) => onUpdateSettings({route_pattern: v as AreaSettings['route_pattern']})}
+              />
+            </FormField>
+          </FeatureGate>
 
           <FormField label="Mow angle" hint={angleDeg === null ? 'Auto-detected from the outline.' : undefined}>
             <div className="flex items-center gap-2">
@@ -235,22 +238,24 @@ function AreaSettingsContent({
             onCommit={(v) => onUpdateSettings({outline_offset: v})}
           />
 
-          <DebouncedSliderField
-            label="Cutting height"
-            value={settings.cutting_height_mm ?? GLOBAL_DEFAULTS.cutting_height_mm}
-            display={(v) => Math.round(v).toString()}
-            unit=" mm"
-            min={20}
-            max={80}
-            step={1}
-            inherited={settings.cutting_height_mm === undefined}
-            onCommit={(v) => onUpdateSettings({cutting_height_mm: Math.round(v)})}
-          >
-            <div className="mt-1.5 flex items-start gap-1.5 text-[.7rem] leading-[1.4] text-ink-faint">
-              <AlertTriangle size={12} className="mt-[.1rem] flex-none" />
-              <span>No motorized deck — you&apos;ll confirm this on the mower before a lower cut.</span>
-            </div>
-          </DebouncedSliderField>
+          <FeatureGate feature="cuttingHeight">
+            <DebouncedSliderField
+              label="Cutting height"
+              value={settings.cutting_height_mm ?? GLOBAL_DEFAULTS.cutting_height_mm}
+              display={(v) => Math.round(v).toString()}
+              unit=" mm"
+              min={20}
+              max={80}
+              step={1}
+              inherited={settings.cutting_height_mm === undefined}
+              onCommit={(v) => onUpdateSettings({cutting_height_mm: Math.round(v)})}
+            >
+              <div className="mt-1.5 flex items-start gap-1.5 text-[.7rem] leading-[1.4] text-ink-faint">
+                <AlertTriangle size={12} className="mt-[.1rem] flex-none" />
+                <span>No motorized deck — you&apos;ll confirm this on the mower before a lower cut.</span>
+              </div>
+            </DebouncedSliderField>
+          </FeatureGate>
 
           {/* Advanced — collapsed by default. */}
           <Button
@@ -282,54 +287,66 @@ function AreaSettingsContent({
                 min={0}
                 onChange={(v) => onUpdateSettings({outline_overlap_count: v})}
               />
-              <FormField label="Mowing speed">
-                <SegmentedToggle
-                  options={MOW_SPEED_OPTIONS}
-                  value={settings.mow_speed ?? GLOBAL_DEFAULTS.mow_speed}
-                  onChange={(v) => onUpdateSettings({mow_speed: v as AreaSettings['mow_speed']})}
-                />
-              </FormField>
-              <FormField label="Turning mode">
-                <SegmentedToggle
-                  options={TURNING_MODE_OPTIONS}
-                  value={settings.turning_mode ?? GLOBAL_DEFAULTS.turning_mode}
-                  onChange={(v) => onUpdateSettings({turning_mode: v as AreaSettings['turning_mode']})}
-                />
-              </FormField>
-              <FormField label="Perimeter direction">
-                <SegmentedToggle
-                  options={PERIMETER_DIRECTION_OPTIONS}
-                  value={settings.perimeter_direction ?? GLOBAL_DEFAULTS.perimeter_direction}
-                  onChange={(v) => onUpdateSettings({perimeter_direction: v as AreaSettings['perimeter_direction']})}
-                />
-              </FormField>
-              <FormField label="Mowing order">
-                <SegmentedToggle
-                  options={MOWING_ORDER_OPTIONS}
-                  value={(settings.perimeter_first ?? GLOBAL_DEFAULTS.perimeter_first) ? 'perimeter' : 'infill'}
-                  onChange={(v) => onUpdateSettings({perimeter_first: v === 'perimeter'})}
-                />
-              </FormField>
-              <FormField label="Rotate pattern between sessions">
-                <div className="flex items-center justify-between">
-                  <span className="text-[.72rem] text-ink-faint">Anti-rut.</span>
-                  <Switch
-                    checked={settings.rotate_between_sessions ?? GLOBAL_DEFAULTS.rotate_between_sessions}
-                    onCheckedChange={(v) => onUpdateSettings({rotate_between_sessions: v})}
-                    aria-label="Rotate pattern between sessions"
+              <FeatureGate feature="mowSpeed">
+                <FormField label="Mowing speed">
+                  <SegmentedToggle
+                    options={MOW_SPEED_OPTIONS}
+                    value={settings.mow_speed ?? GLOBAL_DEFAULTS.mow_speed}
+                    onChange={(v) => onUpdateSettings({mow_speed: v as AreaSettings['mow_speed']})}
                   />
-                </div>
-              </FormField>
-              <FormField label="Mow along no-go / obstacle edges">
-                <div className="flex items-center justify-between">
-                  <span className="text-[.72rem] text-ink-faint">&nbsp;</span>
-                  <Switch
-                    checked={settings.mow_ngz_edges ?? GLOBAL_DEFAULTS.mow_ngz_edges}
-                    onCheckedChange={(v) => onUpdateSettings({mow_ngz_edges: v})}
-                    aria-label="Mow along no-go/obstacle edges"
+                </FormField>
+              </FeatureGate>
+              <FeatureGate feature="turningMode">
+                <FormField label="Turning mode">
+                  <SegmentedToggle
+                    options={TURNING_MODE_OPTIONS}
+                    value={settings.turning_mode ?? GLOBAL_DEFAULTS.turning_mode}
+                    onChange={(v) => onUpdateSettings({turning_mode: v as AreaSettings['turning_mode']})}
                   />
-                </div>
-              </FormField>
+                </FormField>
+              </FeatureGate>
+              <FeatureGate feature="perimeterPasses">
+                <FormField label="Perimeter direction">
+                  <SegmentedToggle
+                    options={PERIMETER_DIRECTION_OPTIONS}
+                    value={settings.perimeter_direction ?? GLOBAL_DEFAULTS.perimeter_direction}
+                    onChange={(v) => onUpdateSettings({perimeter_direction: v as AreaSettings['perimeter_direction']})}
+                  />
+                </FormField>
+              </FeatureGate>
+              <FeatureGate feature="mowingOrder">
+                <FormField label="Mowing order">
+                  <SegmentedToggle
+                    options={MOWING_ORDER_OPTIONS}
+                    value={(settings.perimeter_first ?? GLOBAL_DEFAULTS.perimeter_first) ? 'perimeter' : 'infill'}
+                    onChange={(v) => onUpdateSettings({perimeter_first: v === 'perimeter'})}
+                  />
+                </FormField>
+              </FeatureGate>
+              <FeatureGate feature="rotateBetweenSessions">
+                <FormField label="Rotate pattern between sessions">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[.72rem] text-ink-faint">Anti-rut.</span>
+                    <Switch
+                      checked={settings.rotate_between_sessions ?? GLOBAL_DEFAULTS.rotate_between_sessions}
+                      onCheckedChange={(v) => onUpdateSettings({rotate_between_sessions: v})}
+                      aria-label="Rotate pattern between sessions"
+                    />
+                  </div>
+                </FormField>
+              </FeatureGate>
+              <FeatureGate feature="mowNgzEdges">
+                <FormField label="Mow along no-go / obstacle edges">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[.72rem] text-ink-faint">&nbsp;</span>
+                    <Switch
+                      checked={settings.mow_ngz_edges ?? GLOBAL_DEFAULTS.mow_ngz_edges}
+                      onCheckedChange={(v) => onUpdateSettings({mow_ngz_edges: v})}
+                      aria-label="Mow along no-go/obstacle edges"
+                    />
+                  </div>
+                </FormField>
+              </FeatureGate>
             </div>
           )}
 
