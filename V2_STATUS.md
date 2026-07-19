@@ -2,6 +2,11 @@
 
 Single source of truth for continuing the OpenMower app UI redesign build. Read this first.
 
+Open feature/UX tickets now live as GitHub issues on `rpeltola/openmower-v2` (milestone "App
+(openmower-app)"), not inline here — see #48-#54 (Mow Now area selection, adaptive greeting,
+app rebrand, mini-map zoom-to-mower, ESC fault "OK"/persistence, histogram port+coloring, BMS
+capability gate).
+
 ## ✅ SESSION 14 (2026-07-18) — real-mower map-recording UX + teleop-safety + connection pass (11 fixes)
 Branch **`feature/manual-drive-ux`** (new worktree off `personal`). Eleven fixes from a live
 recording/driving session, delegated across coder agents + independently validated by
